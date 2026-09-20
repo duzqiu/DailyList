@@ -1,22 +1,16 @@
 import flet.testing as ftt
 
 
-async def test_increment(flet_app: ftt.FletTestApp):
-    """Counter sample: tap the FAB and assert the counter goes 0 -> 1.
-
-    The `flet_app` fixture is provided automatically by the flet pytest plugin.
-    Run with `flet test` (or `uv run pytest`) from the project directory.
-    """
+async def test_navigation(flet_app: ftt.FletTestApp):
+    """The bottom menu switches between the Chinese-labeled pages."""
     tester = flet_app.tester
 
     await tester.pump_and_settle()
 
-    # Initial state
-    assert (await tester.find_by_text("0")).count == 1
+    assert (await tester.find_by_text("首页")).count == 2
+    assert (await tester.find_by_text("设置")).count == 1
 
-    # Tap the increment button (found by its key) and let the UI settle
-    await tester.tap(await tester.find_by_key("increment"))
+    await tester.tap(await tester.find_by_key("settings-tab"))
     await tester.pump_and_settle()
 
-    # New state
-    assert (await tester.find_by_text("1")).count == 1
+    assert (await tester.find_by_text("设置页面")).count == 1

@@ -9,6 +9,7 @@ def build_navigation(page: ft.Page) -> None:
     navigation_bar = ft.NavigationBar(
         bgcolor=ft.Colors.TRANSPARENT,
         elevation=0,
+        label_behavior=ft.NavigationBarLabelBehavior.ALWAYS_SHOW,
         destinations=[
             ft.NavigationBarDestination(
                 icon=ft.Icons.HOME_OUTLINED,
@@ -19,6 +20,7 @@ def build_navigation(page: ft.Page) -> None:
                 icon=ft.Icons.SETTINGS_OUTLINED,
                 selected_icon=ft.Icons.SETTINGS,
                 label="设置",
+                key="settings-tab",
             ),
         ],
     )
@@ -29,8 +31,7 @@ def build_navigation(page: ft.Page) -> None:
         )
         navigation_bar.selected_index = index
         if update:
-            content.update()
-            navigation_bar.update()
+            page.update()
 
     def navigation_changed(e: ft.Event[ft.NavigationBar]) -> None:
         if e.control.selected_index is not None:
@@ -47,18 +48,18 @@ def build_navigation(page: ft.Page) -> None:
                 ft.Container(
                     left=16,
                     right=16,
-                    bottom=16,
-                    height=80,
-                    border_radius=ft.BorderRadius.all(28),
-                    bgcolor="#661F2937",
-                    blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
+                    bottom=12,
+                    height=64,
+                    border_radius=ft.BorderRadius.all(22),
+                    bgcolor="#66374151",
+                    blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
                     border=ft.Border.all(1, "#33FFFFFF"),
                 ),
                 ft.Container(
                     left=16,
                     right=16,
-                    bottom=16,
-                    height=80,
+                    bottom=12,
+                    height=64,
                     content=navigation_bar,
                 ),
             ],
