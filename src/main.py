@@ -1,10 +1,10 @@
 import flet as ft
 
-from pages.home import build_home_page
+from pages.navigation import build_navigation
 
 
 def main(page: ft.Page):
-    build_home_page(page)
+    build_navigation(page)
 
 
 if __name__ == "__main__":
