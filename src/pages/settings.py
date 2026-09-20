@@ -5,6 +5,8 @@ def build_settings_page() -> ft.Control:
     return ft.SafeArea(
         expand=True,
         content=ft.Container(
+            expand=True,
+            bgcolor="#F4ECFF",
             alignment=ft.Alignment.CENTER,
             content=ft.Column(
                 tight=True,

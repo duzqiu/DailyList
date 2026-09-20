@@ -1,5 +1,6 @@
 import flet as ft
 
+from pages.calendar import build_calendar_page
 from pages.home import build_home_page
 from pages.settings import build_settings_page
 
@@ -17,7 +18,11 @@ def build_navigation(page: ft.Page) -> None:
         nonlocal selected_index
         selected_index = index
         content.content = (
-            build_home_page() if index == 0 else build_settings_page()
+            build_home_page()
+            if index == 0
+            else build_calendar_page()
+            if index == 1
+            else build_settings_page()
         )
         build_menu_items()
         if update:
@@ -41,12 +46,12 @@ def build_navigation(page: ft.Page) -> None:
                     ft.Icon(
                         selected_icon if selected_index == index else icon,
                         size=24,
-                        color=ft.Colors.WHITE,
+                        color="#1F2937",
                     ),
                     ft.Text(
                         label,
                         size=12,
-                        color=ft.Colors.WHITE,
+                        color="#1F2937",
                         weight=(
                             ft.FontWeight.BOLD
                             if selected_index == index
@@ -62,6 +67,13 @@ def build_navigation(page: ft.Page) -> None:
             menu_item(0, ft.Icons.HOME_OUTLINED, ft.Icons.HOME, "首页", "home-tab"),
             menu_item(
                 1,
+                ft.Icons.CALENDAR_MONTH_OUTLINED,
+                ft.Icons.CALENDAR_MONTH,
+                "日历",
+                "calendar-tab",
+            ),
+            menu_item(
+                2,
                 ft.Icons.SETTINGS_OUTLINED,
                 ft.Icons.SETTINGS,
                 "设置",
@@ -80,12 +92,12 @@ def build_navigation(page: ft.Page) -> None:
                     left=16,
                     right=16,
                     bottom=20,
-                    height=76,
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=6),
-                    border_radius=ft.BorderRadius.all(24),
-                    bgcolor="#AA263241",
-                    blur=ft.Blur(18, 18, ft.BlurTileMode.CLAMP),
-                    border=ft.Border.all(1, "#33FFFFFF"),
+                    height=64,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=ft.BorderRadius.all(20),
+                    bgcolor="#CCFFFFFF",
+                    blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
+                    border=ft.Border.all(1, "#66FFFFFF"),
                     content=menu_items,
                 ),
             ],
