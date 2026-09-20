@@ -95,7 +95,7 @@ def build_navigation(page: ft.Page) -> None:
                     height=64,
                     padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                     border_radius=ft.BorderRadius.all(20),
-                    bgcolor="#CCFFFFFF",
+                    bgcolor="#1AFFFFFF",
                     blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
                     border=ft.Border.all(1, "#66FFFFFF"),
                     content=menu_items,
