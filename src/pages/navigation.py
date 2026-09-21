@@ -6,7 +6,10 @@ from pages.settings import build_settings_page
 
 
 def build_navigation(page: ft.Page) -> None:
+    page.padding = 0
+    page.spacing = 0
     content = ft.Container(expand=True)
+    page_backgrounds = ["#E8F1FF", "#EAF8F0", "#F4ECFF"]
     selected_index = 0
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -24,6 +27,7 @@ def build_navigation(page: ft.Page) -> None:
             if index == 1
             else build_settings_page()
         )
+        page.bgcolor = page_backgrounds[index]
         build_menu_items()
         if update:
             page.update()
