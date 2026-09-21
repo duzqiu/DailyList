@@ -93,12 +93,12 @@ def build_navigation(page: ft.Page) -> None:
             controls=[
                 content,
                 ft.Container(
-                    left=16,
-                    right=16,
-                    bottom=20,
-                    height=64,
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                    border_radius=ft.BorderRadius.all(20),
+                    left=32,
+                    right=32,
+                    bottom=16,
+                    height=54,
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=ft.BorderRadius.all(18),
                     bgcolor="#1AFFFFFF",
                     blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
                     border=ft.Border.all(1, "#66FFFFFF"),
