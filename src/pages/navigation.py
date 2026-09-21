@@ -9,7 +9,7 @@ def build_navigation(page: ft.Page) -> None:
     page.padding = 0
     page.spacing = 0
     content = ft.Container(expand=True)
-    page_backgrounds = ["#E8F1FF", "#EAF8F0", "#F4ECFF"]
+    page_backgrounds = ["#172554", "#064E3B", "#3B0764"]
     selected_index = 0
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
