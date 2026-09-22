@@ -9,7 +9,7 @@ def build_navigation(page: ft.Page) -> None:
     page.padding = 0
     page.spacing = 0
     content = ft.Container(expand=True)
-    page_backgrounds = ["#172554", "#064E3B", "#3B0764"]
+    page_backgrounds = ["#FFFFFF", "#064E3B", "#3B0764"]
     selected_index = 0
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -99,9 +99,12 @@ def build_navigation(page: ft.Page) -> None:
                     height=54,
                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                     border_radius=ft.BorderRadius.all(18),
-                    bgcolor="#1AFFFFFF",
                     blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
-                    border=ft.Border.all(1, "#66FFFFFF"),
+                    gradient=ft.LinearGradient(
+                        colors=["#CCFFFFFF", "#B3FFFFFF", "#CCFFFFFF"],
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                    ),
                     content=menu_items,
                 ),
             ],
