@@ -9,7 +9,7 @@ def build_navigation(page: ft.Page) -> None:
     page.padding = 0
     page.spacing = 0
     content = ft.Container(expand=True)
-    page_backgrounds = ["#FFFFFF", "#064E3B", "#3B0764"]
+    page_backgrounds = ["#FFFFFF", "#FFFFFF", "#3B0764"]
     selected_index = 0
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -21,9 +21,9 @@ def build_navigation(page: ft.Page) -> None:
         nonlocal selected_index
         selected_index = index
         content.content = (
-            build_home_page()
+            build_home_page(page)
             if index == 0
-            else build_calendar_page()
+            else             build_calendar_page(page)
             if index == 1
             else build_settings_page()
         )
