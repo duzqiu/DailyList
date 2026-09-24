@@ -3,14 +3,24 @@ import flet as ft
 from pages.calendar import build_calendar_page
 from pages.home import build_home_page
 from pages.settings import build_settings_page
-from tools.layout import MENU_BAR_BOTTOM, MENU_BAR_HEIGHT
+from tools.layout import MENU_BAR_BOTTOM, MENU_BAR_HEIGHT, PAGE_BGCOLOR
+
+# Dropdown carets are Material IconButtons; their default surface/overlay colour
+# painted over neighbouring content (the selected 年/月/周 and the popup below
+# it). Keep icon buttons fully transparent.
+ICON_BUTTON_STYLE = ft.ButtonStyle(
+    bgcolor="#00000000",
+    overlay_color="#00000000",
+)
 
 
 def build_navigation(page: ft.Page) -> None:
     page.padding = 0
     page.spacing = 0
+    page.theme = ft.Theme(
+        icon_button_theme=ft.IconButtonTheme(style=ICON_BUTTON_STYLE)
+    )
     content = ft.Container(expand=True)
-    page_backgrounds = ["#FFFFFF", "#FFFFFF", "#3B0764"]
     selected_index = 0
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -53,9 +63,9 @@ def build_navigation(page: ft.Page) -> None:
             if index == 0
             else             build_calendar_page(page)
             if index == 1
-            else build_settings_page()
+            else build_settings_page(page)
         )
-        page.bgcolor = page_backgrounds[index]
+        page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = True
         build_menu_items()
         if update:
@@ -107,9 +117,9 @@ def build_navigation(page: ft.Page) -> None:
             ),
             menu_item(
                 2,
-                ft.Icons.SETTINGS_OUTLINED,
-                ft.Icons.SETTINGS,
-                "设置",
+                ft.Icons.PERSON_OUTLINED,
+                ft.Icons.PERSON,
+                "我的",
                 "settings-tab",
             ),
         ]

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from tools import db
 from tools.categories import CATEGORIES, DEFAULT_CATEGORY, build_category_icon
-from tools.layout import BOTTOM_MENU_INSET
+from tools.layout import BOTTOM_MENU_INSET, page_gradient
 from tools.swipe_delete import build_swipe_delete_row
 
 # Shared surface colour: unselected date card, undone todo card and the add button.
@@ -388,7 +388,7 @@ def build_home_page(
         controls=[
             ft.Container(
                 expand=True,
-                bgcolor="#FFFFFF",
+                gradient=page_gradient(),
                 content=ft.Container(
                     expand=True,
                     content=ft.SafeArea(

@@ -79,6 +79,17 @@ def delete_todo(todo_id: int) -> None:
         connection.close()
 
 
+def clear_todos() -> int:
+    """Delete every todo row, returning how many rows were removed."""
+    connection = connect()
+    try:
+        cursor = connection.execute("DELETE FROM todos")
+        connection.commit()
+        return int(cursor.rowcount)
+    finally:
+        connection.close()
+
+
 def list_todos(days: Iterable[date]) -> list[Todo]:
     due_dates = [day.isoformat() for day in days]
     if not due_dates:
@@ -109,6 +120,26 @@ def list_range(start: date, end: date) -> list[Todo]:
     finally:
         connection.close()
     return [_to_todo(row) for row in rows]
+
+
+def counts_in(
+    start: date | None = None, end: date | None = None
+) -> list[tuple[str, bool, int]]:
+    """(category, done, count) rows, optionally limited to a due-date range."""
+    query = "SELECT category, done, COUNT(*) AS count FROM todos"
+    parameters: list[str] = []
+    if start is not None and end is not None:
+        query += " WHERE due_date BETWEEN ? AND ?"
+        parameters = [start.isoformat(), end.isoformat()]
+    query += " GROUP BY category, done"
+    connection = connect()
+    try:
+        rows = connection.execute(query, parameters).fetchall()
+    finally:
+        connection.close()
+    return [
+        (row["category"], bool(row["done"]), int(row["count"])) for row in rows
+    ]
 
 
 def _to_todo(row: sqlite3.Row) -> Todo:

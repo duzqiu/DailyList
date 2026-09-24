@@ -5,7 +5,7 @@ import flet as ft
 
 from tools import db
 from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
-from tools.layout import BOTTOM_MENU_INSET
+from tools.layout import BOTTOM_MENU_INSET, page_gradient
 from tools.swipe_delete import build_swipe_delete_row
 
 DONE_COLOR = "#16A34A"
@@ -318,7 +318,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
 
     return ft.Container(
         expand=True,
-        bgcolor="#FFFFFF",
+        gradient=page_gradient(),
         content=ft.SafeArea(
             expand=True,
             content=ft.Container(
