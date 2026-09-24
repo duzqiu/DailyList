@@ -151,7 +151,8 @@ def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
 def build_settings_page(page: ft.Page) -> ft.Control:
     today = date.today()
     category_names = [name for name, _, _ in CATEGORIES]
-    state = {"dimension": DIMENSIONS[0]}
+    # The statistics card and the trend chart keep their own 年/月/周 selection.
+    state = {"dimension": DIMENSIONS[0], "trend": DIMENSIONS[0]}
 
     numbers = {
         (name, key): ft.Text(
@@ -208,26 +209,15 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             ),
         )
 
-    dimension_text = ft.Text(state["dimension"], size=13, color="#334155")
-
-    def change_dimension(name: str) -> None:
-        if name == state["dimension"]:
-            return
-        state["dimension"] = name
-        # The trigger is our own Text, so the picked 年/月/周 renders right away
-        # (a Dropdown only re-synced its trigger text on a full rebuild).
-        dimension_text.value = name
-        dimension_text.update()
-        render()
-
-    def dimension_menu() -> ft.PopupMenuButton:
+    def dimension_selector(text: ft.Text, pick) -> ft.PopupMenuButton:
+        """年/月/周 popup selector showing `text`, reporting picks to `pick`."""
         return ft.PopupMenuButton(
             items=[
                 ft.PopupMenuItem(
                     content=ft.Text(name, size=12, color="#334155"),
                     height=SELECT_OPTION_HEIGHT,
                     padding=ft.Padding.symmetric(horizontal=10),
-                    on_click=lambda _, name=name: change_dimension(name),
+                    on_click=lambda _, name=name: pick(name),
                 )
                 for name in DIMENSIONS
             ],
@@ -240,7 +230,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                     spacing=2,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        dimension_text,
+                        text,
                         ft.Icon(ft.Icons.EXPAND_MORE, size=16, color="#94A3B8"),
                     ],
                 ),
@@ -252,28 +242,64 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             bgcolor="#FFFFFF",
             elevation=0,
             shadow_color="#00000000",
-            shape=ft.RoundedRectangleBorder(radius=12),
+            # The panel is white, exactly like the card it opens over, so a 1px
+            # inset border - rather than a Material shadow - is what makes the
+            # 年/月/周 list read as a panel on top of the trend chart.
+            shape=ft.RoundedRectangleBorder(
+                radius=10, side=ft.BorderSide(width=1, color=CARD_BORDER)
+            ),
             menu_padding=ft.Padding.symmetric(vertical=2),
             # Material's popup menu defaults to a 112px minimum width, which is
             # wide enough to be pushed sideways (away from the 年/月/周 button it
-            # belongs to) whenever the button sits near the right edge. 64px is
-            # plenty for a 12px two-glyph entry and lets the panel drop straight
-            # down from the button.
-            size_constraints=ft.BoxConstraints(min_width=64),
+            # belongs to) whenever the button sits near the right edge. The
+            # panel is anchored to the button's right edge, so a tight 44px lets
+            # the 年/月/周 entries land right under the caret instead of leaving
+            # a wide empty strip after the text.
+            size_constraints=ft.BoxConstraints(min_width=44),
             padding=ft.Padding.all(0),
         )
+
+    dimension_text = ft.Text(state["dimension"], size=13, color="#334155")
+
+    def change_dimension(name: str) -> None:
+        if name == state["dimension"]:
+            return
+        state["dimension"] = name
+        # The trigger is our own Text, so the picked 年/月/周 renders right away
+        # (a Dropdown only re-synced its trigger text on a full rebuild).
+        dimension_text.value = name
+        dimension_text.update()
+        render()
 
     selector_row = ft.Row(
         tight=True,
         spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[dimension_menu()],
+        controls=[dimension_selector(dimension_text, change_dimension)],
     )
 
     chart_holder = ft.Container()
+    trend_text = ft.Text(state["trend"], size=13, color="#334155")
+
+    def change_trend(name: str) -> None:
+        """Re-render the chart; it has its own 年/月/周 switch."""
+        if name == state["trend"]:
+            return
+        state["trend"] = name
+        trend_text.value = name
+        trend_text.update()
+        chart_holder.content = trend_chart()
+        chart_holder.update()
+
+    trend_selector_row = ft.Row(
+        tight=True,
+        spacing=0,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[dimension_selector(trend_text, change_trend)],
+    )
 
     def trend_chart() -> ft.Control:
-        buckets = chart_buckets(state["dimension"], today)
+        buckets = chart_buckets(state["trend"], today)
         return ft.Column(
             tight=True,
             spacing=8,
@@ -453,7 +479,11 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                                     ],
                                     trailing=selector_row,
                                 ),
-                                build_card("待办趋势", [chart_holder]),
+                                build_card(
+                                    "待办趋势",
+                                    [chart_holder],
+                                    trailing=trend_selector_row,
+                                ),
                                 settings_card(),
                             ],
                         ),

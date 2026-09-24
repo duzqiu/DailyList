@@ -10,6 +10,7 @@ import flet as ft
 import flet.canvas as cv
 
 GRID_COLOR = "#E2E8F0"
+AXIS_COLOR = "#CBD5E1"
 LABEL_COLOR = "#94A3B8"
 LABEL_SIZE = 9
 DOT_RADIUS = 2
@@ -43,6 +44,17 @@ def build_line_chart(
         return PLOT_TOP + plot_height * (1 - count / ceiling)
 
     shapes: list[cv.Shape] = []
+    # Y axis (vertical, on the left) and X axis (horizontal, at 0), then the
+    # maximum grid line on top.
+    shapes.append(
+        cv.Line(
+            PLOT_LEFT,
+            PLOT_TOP,
+            PLOT_LEFT,
+            PLOT_TOP + plot_height,
+            paint=ft.Paint(color=AXIS_COLOR, stroke_width=1),
+        )
+    )
     for count in (0, ceiling):
         y = y_at(count)
         shapes.append(
@@ -51,7 +63,10 @@ def build_line_chart(
                 y,
                 PLOT_LEFT + plot_width,
                 y,
-                paint=ft.Paint(color=GRID_COLOR, stroke_width=1),
+                paint=ft.Paint(
+                    color=AXIS_COLOR if count == 0 else GRID_COLOR,
+                    stroke_width=1,
+                ),
             )
         )
         shapes.append(
