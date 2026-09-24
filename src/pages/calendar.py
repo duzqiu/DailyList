@@ -3,6 +3,20 @@ from datetime import date
 
 import flet as ft
 
+from tools import db
+from tools.swipe_delete import build_swipe_delete_row
+
+CATEGORY_ICONS = {
+    "重要": (ft.Icons.PRIORITY_HIGH, "#DC2626"),
+    "一般": (ft.Icons.LIST_ALT, "#2563EB"),
+    "可选": (ft.Icons.LOW_PRIORITY, "#64748B"),
+}
+DEFAULT_CATEGORY_STYLE = (ft.Icons.LIST_ALT, "#64748B")
+DONE_COLOR = "#16A34A"
+PENDING_COLOR = "#EAB308"
+OVERDUE_COLOR = "#DC2626"
+NO_DOT = "#00000000"
+
 
 def build_calendar_page(page: ft.Page) -> ft.Control:
     today = date.today()
@@ -17,38 +31,73 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         color="#172554",
     )
 
-    tasks_by_day = {
-        1: {
-            "重要": ["整理本月计划"],
-            "一般": ["更新工作安排"],
-            "可选": ["整理桌面文件"],
-        },
-        3: {
-            "重要": ["完成项目进度整理"],
-            "一般": ["回复重要消息"],
-            "可选": ["阅读产品设计文档"],
-        },
-        8: {"重要": ["提交阶段成果"], "一般": ["整理会议纪要"], "可选": []},
-        12: {"重要": ["提交工作报告"], "一般": [], "可选": ["备份资料"]},
-        18: {
-            "重要": ["安排下周任务"],
-            "一般": ["备份重要资料"],
-            "可选": ["整理下载目录"],
-        },
-        25: {"重要": ["完成学习目标"], "一般": ["复盘学习内容"], "可选": []},
-    }
-    category_icons = {
-        "重要": (ft.Icons.PRIORITY_HIGH, "#DC2626"),
-        "一般": (ft.Icons.LIST_ALT, "#2563EB"),
-        "可选": (ft.Icons.LOW_PRIORITY, "#64748B"),
-    }
+    def category_style(name: str) -> tuple[str, str]:
+        return CATEGORY_ICONS.get(name, DEFAULT_CATEGORY_STYLE)
+
+    def delete_todo(todo_id: int) -> None:
+        db.delete_todo(todo_id)
+        update_calendar()
+
+    def todo_card(todo: db.Todo) -> ft.Control:
+        card = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=ft.BorderRadius.all(10),
+            bgcolor="#DCFCE7" if todo.done else "#F1F5F9",
+            content=ft.Row(
+                spacing=8,
+                controls=[
+                    ft.Icon(
+                        ft.Icons.CHECK_CIRCLE_OUTLINE
+                        if todo.done
+                        else ft.Icons.CIRCLE_OUTLINED,
+                        size=16,
+                        color=DONE_COLOR if todo.done else "#94A3B8",
+                    ),
+                    ft.Text(
+                        todo.content,
+                        size=13,
+                        color="#166534" if todo.done else "#334155",
+                    ),
+                ],
+            ),
+        )
+        return build_swipe_delete_row(card, lambda _: delete_todo(todo.id))
 
     def build_selected_content(day: date) -> ft.Control:
-        categories = tasks_by_day.get(day.day, {})
-        has_tasks = any(categories.values())
+        grouped: dict[str, list[db.Todo]] = {}
+        for todo in db.list_range(day, day):
+            grouped.setdefault(todo.category, []).append(todo)
+        names = [name for name in CATEGORY_ICONS if grouped.get(name)]
+        names += [name for name in grouped if name not in CATEGORY_ICONS]
+        groups: list[ft.Control] = []
+        for name in names:
+            icon, color = category_style(name)
+            groups.append(
+                ft.Column(
+                    tight=True,
+                    spacing=6,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        ft.Row(
+                            spacing=6,
+                            controls=[
+                                ft.Icon(icon, size=16, color=color),
+                                ft.Text(
+                                    name,
+                                    size=13,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=color,
+                                ),
+                            ],
+                        ),
+                        *[todo_card(todo) for todo in grouped[name]],
+                    ],
+                )
+            )
         return ft.Column(
             tight=True,
             spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
                 ft.Text(
                     f"{day.year}年{day.month}月{day.day}日",
@@ -57,59 +106,42 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                     color="#172554",
                 ),
                 ft.Text(
-                    "当天暂无待办事项" if not has_tasks else "当天待办事项",
+                    "当天暂无待办事项" if not grouped else "当天待办事项",
                     size=13,
                     color="#64748B",
                 ),
-                *[
-                    ft.Column(
-                        tight=True,
-                        spacing=6,
-                        controls=[
-                            ft.Row(
-                                spacing=6,
-                                controls=[
-                                    ft.Icon(
-                                        category_icons[category][0],
-                                        size=16,
-                                        color=category_icons[category][1],
-                                    ),
-                                    ft.Text(
-                                        category,
-                                        size=13,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=category_icons[category][1],
-                                    ),
-                                ],
-                            ),
-                            *[
-                                ft.Container(
-                                    padding=ft.Padding.symmetric(
-                                        horizontal=12, vertical=8
-                                    ),
-                                    border_radius=ft.BorderRadius.all(10),
-                                    bgcolor="#F1F5F9",
-                                    content=ft.Text(task, size=13, color="#334155"),
-                                )
-                                for task in tasks
-                            ],
-                        ],
-                    )
-                    for category, tasks in categories.items()
-                    if tasks
-                ],
+                *groups,
             ],
         )
 
-    def day_cell(day_number: int) -> ft.Control:
+    def day_dot_color(day: date, todos: list[db.Todo]) -> str:
+        if not todos:
+            return NO_DOT
+        if all(todo.done for todo in todos):
+            return DONE_COLOR
+        return OVERDUE_COLOR if day < today else PENDING_COLOR
+
+    def month_todos() -> dict[date, list[db.Todo]]:
+        last_day = calendar.monthrange(
+            visible_month.year, visible_month.month
+        )[1]
+        grouped: dict[date, list[db.Todo]] = {}
+        for todo in db.list_range(
+            visible_month,
+            date(visible_month.year, visible_month.month, last_day),
+        ):
+            grouped.setdefault(todo.due_date, []).append(todo)
+        return grouped
+
+    def day_cell(
+        day_number: int, day_todos: dict[date, list[db.Todo]]
+    ) -> ft.Control:
         if day_number == 0:
             return ft.Container(expand=True, height=42)
 
         day = date(visible_month.year, visible_month.month, day_number)
         is_selected = day == selected_day
-        has_tasks = day_number in tasks_by_day and any(
-            tasks_by_day[day_number].values()
-        )
+        dot_color = day_dot_color(day, day_todos.get(day, []))
         return ft.Container(
             expand=True,
             height=42,
@@ -129,15 +161,14 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                         color="#FFFFFF" if is_selected else "#172554",
                     ),
                     ft.Container(
-                        width=4,
-                        height=4,
-                        border_radius=ft.BorderRadius.all(2),
-                        bgcolor=(
-                            "#FFFFFF"
-                            if is_selected and has_tasks
-                            else "#2563EB"
-                            if has_tasks
-                            else "#00000000"
+                        width=5,
+                        height=5,
+                        border_radius=ft.BorderRadius.all(3),
+                        bgcolor=dot_color,
+                        border=(
+                            ft.Border.all(1, "#FFFFFF")
+                            if is_selected and dot_color != NO_DOT
+                            else None
                         ),
                     ),
                 ],
@@ -148,6 +179,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         month_days = calendar.monthcalendar(
             visible_month.year, visible_month.month
         )
+        day_todos = month_todos()
         return ft.Column(
             tight=True,
             spacing=6,
@@ -167,7 +199,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 *[
                     ft.Row(
                         spacing=6,
-                        controls=[day_cell(day) for day in week],
+                        controls=[day_cell(day, day_todos) for day in week],
                     )
                     for week in month_days
                 ],
@@ -283,6 +315,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 content=ft.Column(
                     expand=True,
                     spacing=16,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
                         ft.Text(
                             "日历",

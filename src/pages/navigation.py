@@ -17,17 +17,45 @@ def build_navigation(page: ft.Page) -> None:
         expand=True,
     )
 
+    menu_bottom = 16
+    menu_bar = ft.Container(
+        left=32,
+        right=32,
+        bottom=menu_bottom,
+        height=54,
+        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+        border_radius=ft.BorderRadius.all(18),
+        blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
+        gradient=ft.LinearGradient(
+            colors=["#CCFFFFFF", "#B3FFFFFF", "#CCFFFFFF"],
+            begin=ft.Alignment.TOP_LEFT,
+            end=ft.Alignment.BOTTOM_RIGHT,
+        ),
+        content=menu_items,
+    )
+
+    def set_menu_visible(visible: bool) -> None:
+        menu_bar.visible = visible
+        menu_bar.update()
+
+    def keep_menu_off_keyboard(_: ft.Event[ft.Page]) -> None:
+        menu_bar.bottom = menu_bottom - getattr(
+            page.media.view_insets, "bottom", 0
+        )
+        menu_bar.update()
+
     def show_page(index: int, update: bool = True) -> None:
         nonlocal selected_index
         selected_index = index
         content.content = (
-            build_home_page(page)
+            build_home_page(page, set_menu_visible)
             if index == 0
             else             build_calendar_page(page)
             if index == 1
             else build_settings_page()
         )
         page.bgcolor = page_backgrounds[index]
+        menu_bar.visible = True
         build_menu_items()
         if update:
             page.update()
@@ -92,21 +120,9 @@ def build_navigation(page: ft.Page) -> None:
             expand=True,
             controls=[
                 content,
-                ft.Container(
-                    left=32,
-                    right=32,
-                    bottom=16,
-                    height=54,
-                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                    border_radius=ft.BorderRadius.all(18),
-                    blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
-                    gradient=ft.LinearGradient(
-                        colors=["#CCFFFFFF", "#B3FFFFFF", "#CCFFFFFF"],
-                        begin=ft.Alignment.TOP_LEFT,
-                        end=ft.Alignment.BOTTOM_RIGHT,
-                    ),
-                    content=menu_items,
-                ),
+                menu_bar,
             ],
         )
     )
+
+    page.on_media_change = keep_menu_off_keyboard
