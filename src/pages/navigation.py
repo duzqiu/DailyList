@@ -3,6 +3,7 @@ import flet as ft
 from pages.calendar import build_calendar_page
 from pages.home import build_home_page
 from pages.settings import build_settings_page
+from tools.layout import MENU_BAR_BOTTOM, MENU_BAR_HEIGHT
 
 
 def build_navigation(page: ft.Page) -> None:
@@ -17,17 +18,17 @@ def build_navigation(page: ft.Page) -> None:
         expand=True,
     )
 
-    menu_bottom = 16
+    menu_bottom = MENU_BAR_BOTTOM
     menu_bar = ft.Container(
         left=32,
         right=32,
         bottom=menu_bottom,
-        height=54,
+        height=MENU_BAR_HEIGHT,
         padding=ft.Padding.symmetric(horizontal=6, vertical=2),
         border_radius=ft.BorderRadius.all(18),
         blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
         gradient=ft.LinearGradient(
-            colors=["#CCFFFFFF", "#B3FFFFFF", "#CCFFFFFF"],
+            colors=["#66FFFFFF", "#40FFFFFF", "#66FFFFFF"],
             begin=ft.Alignment.TOP_LEFT,
             end=ft.Alignment.BOTTOM_RIGHT,
         ),

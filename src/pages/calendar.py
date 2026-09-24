@@ -4,18 +4,15 @@ from datetime import date
 import flet as ft
 
 from tools import db
+from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
+from tools.layout import BOTTOM_MENU_INSET
 from tools.swipe_delete import build_swipe_delete_row
 
-CATEGORY_ICONS = {
-    "重要": (ft.Icons.PRIORITY_HIGH, "#DC2626"),
-    "一般": (ft.Icons.LIST_ALT, "#2563EB"),
-    "可选": (ft.Icons.LOW_PRIORITY, "#64748B"),
-}
-DEFAULT_CATEGORY_STYLE = (ft.Icons.LIST_ALT, "#64748B")
 DONE_COLOR = "#16A34A"
 PENDING_COLOR = "#EAB308"
 OVERDUE_COLOR = "#DC2626"
 NO_DOT = "#00000000"
+DAY_CELL_HEIGHT = 38
 
 
 def build_calendar_page(page: ft.Page) -> ft.Control:
@@ -24,15 +21,19 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
     selected_day = today
     month_view = ft.Container()
     selected_content = ft.Container()
+    selected_scroll = ft.ListView(
+        expand=True,
+        scroll=ft.ScrollMode.HIDDEN,
+        margin=ft.Margin.only(top=12),
+        padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
+        controls=[selected_content],
+    )
     month_title = ft.Text(
         f"{visible_month.year}年{visible_month.month}月",
         size=17,
         weight=ft.FontWeight.BOLD,
         color="#172554",
     )
-
-    def category_style(name: str) -> tuple[str, str]:
-        return CATEGORY_ICONS.get(name, DEFAULT_CATEGORY_STYLE)
 
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
@@ -56,6 +57,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                     ft.Text(
                         todo.content,
                         size=13,
+                        expand=True,
                         color="#166534" if todo.done else "#334155",
                     ),
                 ],
@@ -63,15 +65,38 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         )
         return build_swipe_delete_row(card, lambda _: delete_todo(todo.id))
 
+    def build_empty_hint() -> ft.Control:
+        return ft.Container(
+            padding=ft.Padding.symmetric(horizontal=16, vertical=18),
+            border_radius=ft.BorderRadius.all(12),
+            bgcolor="#F8FAFC",
+            border=ft.Border.all(1, "#E2E8F0"),
+            content=ft.Row(
+                spacing=10,
+                controls=[
+                    ft.Icon(
+                        ft.Icons.EVENT_AVAILABLE,
+                        size=20,
+                        color="#94A3B8",
+                    ),
+                    ft.Text(
+                        "今天没有待办事项哦", size=13, color="#64748B"
+                    ),
+                ],
+            ),
+        )
+
     def build_selected_content(day: date) -> ft.Control:
         grouped: dict[str, list[db.Todo]] = {}
         for todo in db.list_range(day, day):
             grouped.setdefault(todo.category, []).append(todo)
-        names = [name for name in CATEGORY_ICONS if grouped.get(name)]
-        names += [name for name in grouped if name not in CATEGORY_ICONS]
+        names = [name for name in CATEGORY_COLORS if grouped.get(name)]
+        names += [name for name in grouped if name not in CATEGORY_COLORS]
         groups: list[ft.Control] = []
+        if not names:
+            groups.append(build_empty_hint())
         for name in names:
-            icon, color = category_style(name)
+            color = category_color(name)
             groups.append(
                 ft.Column(
                     tight=True,
@@ -81,7 +106,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                         ft.Row(
                             spacing=6,
                             controls=[
-                                ft.Icon(icon, size=16, color=color),
+                                build_category_icon(name, size=15),
                                 ft.Text(
                                     name,
                                     size=13,
@@ -98,20 +123,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
             tight=True,
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[
-                ft.Text(
-                    f"{day.year}年{day.month}月{day.day}日",
-                    size=16,
-                    weight=ft.FontWeight.BOLD,
-                    color="#172554",
-                ),
-                ft.Text(
-                    "当天暂无待办事项" if not grouped else "当天待办事项",
-                    size=13,
-                    color="#64748B",
-                ),
-                *groups,
-            ],
+            controls=[*groups],
         )
 
     def day_dot_color(day: date, todos: list[db.Todo]) -> str:
@@ -137,14 +149,14 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         day_number: int, day_todos: dict[date, list[db.Todo]]
     ) -> ft.Control:
         if day_number == 0:
-            return ft.Container(expand=True, height=42)
+            return ft.Container(expand=True, height=DAY_CELL_HEIGHT)
 
         day = date(visible_month.year, visible_month.month, day_number)
         is_selected = day == selected_day
         dot_color = day_dot_color(day, day_todos.get(day, []))
         return ft.Container(
             expand=True,
-            height=42,
+            height=DAY_CELL_HEIGHT,
             alignment=ft.Alignment.CENTER,
             border_radius=ft.BorderRadius.all(8),
             bgcolor="#172554" if is_selected else "#F1F5F9",
@@ -161,9 +173,9 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                         color="#FFFFFF" if is_selected else "#172554",
                     ),
                     ft.Container(
-                        width=5,
-                        height=5,
-                        border_radius=ft.BorderRadius.all(3),
+                        width=4,
+                        height=4,
+                        border_radius=ft.BorderRadius.all(2),
                         bgcolor=dot_color,
                         border=(
                             ft.Border.all(1, "#FFFFFF")
@@ -182,7 +194,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         day_todos = month_todos()
         return ft.Column(
             tight=True,
-            spacing=6,
+            spacing=5,
             controls=[
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_AROUND,
@@ -314,7 +326,9 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 padding=ft.Padding.only(left=24, top=24, right=24),
                 content=ft.Column(
                     expand=True,
-                    spacing=16,
+                    # 4px base gap so the month selector sits closer to the grid;
+                    # other sections add 12px margins to keep their previous gaps.
+                    spacing=4,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
                         ft.Text(
@@ -325,6 +339,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                         ),
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            margin=ft.Margin.only(top=12),
                             controls=[
                                 ft.IconButton(
                                     icon=ft.Icons.CHEVRON_LEFT,
@@ -344,7 +359,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                             ],
                         ),
                         month_view,
-                        selected_content,
+                        selected_scroll,
                     ],
                 ),
             ),

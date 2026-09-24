@@ -3,17 +3,28 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 from tools import db
+from tools.categories import CATEGORIES, DEFAULT_CATEGORY, build_category_icon
+from tools.layout import BOTTOM_MENU_INSET
 from tools.swipe_delete import build_swipe_delete_row
 
-CATEGORIES = (
-    ("重要", "#DC2626", ft.Icons.PRIORITY_HIGH),
-    ("一般", "#2563EB", ft.Icons.LIST_ALT),
-    ("可选", "#64748B", ft.Icons.LOW_PRIORITY),
-)
-CATEGORY_ICONS = {name: icon for name, _, icon in CATEGORIES}
-DEFAULT_CATEGORY = "一般"
+# Shared surface colour: unselected date card, undone todo card and the add button.
+UNSELECTED_CARD_BG = "#F1F5F9"
 DATE_RANGE_BACK_DAYS = 7
 DATE_RANGE_FORWARD_DAYS = 60
+DATE_FIELD_WIDTH = 190
+DATE_CARET_WIDTH = 32
+DATE_CARET_ALIGN = ft.Alignment(1, 0)
+DATE_CARET = ft.Container(
+    width=DATE_CARET_WIDTH,
+    alignment=DATE_CARET_ALIGN,
+    content=ft.Icon(ft.Icons.EXPAND_MORE, size=18, color="#94A3B8"),
+)
+DATE_CARET_OPEN = ft.Container(
+    width=DATE_CARET_WIDTH,
+    alignment=DATE_CARET_ALIGN,
+    content=ft.Icon(ft.Icons.EXPAND_LESS, size=18, color="#94A3B8"),
+)
+OPTION_STYLE = ft.ButtonStyle(padding=ft.Padding.only(left=10, right=4))
 
 
 def selectable_dates(anchors: list[date]) -> list[date]:
@@ -48,7 +59,18 @@ def build_home_page(
         spacing=8,
         padding=ft.Padding.only(right=8),
     )
-    todo_content = ft.Container(expand=True)
+    todo_title = ft.Text(
+        "",
+        size=16,
+        weight=ft.FontWeight.BOLD,
+        color="#172554",
+    )
+    todo_content = ft.ListView(
+        expand=True,
+        spacing=12,
+        scroll=ft.ScrollMode.HIDDEN,
+        padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
+    )
 
     def reload_todos() -> None:
         nonlocal todos_by_day
@@ -68,6 +90,7 @@ def build_home_page(
                 ft.Text(
                     item,
                     size=13,
+                    expand=True,
                     color="#166534" if completed else "#334155",
                 ),
             ],
@@ -84,7 +107,7 @@ def build_home_page(
             key=f"todo-{todo.id}",
             padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             border_radius=ft.BorderRadius.all(10),
-            bgcolor="#DCFCE7" if completed else "#F1F5F9",
+            bgcolor="#DCFCE7" if completed else UNSELECTED_CARD_BG,
             content=todo_row(todo.content, completed),
         )
 
@@ -93,7 +116,7 @@ def build_home_page(
             completed = not completed
             db.set_done(todo.id, completed)
             reload_todos()
-            todo_card.bgcolor = "#DCFCE7" if completed else "#F1F5F9"
+            todo_card.bgcolor = "#DCFCE7" if completed else UNSELECTED_CARD_BG
             todo_card.content = todo_row(todo.content, completed)
             todo_card.update()
 
@@ -113,11 +136,7 @@ def build_home_page(
                 ft.Row(
                     spacing=6,
                     controls=[
-                        ft.Icon(
-                            CATEGORY_ICONS[category],
-                            size=16,
-                            color=category_color,
-                        ),
+                        build_category_icon(category, size=15),
                         ft.Text(
                             category,
                             size=13,
@@ -151,7 +170,7 @@ def build_home_page(
             ),
         )
 
-    def build_todo_content(index: int) -> ft.Control:
+    def render_todos(index: int) -> None:
         selected_date = dates[index]
         day_items = todos_by_day.get(selected_date, {})
         groups = [
@@ -159,22 +178,8 @@ def build_home_page(
             for name, color, _ in CATEGORIES
             if day_items.get(name)
         ]
-        if not groups:
-            groups = [build_empty_hint()]
-        return ft.Column(
-            tight=True,
-            spacing=12,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[
-                ft.Text(
-                    f"{selected_date.month}月{selected_date.day}日待办",
-                    size=16,
-                    weight=ft.FontWeight.BOLD,
-                    color="#172554",
-                ),
-                *groups,
-            ],
-        )
+        todo_title.value = f"{selected_date.month}月{selected_date.day}日待办"
+        todo_content.controls = groups or [build_empty_hint()]
 
     def build_date_item(index: int) -> ft.Control:
         selected = index == selected_index
@@ -185,7 +190,7 @@ def build_home_page(
             height=42,
             padding=ft.Padding.symmetric(horizontal=4, vertical=3),
             border_radius=ft.BorderRadius.all(6),
-            bgcolor="#172554" if selected else "#F1F5F9",
+            bgcolor="#172554" if selected else UNSELECTED_CARD_BG,
             alignment=ft.Alignment.CENTER,
             ink=True,
             on_click=lambda _: select_date(index),
@@ -215,8 +220,9 @@ def build_home_page(
         date_selector.controls = [
             build_date_item(date_index) for date_index in range(len(dates))
         ]
-        todo_content.content = build_todo_content(index)
+        render_todos(index)
         date_selector.update()
+        todo_title.update()
         todo_content.update()
 
     def save_todo(
@@ -253,6 +259,11 @@ def build_home_page(
                 size=18,
                 color="#94A3B8",
             ),
+            "selected_trailing_icon": ft.Icon(
+                ft.Icons.EXPAND_LESS,
+                size=18,
+                color="#94A3B8",
+            ),
             "menu_style": ft.MenuStyle(
                 bgcolor="#FFFFFF",
                 elevation=2,
@@ -260,6 +271,11 @@ def build_home_page(
                 padding=ft.Padding.symmetric(vertical=6),
                 side=ft.BorderSide(0),
             ),
+        }
+        date_select_style = {
+            **select_style,
+            "trailing_icon": DATE_CARET,
+            "selected_trailing_icon": DATE_CARET_OPEN,
         }
         todo_field = ft.TextField(
             hint_text="请输入待办内容",
@@ -269,22 +285,24 @@ def build_home_page(
             **flat_style,
         )
         date_field = ft.Dropdown(
+            width=DATE_FIELD_WIDTH,
             value=dates[selected_index].isoformat(),
             options=[
                 ft.DropdownOption(
                     key=item.isoformat(),
                     text=f"{item.year}年{item.month}月{item.day}日",
+                    style=OPTION_STYLE,
                 )
                 for item in selectable_dates(dates)
             ],
             menu_height=240,
-            **select_style,
+            **date_select_style,
         )
         category_field = ft.Dropdown(
             width=88,
             value=DEFAULT_CATEGORY,
             options=[
-                ft.DropdownOption(key=name, text=name)
+                ft.DropdownOption(key=name, text=name, style=OPTION_STYLE)
                 for name, _, _ in CATEGORIES
             ],
             menu_height=160,
@@ -337,7 +355,7 @@ def build_home_page(
     date_selector.controls = [
         build_date_item(index) for index in range(len(dates))
     ]
-    todo_content.content = build_todo_content(selected_index)
+    render_todos(selected_index)
 
     add_button = ft.Container(
         right=24,
@@ -345,7 +363,7 @@ def build_home_page(
         width=52,
         height=52,
         border_radius=ft.BorderRadius.all(16),
-        bgcolor="#40172554",
+        bgcolor=UNSELECTED_CARD_BG,
         border=ft.Border.all(1, "#80FFFFFF"),
         blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
         content=ft.IconButton(
@@ -353,6 +371,9 @@ def build_home_page(
             icon_color="#172554",
             icon_size=24,
             tooltip="新增待办",
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=16)
+            ),
             on_click=open_add_todo,
         ),
     )
@@ -387,6 +408,7 @@ def build_home_page(
                                         color="#172554",
                                     ),
                                     date_selector,
+                                    todo_title,
                                     todo_content,
                                 ],
                             ),
