@@ -35,38 +35,17 @@ SELECT_BUTTON_STYLE = ft.ButtonStyle(
 )
 
 
-# The subtitle hugs the card title, so it uses a tighter gap than the content.
-SUBTITLE_SPACING = 0
-
-
 def build_card(
     title: str,
     controls: list[ft.Control],
     trailing: ft.Control | None = None,
-    subtitle: ft.Control | None = None,
 ) -> ft.Control:
-    """White card with a title (plus optional trailing/subtitle) and content."""
+    """White card with a title (plus optional trailing control) and content."""
     title_row: list[ft.Control] = [
         ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TITLE_COLOR)
     ]
     if trailing is not None:
         title_row.append(trailing)
-    header: list[ft.Control] = [
-        ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=title_row,
-        )
-    ]
-    if subtitle is not None:
-        header = [
-            ft.Column(
-                tight=True,
-                spacing=SUBTITLE_SPACING,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=[*header, subtitle],
-            )
-        ]
     return ft.Container(
         padding=ft.Padding.symmetric(horizontal=16, vertical=14),
         border_radius=ft.BorderRadius.all(12),
@@ -76,7 +55,14 @@ def build_card(
             tight=True,
             spacing=10,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[*header, *controls],
+            controls=[
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=title_row,
+                ),
+                *controls,
+            ],
         ),
     )
 
@@ -92,14 +78,6 @@ def period_span(dimension: str, today: date) -> tuple[date, date] | None:
     if dimension == "年":
         return today.replace(month=1, day=1), today.replace(month=12, day=31)
     return None
-
-
-def period_label(span: tuple[date, date] | None) -> str:
-    """Due-date range of the selected statistics dimension."""
-    if span is None:
-        return "全部时间"
-    start, end = span
-    return f"{start:%Y-%m-%d} ~ {end:%Y-%m-%d}"
 
 
 def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
@@ -128,14 +106,6 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         for name in category_names
         for key in STATUS_KEYS
     }
-
-    period_text = ft.Text(
-        "",
-        size=11,
-        color=MUTED_COLOR,
-        max_lines=1,
-        overflow=ft.TextOverflow.ELLIPSIS,
-    )
 
     def category_card(name: str) -> ft.Control:
         return ft.Container(
@@ -252,9 +222,8 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             bucket = per_category.get(name, dict.fromkeys(STATUS_KEYS, 0))
             for key in STATUS_KEYS:
                 numbers[(name, key)].value = str(bucket[key])
-        period_text.value = period_label(span)
         if update:
-            for control in [*numbers.values(), period_text]:
+            for control in numbers.values():
                 control.update()
 
     def notify(message: str) -> None:
@@ -284,6 +253,9 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         page.show_dialog(
             ft.AlertDialog(
                 modal=True,
+                # Material 3 dialogs default to a 28px corner radius; 12 matches
+                # the cards and the popup menu used across the app.
+                shape=ft.RoundedRectangleBorder(radius=12),
                 inset_padding=ft.Padding.symmetric(horizontal=56, vertical=24),
                 title_padding=ft.Padding.only(left=16, top=12, right=16),
                 content_padding=ft.Padding.only(left=16, right=16),
@@ -384,7 +356,6 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                                         ),
                                     ],
                                     trailing=selector_row,
-                                    subtitle=period_text,
                                 ),
                                 settings_card(),
                             ],

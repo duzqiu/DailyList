@@ -12,7 +12,9 @@ DONE_COLOR = "#16A34A"
 PENDING_COLOR = "#EAB308"
 OVERDUE_COLOR = "#DC2626"
 NO_DOT = "#00000000"
-DAY_CELL_HEIGHT = 38
+# Compact month grid: a 6-week month is about 60px shorter than with the old
+# 38px cells (6*30 + 5*3 instead of 6*38 + 5*5).
+DAY_CELL_HEIGHT = 30
 
 
 def build_calendar_page(page: ft.Page) -> ft.Control:
@@ -158,7 +160,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
             expand=True,
             height=DAY_CELL_HEIGHT,
             alignment=ft.Alignment.CENTER,
-            border_radius=ft.BorderRadius.all(8),
+            border_radius=ft.BorderRadius.all(6),
             bgcolor="#172554" if is_selected else "#F1F5F9",
             on_click=lambda _: select_day(day),
             content=ft.Column(
@@ -168,13 +170,13 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 controls=[
                     ft.Text(
                         str(day_number),
-                        size=13,
+                        size=12,
                         weight=ft.FontWeight.BOLD,
                         color="#FFFFFF" if is_selected else "#172554",
                     ),
                     ft.Container(
-                        width=4,
-                        height=4,
+                        width=3,
+                        height=3,
                         border_radius=ft.BorderRadius.all(2),
                         bgcolor=dot_color,
                         border=(
@@ -194,6 +196,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         day_todos = month_todos()
         return ft.Column(
             tight=True,
+            # Row-to-row (and header-to-first-row) gap between the day cards.
             spacing=5,
             controls=[
                 ft.Row(
@@ -201,7 +204,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                     controls=[
                         ft.Text(
                             weekday,
-                            size=12,
+                            size=11,
                             weight=ft.FontWeight.BOLD,
                             color="#64748B",
                         )
@@ -210,7 +213,10 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 ),
                 *[
                     ft.Row(
-                        spacing=6,
+                        # The cells share the row width, so this left-right gap
+                        # sets how wide each day card gets (10px here leaves the
+                        # cards about 59px wide on a 524px-wide window).
+                        spacing=10,
                         controls=[day_cell(day, day_todos) for day in week],
                     )
                     for week in month_days
