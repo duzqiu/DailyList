@@ -11,6 +11,11 @@ from tools.swipe_delete import build_swipe_delete_row
 UNSELECTED_CARD_BG = "#F1F5F9"
 DATE_RANGE_BACK_DAYS = 7
 DATE_RANGE_FORWARD_DAYS = 60
+# The seven day cards share the strip's width: every card is an expanding child
+# of a `Row`, so the free space is split evenly and the strip fills the screen
+# on any phone width instead of leaving a gap after the last 42px card.
+DATE_CARD_SPACING = 8
+DATE_CARD_HEIGHT = 42
 DATE_FIELD_WIDTH = 190
 DATE_CARET_WIDTH = 32
 DATE_CARET_ALIGN = ft.Alignment(1, 0)
@@ -53,12 +58,7 @@ def build_home_page(
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     todos_by_day = group_todos_by_day(db.list_todos(dates))
     selected_index = 0
-    date_selector = ft.ListView(
-        horizontal=True,
-        height=48,
-        spacing=8,
-        padding=ft.Padding.only(right=8),
-    )
+    date_selector = ft.Row(spacing=DATE_CARD_SPACING)
     todo_title = ft.Text(
         "",
         size=16,
@@ -186,8 +186,8 @@ def build_home_page(
         selected_date = dates[index]
         return ft.Container(
             key=f"date-{selected_date.isoformat()}",
-            width=42,
-            height=42,
+            expand=1,
+            height=DATE_CARD_HEIGHT,
             padding=ft.Padding.symmetric(horizontal=4, vertical=3),
             border_radius=ft.BorderRadius.all(6),
             bgcolor="#172554" if selected else UNSELECTED_CARD_BG,
