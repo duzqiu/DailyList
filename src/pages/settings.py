@@ -1,10 +1,12 @@
 import calendar
+from bisect import bisect_right
 import flet as ft
 from datetime import date, timedelta
 
 from tools import db
 from tools.categories import CATEGORIES, build_category_icon
 from tools.layout import BOTTOM_MENU_INSET, page_gradient
+from tools.line_chart import build_line_chart
 
 CARD_BG = "#FFFFFF"
 CARD_BORDER = "#E2E8F0"
@@ -78,6 +80,61 @@ def period_span(dimension: str, today: date) -> tuple[date, date] | None:
     if dimension == "年":
         return today.replace(month=1, day=1), today.replace(month=12, day=31)
     return None
+
+
+TREND_HEIGHT = 150
+# The chart canvas is given an explicit size, so it needs the width of the card
+# content area: page padding (24px per side) plus the card's own 16px padding.
+TREND_PAGE_INSETS = 80
+TREND_FALLBACK_PAGE_WIDTH = 360
+TREND_MIN_WIDTH = 240
+TREND_MAX_WIDTH = 560
+
+
+def trend_width(page: ft.Page) -> float:
+    """Canvas width that fits inside the card on the current window."""
+    page_width = getattr(page, "width", None) or TREND_FALLBACK_PAGE_WIDTH
+    return float(
+        max(TREND_MIN_WIDTH, min(TREND_MAX_WIDTH, page_width - TREND_PAGE_INSETS))
+    )
+
+
+def chart_buckets(dimension: str, today: date) -> list[tuple[str, date, date]]:
+    """Trend-chart buckets as (x label, first due-date, last due-date).
+
+    周/月 are plotted per day and 年 per month, so the X axis stays readable.
+    """
+    if dimension == "周":
+        start = today - timedelta(days=today.weekday())
+        days = [start + timedelta(days=offset) for offset in range(7)]
+        return [(f"{day.month}/{day.day}", day, day) for day in days]
+    if dimension == "月":
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        days = [today.replace(day=day) for day in range(1, last_day + 1)]
+        return [(f"{day.month}/{day.day}", day, day) for day in days]
+    return [
+        (
+            f"{month}月",
+            date(today.year, month, 1),
+            date(today.year, month, calendar.monthrange(today.year, month)[1]),
+        )
+        for month in range(1, 13)
+    ]
+
+
+def trend_series(
+    buckets: list[tuple[str, date, date]],
+) -> list[tuple[str, list[int], str]]:
+    """Per-category todo counts for every bucket, ready for the line chart."""
+    starts = [first for _, first, _ in buckets]
+    counts = {name: [0] * len(buckets) for name, _, _ in CATEGORIES}
+    for todo in db.list_range(starts[0], buckets[-1][2]):
+        if todo.category not in counts:
+            continue
+        index = bisect_right(starts, todo.due_date) - 1
+        if index >= 0 and todo.due_date <= buckets[index][2]:
+            counts[todo.category][index] += 1
+    return [(name, counts[name], color) for name, color, _ in CATEGORIES]
 
 
 def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
@@ -213,6 +270,44 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         controls=[dimension_menu()],
     )
 
+    chart_holder = ft.Container()
+
+    def trend_chart() -> ft.Control:
+        buckets = chart_buckets(state["dimension"], today)
+        return ft.Column(
+            tight=True,
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                build_line_chart(
+                    [label for label, _, _ in buckets],
+                    trend_series(buckets),
+                    trend_width(page),
+                    TREND_HEIGHT,
+                ),
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=12,
+                    controls=[
+                        ft.Row(
+                            tight=True,
+                            spacing=4,
+                            controls=[
+                                ft.Container(
+                                    width=8,
+                                    height=8,
+                                    border_radius=ft.BorderRadius.all(4),
+                                    bgcolor=color,
+                                ),
+                                ft.Text(name, size=11, color=MUTED_COLOR),
+                            ],
+                        )
+                        for name, color, _ in CATEGORIES
+                    ],
+                ),
+            ],
+        )
+
     def render(update: bool = True) -> None:
         dimension = state["dimension"]
         span = period_span(dimension, today)
@@ -222,8 +317,9 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             bucket = per_category.get(name, dict.fromkeys(STATUS_KEYS, 0))
             for key in STATUS_KEYS:
                 numbers[(name, key)].value = str(bucket[key])
+        chart_holder.content = trend_chart()
         if update:
-            for control in numbers.values():
+            for control in [*numbers.values(), chart_holder]:
                 control.update()
 
     def notify(message: str) -> None:
@@ -357,6 +453,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                                     ],
                                     trailing=selector_row,
                                 ),
+                                build_card("待办趋势", [chart_holder]),
                                 settings_card(),
                             ],
                         ),
