@@ -1,11 +1,20 @@
 import calendar
+import os
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[2] / "dailylist.db"
+# Where the SQLite file lives. A packaged app runs from inside a read-only
+# bundle, so prefer the writable data directory Flet hands the app
+# (`FLET_APP_STORAGE_DATA`); running from source keeps the project-root file.
+_DATA_DIR = os.environ.get("FLET_APP_STORAGE_DATA")
+DB_PATH = (
+    Path(_DATA_DIR) / "dailylist.db"
+    if _DATA_DIR
+    else Path(__file__).resolve().parents[2] / "dailylist.db"
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS todos (
@@ -28,10 +37,21 @@ CREATE TABLE IF NOT EXISTS settings (
 
 # 待办的循环周期: the value stored in `todos.repeat_cycle`.
 DEFAULT_CYCLE = "不循环"
-REPEAT_CYCLES = (DEFAULT_CYCLE, "三天", "一周", "一月", "三月", "六月", "一年")
+REPEAT_CYCLES = (
+    DEFAULT_CYCLE,
+    "每天",
+    "三天",
+    "一周",
+    "一月",
+    "三月",
+    "六月",
+    "一年",
+)
 # A repeating todo is materialised one cycle at a time up to this far ahead, so
 # the home and calendar windows always have their rows without a background job.
 REPEAT_HORIZON_DAYS = 365
+# Safety net for denser cycles: 每天 needs 366 rows for the whole horizon.
+MAX_OCCURRENCES = 400
 
 # Columns added after the todos table shipped. `init_db` adds any that a database
 # is still missing, so an existing dailylist.db keeps up with SCHEMA without a
@@ -59,7 +79,7 @@ def occurrence_dates(
     while True:
         steps += 1
         current = _shift(start, repeat_cycle, steps)
-        if current > last:
+        if current > last or len(dates) >= MAX_OCCURRENCES:
             return dates
         dates.append(current)
 
@@ -73,6 +93,8 @@ def _shift(start: date, repeat_cycle: str, steps: int) -> date:
     """
     if repeat_cycle == "三天":
         return start + timedelta(days=3 * steps)
+    if repeat_cycle == "每天":
+        return start + timedelta(days=steps)
     if repeat_cycle == "一周":
         return start + timedelta(days=7 * steps)
     months = _MONTH_STEPS.get(repeat_cycle, 0)
@@ -102,6 +124,7 @@ def connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = connect()
     try:
         connection.executescript(SCHEMA)

@@ -8,7 +8,16 @@ from tools.categories import (
     DEFAULT_CATEGORY,
     build_category_icon,
 )
-from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient, text_width
+from tools.layout import (
+    BOTTOM_MENU_INSET,
+    DIALOG_RADIUS,
+    SKY_BLUE,
+    TODO_DONE_BG,
+    TODO_DONE_ICON,
+    TODO_TEXT,
+    page_gradient,
+    text_width,
+)
 from tools.popup_select import (
     OPTION_TEXT_SIZE,
     build_option_row,
@@ -22,8 +31,9 @@ from tools.swipe_delete import build_swipe_delete_row
 # Shared surface colour of the unselected date card and the undone todo card.
 UNSELECTED_CARD_BG = "#F1F5F9"
 # The floating add button is a sky-blue glass tile: no border ring, and a
-# translucent fill (60%) so the blur behind it shows through.
-ADD_BUTTON_BG = "#990EA5E9"
+# translucent fill (60%) so the blur behind it shows through. Kept independent
+# of TODO_DONE_BG, which is the colour of a completed todo card.
+ADD_BUTTON_BG = "#99" + SKY_BLUE[1:]
 DATE_RANGE_BACK_DAYS = 7
 DATE_RANGE_FORWARD_DAYS = 60
 # The seven day cards share the strip's width: every card is an expanding child
@@ -143,13 +153,13 @@ def build_home_page(
                     if completed
                     else ft.Icons.CIRCLE_OUTLINED,
                     size=16,
-                    color="#16A34A" if completed else "#94A3B8",
+                    color=TODO_DONE_ICON if completed else "#94A3B8",
                 ),
                 ft.Text(
                     item,
                     size=13,
                     expand=True,
-                    color="#166534" if completed else "#334155",
+                    color=TODO_TEXT,
                 ),
             ],
         )
@@ -165,7 +175,7 @@ def build_home_page(
             key=f"todo-{todo.id}",
             padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             border_radius=ft.BorderRadius.all(10),
-            bgcolor="#DCFCE7" if completed else UNSELECTED_CARD_BG,
+            bgcolor=TODO_DONE_BG if completed else UNSELECTED_CARD_BG,
             content=todo_row(todo.content, completed),
         )
 
@@ -174,7 +184,7 @@ def build_home_page(
             completed = not completed
             db.set_done(todo.id, completed)
             reload_todos()
-            todo_card.bgcolor = "#DCFCE7" if completed else UNSELECTED_CARD_BG
+            todo_card.bgcolor = TODO_DONE_BG if completed else UNSELECTED_CARD_BG
             todo_card.content = todo_row(todo.content, completed)
             todo_card.update()
 

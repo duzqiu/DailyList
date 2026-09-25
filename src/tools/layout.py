@@ -6,6 +6,16 @@ BACKGROUND_COLORS = ("#FFFFFF", "#EEF2FF")
 # Solid colour behind the gradient: the native page background.
 PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 
+# A todo that has been tapped - i.e. marked done - switches to the sky blue the
+# add button uses. The card stays fully opaque: it sits on top of the swipe-to-
+# delete button, which a translucent fill would let show through.
+# The todo's own text is plain black and stays the same in both states.
+SKY_BLUE = "#B2E0F4"
+TODO_DONE_BG = SKY_BLUE
+# Same navy as the add button's plus, so the two tiles read as one family.
+TODO_DONE_ICON = "#173A54"
+TODO_TEXT = "#000000"
+
 MENU_BAR_BOTTOM = 16
 MENU_BAR_HEIGHT = 54
 MENU_BAR_GAP = 8

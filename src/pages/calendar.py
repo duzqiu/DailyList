@@ -5,7 +5,13 @@ import flet as ft
 
 from tools import db
 from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
-from tools.layout import BOTTOM_MENU_INSET, page_gradient
+from tools.layout import (
+    BOTTOM_MENU_INSET,
+    TODO_DONE_BG,
+    TODO_DONE_ICON,
+    TODO_TEXT,
+    page_gradient,
+)
 from tools.swipe_delete import build_swipe_delete_row
 
 DONE_COLOR = "#16A34A"
@@ -45,7 +51,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         card = ft.Container(
             padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             border_radius=ft.BorderRadius.all(10),
-            bgcolor="#DCFCE7" if todo.done else "#F1F5F9",
+            bgcolor=TODO_DONE_BG if todo.done else "#F1F5F9",
             content=ft.Row(
                 spacing=8,
                 controls=[
@@ -54,13 +60,13 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                         if todo.done
                         else ft.Icons.CIRCLE_OUTLINED,
                         size=16,
-                        color=DONE_COLOR if todo.done else "#94A3B8",
+                        color=TODO_DONE_ICON if todo.done else "#94A3B8",
                     ),
                     ft.Text(
                         todo.content,
                         size=13,
                         expand=True,
-                        color="#166534" if todo.done else "#334155",
+                        color=TODO_TEXT,
                     ),
                 ],
             ),

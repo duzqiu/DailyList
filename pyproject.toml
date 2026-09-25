@@ -1,11 +1,11 @@
 [project]
-name = "dailylist"
+name = "DailyList"
 version = "0.1.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Flet developer", email = "you@example.com" }
+    { name = "duzqiu", email = "duzqiu@outlook.com" }
 ]
 dependencies = [
     "flet>=1.0.1"
@@ -26,10 +26,37 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.flet]
-org = "com.mycompany"
+org = "com.duzqiu"
 product = "dailylist"
 company = "Flet"
 copyright = "Copyright (C) 2023-2026 by Flet"
 
 [tool.flet.app]
 path = "src"
+
+[tool.flet.ios]
+# iOS signing. The export method defaults to `debugging` (the old
+# "Development"), which is the only one a free Personal Team can use.
+team_id = "346PNWC777"
+signing_certificate = "Apple Development"
+# Provisioning profile *name or UUID*, from
+# ~/Library/Developer/Xcode/UserData/Provisioning Profiles/ - Xcode creates it
+# when you Run/Archive the app once. The name survives the weekly renewal a free
+# team needs; its UUID changes every time Xcode reissues the profile.
+#
+# Kept off on purpose: a free Personal Team only gets *Xcode-managed* profiles,
+# and specifying one here makes flet build sign manually, which Xcode rejects
+# ("is Xcode managed, but signing settings require a manually managed profile").
+# Build the .ipa with Xcode's automatic signing instead; uncomment this once a
+# manually managed (portal) profile is available.
+# provisioning_profile = "iOS Team Provisioning Profile: com.duzqiu.dailylist"
+
+[tool.flet.flutter.pubspec.dependency_overrides]
+# device_info_plus 12.4.0 calls NSProcessInfo.isiOSAppOnVision, which only the
+# iOS 26.1 SDK (Xcode 26.1+) declares, so Xcode 16 fails to compile it. flet
+# itself allows ^12.3.0, so pin the last version that builds with the iOS 18 SDK.
+# connectivity_plus 7.1.0+ uses NWPath.isUltraConstrained (iOS 26.0 SDK); 7.0.0
+# is the newest release in flet's ^7.0.0 range without it.
+# Remove once Xcode 26.1 or newer is installed.
+device_info_plus = "12.3.0"
+connectivity_plus = "7.0.0"
