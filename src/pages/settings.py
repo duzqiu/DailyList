@@ -5,8 +5,13 @@ from datetime import date, timedelta
 
 from tools import db
 from tools.categories import CATEGORIES, build_category_icon
-from tools.layout import BOTTOM_MENU_INSET, page_gradient
-from tools.line_chart import build_line_chart
+from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient
+from tools.line_chart import build_interactive_line_chart
+from tools.popup_select import (
+    build_option_row,
+    build_option_selector,
+    build_option_text,
+)
 
 CARD_BG = "#FFFFFF"
 CARD_BORDER = "#E2E8F0"
@@ -17,24 +22,15 @@ DONE_COLOR = "#16A34A"
 PENDING_COLOR = "#DC2626"
 
 DIMENSIONS = ("年", "月", "周")
+# 年 and 周 plot one point per month/day and stay few enough to name every point
+# on the x axis; 月's 28-31 points keep the sparse first/middle/last labels.
+NAMED_AXIS_DIMENSIONS = ("年", "周")
 STATUS_KEYS = ("all", "done", "pending")
 STATUS_LABELS = {"all": "全部", "done": "已完成", "pending": "未完成"}
 STATUS_COLORS = {"all": TITLE_COLOR, "done": DONE_COLOR, "pending": PENDING_COLOR}
 # The 年/月/周 range selector is a `PopupMenuButton`, not a `Dropdown`: a
-# Dropdown trigger is a Material TextField whose `InputDecorator` paints its own
-# field box after the popup overlay, so any panel anchored on top of that field
-# ended up half covered by it. Material places a popup menu strictly outside its
-# anchor (`menu_position=UNDER` puts the panel's top edge on the button's bottom
-# edge), so the list can neither overlap nor drift away from the button.
-SELECT_OPTION_HEIGHT = 28
-SELECT_BUTTON_STYLE = ft.ButtonStyle(
-    # The button is only the selected 年/月/周 text plus its caret; Material's
-    # default ripple/overlay painted a bright rounded rectangle around it.
-    bgcolor="#00000000",
-    overlay_color="#00000000",
-    padding=ft.Padding.all(0),
-    visual_density=ft.VisualDensity.COMPACT,
-)
+# Dropdown trigger paints over an anchored panel - see tools/popup_select.py,
+# which the add-todo dialog's 日期/类别 pickers share with these two.
 
 
 def build_card(
@@ -209,57 +205,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             ),
         )
 
-    def dimension_selector(text: ft.Text, pick) -> ft.PopupMenuButton:
-        """年/月/周 popup selector showing `text`, reporting picks to `pick`."""
-        return ft.PopupMenuButton(
-            items=[
-                ft.PopupMenuItem(
-                    content=ft.Text(name, size=12, color="#334155"),
-                    height=SELECT_OPTION_HEIGHT,
-                    padding=ft.Padding.symmetric(horizontal=10),
-                    on_click=lambda _, name=name: pick(name),
-                )
-                for name in DIMENSIONS
-            ],
-            content=ft.Container(
-                # The caret hugs the value: Material otherwise reserves its 48px
-                # minimum tap box for the icon and pushes the two apart.
-                padding=ft.Padding.symmetric(horizontal=4, vertical=4),
-                content=ft.Row(
-                    tight=True,
-                    spacing=2,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        text,
-                        ft.Icon(ft.Icons.EXPAND_MORE, size=16, color="#94A3B8"),
-                    ],
-                ),
-            ),
-            # The panel is anchored flush under the button by Material, so it
-            # never overlaps the trigger and never floats away from it.
-            menu_position=ft.PopupMenuPosition.UNDER,
-            style=SELECT_BUTTON_STYLE,
-            bgcolor="#FFFFFF",
-            elevation=0,
-            shadow_color="#00000000",
-            # The panel is white, exactly like the card it opens over, so a 1px
-            # inset border - rather than a Material shadow - is what makes the
-            # 年/月/周 list read as a panel on top of the trend chart.
-            shape=ft.RoundedRectangleBorder(
-                radius=10, side=ft.BorderSide(width=1, color=CARD_BORDER)
-            ),
-            menu_padding=ft.Padding.symmetric(vertical=2),
-            # Material's popup menu defaults to a 112px minimum width, which is
-            # wide enough to be pushed sideways (away from the 年/月/周 button it
-            # belongs to) whenever the button sits near the right edge. The
-            # panel is anchored to the button's right edge, so a tight 44px lets
-            # the 年/月/周 entries land right under the caret instead of leaving
-            # a wide empty strip after the text.
-            size_constraints=ft.BoxConstraints(min_width=44),
-            padding=ft.Padding.all(0),
-        )
-
-    dimension_text = ft.Text(state["dimension"], size=13, color="#334155")
+    dimension_text = build_option_text(state["dimension"])
 
     def change_dimension(name: str) -> None:
         if name == state["dimension"]:
@@ -271,15 +217,16 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         dimension_text.update()
         render()
 
-    selector_row = ft.Row(
-        tight=True,
-        spacing=0,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[dimension_selector(dimension_text, change_dimension)],
+    selector_row = build_option_row(
+        build_option_selector(
+            dimension_text,
+            [(name, name) for name in DIMENSIONS],
+            change_dimension,
+        )
     )
 
     chart_holder = ft.Container()
-    trend_text = ft.Text(state["trend"], size=13, color="#334155")
+    trend_text = build_option_text(state["trend"])
 
     def change_trend(name: str) -> None:
         """Re-render the chart; it has its own 年/月/周 switch."""
@@ -291,11 +238,12 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         chart_holder.content = trend_chart()
         chart_holder.update()
 
-    trend_selector_row = ft.Row(
-        tight=True,
-        spacing=0,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[dimension_selector(trend_text, change_trend)],
+    trend_selector_row = build_option_row(
+        build_option_selector(
+            trend_text,
+            [(name, name) for name in DIMENSIONS],
+            change_trend,
+        )
     )
 
     def trend_chart() -> ft.Control:
@@ -305,11 +253,14 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                build_line_chart(
+                build_interactive_line_chart(
                     [label for label, _, _ in buckets],
                     trend_series(buckets),
                     trend_width(page),
                     TREND_HEIGHT,
+                    x_label_step=(
+                        1 if state["trend"] in NAMED_AXIS_DIMENSIONS else None
+                    ),
                 ),
                 ft.Row(
                     alignment=ft.MainAxisAlignment.CENTER,
@@ -375,9 +326,9 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                # Material 3 dialogs default to a 28px corner radius; 12 matches
-                # the cards and the popup menu used across the app.
-                shape=ft.RoundedRectangleBorder(radius=12),
+                # Material 3 dialogs default to a 28px corner radius; the app
+                # uses 12 everywhere (cards, popup menu, add-todo dialog).
+                shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
                 inset_padding=ft.Padding.symmetric(horizontal=56, vertical=24),
                 title_padding=ft.Padding.only(left=16, top=12, right=16),
                 content_padding=ft.Padding.only(left=16, right=16),

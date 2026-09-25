@@ -9,6 +9,9 @@ PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 MENU_BAR_BOTTOM = 16
 MENU_BAR_HEIGHT = 54
 MENU_BAR_GAP = 8
+# Material 3 dialogs default to a 28px corner radius; the app uses 12, the same
+# radius as its cards and option panels, so every dialog shares this value.
+DIALOG_RADIUS = 12
 # Distance kept clear at the bottom of scrollable lists so their last row can rest
 # just above the floating menu bar.
 BOTTOM_MENU_INSET = MENU_BAR_BOTTOM + MENU_BAR_HEIGHT + MENU_BAR_GAP
@@ -21,3 +24,12 @@ def page_gradient() -> ft.LinearGradient:
         begin=ft.Alignment.TOP_LEFT,
         end=ft.Alignment.BOTTOM_RIGHT,
     )
+
+
+def text_width(text: str, size: float) -> float:
+    """Rough advance width of `text` drawn at `size`.
+
+    CJK glyphs are full-width while digits and letters take about half, which is
+    enough to reserve room for a label without asking the renderer to measure it.
+    """
+    return sum(size * (1.0 if ord(char) > 0x2E80 else 0.55) for char in text)

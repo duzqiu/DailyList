@@ -17,6 +17,12 @@ ICON_BUTTON_STYLE = ft.ButtonStyle(
 def build_navigation(page: ft.Page) -> None:
     page.padding = 0
     page.spacing = 0
+    # Every colour in this app is a light-mode one (white cards, #172554 text,
+    # white-to-indigo wash), so the Material surfaces it does not paint itself -
+    # dialogs, menus, snackbars - must stay light too. With the default
+    # ThemeMode.SYSTEM a phone in dark mode rendered those surfaces dark and the
+    # hard-coded light text on them was barely readable.
+    page.theme_mode = ft.ThemeMode.LIGHT
     page.theme = ft.Theme(
         icon_button_theme=ft.IconButtonTheme(style=ICON_BUTTON_STYLE)
     )

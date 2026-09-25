@@ -3,12 +3,29 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 from tools import db
-from tools.categories import CATEGORIES, DEFAULT_CATEGORY, build_category_icon
-from tools.layout import BOTTOM_MENU_INSET, page_gradient
+from tools.categories import (
+    CATEGORIES,
+    CATEGORY_STARS,
+    DEFAULT_CATEGORY,
+    STAR_SPACING,
+    build_category_icon,
+)
+from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient, text_width
+from tools.popup_select import (
+    OPTION_TEXT_SIZE,
+    build_option_row,
+    build_option_selector,
+    build_option_text,
+    option_row,
+    option_text,
+)
 from tools.swipe_delete import build_swipe_delete_row
 
-# Shared surface colour: unselected date card, undone todo card and the add button.
+# Shared surface colour of the unselected date card and the undone todo card.
 UNSELECTED_CARD_BG = "#F1F5F9"
+# The floating add button is a sky-blue glass tile: no border ring, and a
+# translucent fill (60%) so the blur behind it shows through.
+ADD_BUTTON_BG = "#990EA5E9"
 DATE_RANGE_BACK_DAYS = 7
 DATE_RANGE_FORWARD_DAYS = 60
 # The seven day cards share the strip's width: every card is an expanding child
@@ -16,20 +33,38 @@ DATE_RANGE_FORWARD_DAYS = 60
 # on any phone width instead of leaving a gap after the last 42px card.
 DATE_CARD_SPACING = 8
 DATE_CARD_HEIGHT = 42
-DATE_FIELD_WIDTH = 190
-DATE_CARET_WIDTH = 32
-DATE_CARET_ALIGN = ft.Alignment(1, 0)
-DATE_CARET = ft.Container(
-    width=DATE_CARET_WIDTH,
-    alignment=DATE_CARET_ALIGN,
-    content=ft.Icon(ft.Icons.EXPAND_MORE, size=18, color="#94A3B8"),
-)
-DATE_CARET_OPEN = ft.Container(
-    width=DATE_CARET_WIDTH,
-    alignment=DATE_CARET_ALIGN,
-    content=ft.Icon(ft.Icons.EXPAND_LESS, size=18, color="#94A3B8"),
-)
-OPTION_STYLE = ft.ButtonStyle(padding=ft.Padding.only(left=10, right=4))
+# The dialog's 日期 panel lists every selectable day, so it is height-capped and
+# scrolls like the Dropdown it replaced did (menu_height=240).
+DATE_MENU_MAX_HEIGHT = 240
+# The 类别 picker repeats the star pair the list pages show next to a category
+# name (five red stars for 重要, three yellow for 一般, one green for 可选).
+CATEGORY_STAR_SIZE = 12
+CATEGORY_STAR_GAP = 6
+
+
+def date_label(day: date) -> str:
+    """「2026年9月24日」- option text and trigger text of the 日期 picker."""
+    return f"{day.year}年{day.month}月{day.day}日"
+
+
+def category_label(name: str, text: ft.Control) -> ft.Control:
+    """「★★★★★ 重要」- the star pair the list pages show beside a category."""
+    return ft.Row(
+        tight=True,
+        spacing=CATEGORY_STAR_GAP,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            build_category_icon(name, size=CATEGORY_STAR_SIZE),
+            text,
+        ],
+    )
+
+
+def category_content_width(name: str) -> float:
+    """Width of「★★★★★ 重要」as a menu entry renders it."""
+    stars = CATEGORY_STARS.get(name, 0)
+    star_width = stars * CATEGORY_STAR_SIZE + max(0, stars - 1) * STAR_SPACING
+    return star_width + CATEGORY_STAR_GAP + text_width(name, OPTION_TEXT_SIZE)
 
 
 def selectable_dates(anchors: list[date]) -> list[date]:
@@ -228,14 +263,13 @@ def build_home_page(
     def save_todo(
         dialog: ft.AlertDialog,
         todo_field: ft.TextField,
-        date_field: ft.Dropdown,
-        category_field: ft.Dropdown,
+        selection: dict[str, str],
     ) -> None:
         item = (todo_field.value or "").strip()
-        if not item or date_field.value is None or category_field.value is None:
+        if not item:
             return
-        selected_date = date.fromisoformat(str(date_field.value))
-        db.add_todo(selected_date, category_field.value, item)
+        selected_date = date.fromisoformat(selection["date"])
+        db.add_todo(selected_date, selection["category"], item)
         reload_todos()
         dialog.open = False
         set_bottom_controls_visible(True)
@@ -244,72 +278,79 @@ def build_home_page(
         page.update()
 
     def open_add_todo(_: ft.Event[ft.Container]) -> None:
-        flat_style = {
+        field_style = {
             "filled": False,
             "border": ft.NoInputBorder(),
             "content_padding": ft.Padding.symmetric(horizontal=0, vertical=6),
             "text_style": ft.TextStyle(size=13, color="#334155"),
             "dense": True,
-            "height": 40,
+            # A todo can be a word or a few lines, so the field shows two lines
+            # and wraps up to five before it scrolls.
+            "multiline": True,
+            "min_lines": 2,
+            "max_lines": 5,
         }
-        select_style = {
-            **flat_style,
-            "trailing_icon": ft.Icon(
-                ft.Icons.EXPAND_MORE,
-                size=18,
-                color="#94A3B8",
-            ),
-            "selected_trailing_icon": ft.Icon(
-                ft.Icons.EXPAND_LESS,
-                size=18,
-                color="#94A3B8",
-            ),
-            "menu_style": ft.MenuStyle(
-                bgcolor="#FFFFFF",
-                elevation=2,
-                shape=ft.RoundedRectangleBorder(radius=12),
-                padding=ft.Padding.symmetric(vertical=6),
-                side=ft.BorderSide(0),
-            ),
+        # The 日期/类别 pickers are the very same option panel as the 我的 page's
+        # 年/月/周 selector. A popup menu button keeps no value of its own, so the
+        # picked entries live here and drive the trigger texts.
+        selection = {
+            "date": dates[selected_index].isoformat(),
+            "category": DEFAULT_CATEGORY,
         }
-        date_select_style = {
-            **select_style,
-            "trailing_icon": DATE_CARET,
-            "selected_trailing_icon": DATE_CARET_OPEN,
-        }
+        date_text = build_option_text(date_label(dates[selected_index]))
+        category_trigger = ft.Container(
+            content=category_label(
+                DEFAULT_CATEGORY, build_option_text(DEFAULT_CATEGORY)
+            )
+        )
+
+        def pick_date(key: str) -> None:
+            selection["date"] = key
+            date_text.value = date_label(date.fromisoformat(key))
+            date_text.update()
+
+        def pick_category(name: str) -> None:
+            selection["category"] = name
+            # Swapping the whole pair keeps the stars in step with the name.
+            category_trigger.content = category_label(
+                name, build_option_text(name)
+            )
+            category_trigger.update()
+
         todo_field = ft.TextField(
             hint_text="请输入待办内容",
             hint_style=ft.TextStyle(size=13, color="#94A3B8"),
             on_focus=lambda _: set_bottom_controls_visible(False),
             on_blur=lambda _: set_bottom_controls_visible(True),
-            **flat_style,
+            **field_style,
         )
-        date_field = ft.Dropdown(
-            width=DATE_FIELD_WIDTH,
-            value=dates[selected_index].isoformat(),
-            options=[
-                ft.DropdownOption(
-                    key=item.isoformat(),
-                    text=f"{item.year}年{item.month}月{item.day}日",
-                    style=OPTION_STYLE,
-                )
-                for item in selectable_dates(dates)
-            ],
-            menu_height=240,
-            **date_select_style,
+        date_selector = build_option_selector(
+            date_text,
+            [(day.isoformat(), date_label(day)) for day in selectable_dates(dates)],
+            pick_date,
+            max_menu_height=DATE_MENU_MAX_HEIGHT,
+            label_builder=lambda label: option_row(option_text(label)),
+            content_width=max(
+                text_width(date_label(day), OPTION_TEXT_SIZE)
+                for day in selectable_dates(dates)
+            ),
         )
-        category_field = ft.Dropdown(
-            width=88,
-            value=DEFAULT_CATEGORY,
-            options=[
-                ft.DropdownOption(key=name, text=name, style=OPTION_STYLE)
-                for name, _, _ in CATEGORIES
-            ],
-            menu_height=160,
-            **select_style,
+        category_selector = build_option_selector(
+            category_trigger,
+            [(name, name) for name, _, _ in CATEGORIES],
+            pick_category,
+            label_builder=lambda name: option_row(
+                category_label(name, option_text(name))
+            ),
+            content_width=max(
+                category_content_width(name) for name, _, _ in CATEGORIES
+            ),
         )
         dialog = ft.AlertDialog(
             modal=True,
+            # Same 12px radius as the 我的 page's 清除 dialog (Material would
+            # round it to 28px by default).
+            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
             title="新增待办",
             title_text_style=ft.TextStyle(
                 size=16,
@@ -327,8 +368,8 @@ def build_home_page(
                 spacing=8,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
-                    ft.Row(controls=[date_field]),
-                    ft.Row(controls=[category_field]),
+                    build_option_row(date_selector),
+                    build_option_row(category_selector),
                     todo_field,
                 ],
             ),
@@ -340,7 +381,7 @@ def build_home_page(
                 ft.TextButton(
                     "保存",
                     on_click=lambda _: save_todo(
-                        dialog, todo_field, date_field, category_field
+                        dialog, todo_field, selection
                     ),
                 ),
             ],
@@ -363,8 +404,7 @@ def build_home_page(
         width=52,
         height=52,
         border_radius=ft.BorderRadius.all(16),
-        bgcolor=UNSELECTED_CARD_BG,
-        border=ft.Border.all(1, "#80FFFFFF"),
+        bgcolor=ADD_BUTTON_BG,
         blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
         content=ft.IconButton(
             icon=ft.Icons.ADD,
