@@ -269,7 +269,10 @@ def build_home_page(
         if not item:
             return
         selected_date = date.fromisoformat(selection["date"])
-        db.add_todo(selected_date, selection["category"], item)
+        # A repeating cycle also schedules the follow-ups from this start date.
+        db.add_todo(
+            selected_date, selection["category"], item, selection["cycle"]
+        )
         reload_todos()
         dialog.open = False
         set_bottom_controls_visible(True)
@@ -296,6 +299,7 @@ def build_home_page(
         selection = {
             "date": dates[selected_index].isoformat(),
             "category": DEFAULT_CATEGORY,
+            "cycle": db.DEFAULT_CYCLE,
         }
         date_text = build_option_text(date_label(dates[selected_index]))
         category_trigger = ft.Container(
@@ -303,6 +307,7 @@ def build_home_page(
                 DEFAULT_CATEGORY, build_option_text(DEFAULT_CATEGORY)
             )
         )
+        cycle_text = build_option_text(db.DEFAULT_CYCLE)
 
         def pick_date(key: str) -> None:
             selection["date"] = key
@@ -316,6 +321,11 @@ def build_home_page(
                 name, build_option_text(name)
             )
             category_trigger.update()
+
+        def pick_cycle(name: str) -> None:
+            selection["cycle"] = name
+            cycle_text.value = name
+            cycle_text.update()
 
         todo_field = ft.TextField(
             hint_text="请输入待办内容",
@@ -346,6 +356,14 @@ def build_home_page(
                 category_content_width(name) for name, _, _ in CATEGORIES
             ),
         )
+        cycle_selector = build_option_selector(
+            cycle_text,
+            [(name, name) for name in db.REPEAT_CYCLES],
+            pick_cycle,
+            content_width=max(
+                text_width(name, OPTION_TEXT_SIZE) for name in db.REPEAT_CYCLES
+            ),
+        )
         dialog = ft.AlertDialog(
             modal=True,
             # Same 12px radius as the 我的 page's 清除 dialog (Material would
@@ -370,6 +388,7 @@ def build_home_page(
                 controls=[
                     build_option_row(date_selector),
                     build_option_row(category_selector),
+                    build_option_row(cycle_selector),
                     todo_field,
                 ],
             ),

@@ -3,11 +3,12 @@ from bisect import bisect_right
 import flet as ft
 from datetime import date, timedelta
 
-from tools import db
+from tools import db, notifications
 from tools.categories import CATEGORIES, build_category_icon
-from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient
+from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient, text_width
 from tools.line_chart import build_interactive_line_chart
 from tools.popup_select import (
+    OPTION_TEXT_SIZE,
     build_option_row,
     build_option_selector,
     build_option_text,
@@ -354,10 +355,126 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             )
         )
 
+    notify_summary = ft.Text("", size=11, color=MUTED_COLOR)
+
+    def refresh_notify_summary() -> None:
+        notify_summary.value = notifications.summary(
+            db.get_setting(
+                notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
+            ),
+            db.get_setting(notifications.URL_SETTING, ""),
+        )
+
+    def open_notify_settings(_: ft.Event[ft.Container]) -> None:
+        """通知渠道 dialog: the channel picker plus its delivery address."""
+        channel_text = build_option_text(
+            db.get_setting(
+                notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
+            )
+        )
+        selection = {"channel": channel_text.value}
+
+        def pick_channel(name: str) -> None:
+            selection["channel"] = name
+            channel_text.value = name
+            channel_text.update()
+
+        channel_selector = build_option_selector(
+            channel_text,
+            [(name, name) for name in notifications.CHANNELS],
+            pick_channel,
+            content_width=max(
+                text_width(name, OPTION_TEXT_SIZE)
+                for name in notifications.CHANNELS
+            ),
+        )
+        url_field = ft.TextField(
+            value=db.get_setting(notifications.URL_SETTING, ""),
+            hint_text="粘贴通知地址",
+            hint_style=ft.TextStyle(size=13, color="#94A3B8"),
+            filled=False,
+            border=ft.NoInputBorder(),
+            content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
+            text_style=ft.TextStyle(size=13, color="#334155"),
+            dense=True,
+            height=40,
+        )
+
+        def save_notify(_: ft.Event[ft.Control]) -> None:
+            db.set_setting(notifications.CHANNEL_SETTING, selection["channel"])
+            db.set_setting(
+                notifications.URL_SETTING, (url_field.value or "").strip()
+            )
+            dialog.open = False
+            refresh_notify_summary()
+            notify_summary.update()
+            page.update()
+            notify("通知渠道已保存")
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
+            inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
+            title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
+            content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
+            actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
+            action_button_padding=ft.Padding.symmetric(horizontal=8),
+            title=ft.Text(
+                "通知渠道",
+                size=15,
+                weight=ft.FontWeight.BOLD,
+                color=TITLE_COLOR,
+            ),
+            content=ft.Column(
+                tight=True,
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    build_option_row(channel_selector),
+                    url_field,
+                ],
+            ),
+            actions=[
+                ft.TextButton("取消", on_click=lambda _: page.pop_dialog()),
+                ft.TextButton("保存", on_click=save_notify),
+            ],
+        )
+        page.show_dialog(dialog)
+
     def settings_card() -> ft.Control:
         return build_card(
             "设置",
             [
+                ft.Container(
+                    ink=True,
+                    border_radius=ft.BorderRadius.all(8),
+                    on_click=open_notify_settings,
+                    content=ft.Row(
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Column(
+                                tight=True,
+                                spacing=2,
+                                expand=True,
+                                controls=[
+                                    ft.Text(
+                                        "通知渠道",
+                                        size=13,
+                                        weight=ft.FontWeight.BOLD,
+                                        color=TITLE_COLOR,
+                                    ),
+                                    notify_summary,
+                                ],
+                            ),
+                            ft.Icon(
+                                ft.Icons.CHEVRON_RIGHT,
+                                size=20,
+                                color="#94A3B8",
+                            ),
+                        ],
+                    ),
+                ),
                 ft.Row(
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -391,6 +508,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         )
 
     render(update=False)
+    refresh_notify_summary()
 
     return ft.Container(
         expand=True,
