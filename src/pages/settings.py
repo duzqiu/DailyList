@@ -124,19 +124,19 @@ def trend_series(
 ) -> list[tuple[str, list[int], str]]:
     """Per-category todo counts for every bucket, ready for the line chart."""
     starts = [first for _, first, _ in buckets]
-    counts = {name: [0] * len(buckets) for name, _, _ in CATEGORIES}
+    counts = {name: [0] * len(buckets) for name, _ in CATEGORIES}
     for todo in db.list_range(starts[0], buckets[-1][2]):
         if todo.category not in counts:
             continue
         index = bisect_right(starts, todo.due_date) - 1
         if index >= 0 and todo.due_date <= buckets[index][2]:
             counts[todo.category][index] += 1
-    return [(name, counts[name], color) for name, color, _ in CATEGORIES]
+    return [(name, counts[name], color) for name, color in CATEGORIES]
 
 
 def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
     """Aggregate (category, done, count) rows into per-category buckets."""
-    per_category = {name: dict.fromkeys(STATUS_KEYS, 0) for name, _, _ in CATEGORIES}
+    per_category = {name: dict.fromkeys(STATUS_KEYS, 0) for name, _ in CATEGORIES}
     for category, done, count in rows:
         bucket = per_category.setdefault(category, dict.fromkeys(STATUS_KEYS, 0))
         status = "done" if done else "pending"
@@ -147,7 +147,7 @@ def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
 
 def build_settings_page(page: ft.Page) -> ft.Control:
     today = date.today()
-    category_names = [name for name, _, _ in CATEGORIES]
+    category_names = [name for name, _ in CATEGORIES]
     # The statistics card and the trend chart keep their own 年/月/周 selection.
     state = {"dimension": DIMENSIONS[0], "trend": DIMENSIONS[0]}
 
@@ -160,6 +160,16 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         )
         for name in category_names
         for key in STATUS_KEYS
+    }
+    # 完成率 is derived, so it keeps its own control per category.
+    rates = {
+        name: ft.Text(
+            "—",
+            size=11,
+            weight=ft.FontWeight.BOLD,
+            color=TITLE_COLOR,
+        )
+        for name in category_names
     }
 
     def category_card(name: str) -> ft.Control:
@@ -202,6 +212,14 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                         )
                         for key in STATUS_KEYS
                     ],
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        spacing=2,
+                        controls=[
+                            ft.Text("完成率", size=9, color=MUTED_COLOR),
+                            rates[name],
+                        ],
+                    ),
                 ],
             ),
         )
@@ -280,7 +298,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                                 ft.Text(name, size=11, color=MUTED_COLOR),
                             ],
                         )
-                        for name, color, _ in CATEGORIES
+                        for name, color in CATEGORIES
                     ],
                 ),
             ],
@@ -295,9 +313,13 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             bucket = per_category.get(name, dict.fromkeys(STATUS_KEYS, 0))
             for key in STATUS_KEYS:
                 numbers[(name, key)].value = str(bucket[key])
+            total = bucket["all"]
+            rates[name].value = (
+                f"{round(bucket['done'] / total * 100)}%" if total else "—"
+            )
         chart_holder.content = trend_chart()
         if update:
-            for control in [*numbers.values(), chart_holder]:
+            for control in [*numbers.values(), *rates.values(), chart_holder]:
                 control.update()
 
     def notify(message: str) -> None:
@@ -310,11 +332,37 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         )
 
     def compact_button_style() -> ft.ButtonStyle:
-        """Compact metrics shared by the 清除 action and its dialog buttons."""
+        """Compact metrics of the card's own 清除 action button."""
         return ft.ButtonStyle(
             padding=ft.Padding.symmetric(horizontal=10, vertical=2),
             text_style=ft.TextStyle(size=12),
             visual_density=ft.VisualDensity.COMPACT,
+        )
+
+    def settings_dialog(
+        title: str, content: ft.Control, actions: list[ft.Control]
+    ) -> ft.AlertDialog:
+        """Dialog chrome shared by the 清除缓存 and 通知渠道 dialogs.
+
+        Both must look like the add-todo dialog: 12px radius, the same paddings
+        and the same plain text buttons.
+        """
+        return ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
+            inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
+            title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
+            content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
+            actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
+            action_button_padding=ft.Padding.symmetric(horizontal=8),
+            title=ft.Text(
+                title,
+                size=16,
+                weight=ft.FontWeight.BOLD,
+                color=TITLE_COLOR,
+            ),
+            content=content,
+            actions=actions,
         )
 
     def clear_data(_: ft.Event[ft.Control]) -> None:
@@ -325,33 +373,16 @@ def build_settings_page(page: ft.Page) -> ft.Control:
 
     def confirm_clear(_: ft.Event[ft.Control]) -> None:
         page.show_dialog(
-            ft.AlertDialog(
-                modal=True,
-                # Material 3 dialogs default to a 28px corner radius; the app
-                # uses 12 everywhere (cards, popup menu, add-todo dialog).
-                shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-                inset_padding=ft.Padding.symmetric(horizontal=56, vertical=24),
-                title_padding=ft.Padding.only(left=16, top=12, right=16),
-                content_padding=ft.Padding.only(left=16, right=16),
-                actions_padding=ft.Padding.only(left=12, right=12, bottom=8),
-                title=ft.Text("清除缓存", size=15, weight=ft.FontWeight.BOLD),
-                content=ft.Text(
+            settings_dialog(
+                "清除缓存",
+                ft.Text(
                     "将删除数据库中当前所有的待办数据，且无法恢复。",
                     size=12,
                 ),
-                actions=[
-                    ft.OutlinedButton(
-                        "取消",
-                        on_click=lambda _: page.pop_dialog(),
-                        style=compact_button_style(),
-                    ),
-                    ft.Button(
-                        "确认清除",
-                        on_click=clear_data,
-                        style=compact_button_style(),
-                    ),
+                [
+                    ft.TextButton("取消", on_click=lambda _: page.pop_dialog()),
+                    ft.TextButton("确认清除", on_click=clear_data),
                 ],
-                actions_alignment=ft.MainAxisAlignment.END,
             )
         )
 
@@ -411,21 +442,9 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             page.update()
             notify("通知渠道已保存")
 
-        dialog = ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-            inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
-            title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
-            content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
-            actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
-            action_button_padding=ft.Padding.symmetric(horizontal=8),
-            title=ft.Text(
-                "通知渠道",
-                size=15,
-                weight=ft.FontWeight.BOLD,
-                color=TITLE_COLOR,
-            ),
-            content=ft.Column(
+        dialog = settings_dialog(
+            "通知渠道",
+            ft.Column(
                 tight=True,
                 spacing=8,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -434,7 +453,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                     url_field,
                 ],
             ),
-            actions=[
+            [
                 ft.TextButton("取消", on_click=lambda _: page.pop_dialog()),
                 ft.TextButton("保存", on_click=save_notify),
             ],
@@ -446,7 +465,6 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             "设置",
             [
                 ft.Container(
-                    ink=True,
                     border_radius=ft.BorderRadius.all(8),
                     on_click=open_notify_settings,
                     content=ft.Row(

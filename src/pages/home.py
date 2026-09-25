@@ -5,9 +5,7 @@ from datetime import date, timedelta
 from tools import db
 from tools.categories import (
     CATEGORIES,
-    CATEGORY_STARS,
     DEFAULT_CATEGORY,
-    STAR_SPACING,
     build_category_icon,
 )
 from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient, text_width
@@ -33,6 +31,12 @@ DATE_RANGE_FORWARD_DAYS = 60
 # on any phone width instead of leaving a gap after the last 42px card.
 DATE_CARD_SPACING = 8
 DATE_CARD_HEIGHT = 42
+DATE_CARD_SIDE_PADDING = 4
+# The date line carries the month. Below this card width 「9月25日」 no longer
+# fits between the card's paddings and the label shortens to 「9.25」.
+DATE_DAY_SIZE = 13
+PAGE_SIDE_PADDING = 24
+DATE_FALLBACK_PAGE_WIDTH = 390
 # The dialog's 日期 panel lists every selectable day, so it is height-capped and
 # scrolls like the Dropdown it replaced did (menu_height=240).
 DATE_MENU_MAX_HEIGHT = 240
@@ -61,10 +65,26 @@ def category_label(name: str, text: ft.Control) -> ft.Control:
 
 
 def category_content_width(name: str) -> float:
-    """Width of「★★★★★ 重要」as a menu entry renders it."""
-    stars = CATEGORY_STARS.get(name, 0)
-    star_width = stars * CATEGORY_STAR_SIZE + max(0, stars - 1) * STAR_SPACING
-    return star_width + CATEGORY_STAR_GAP + text_width(name, OPTION_TEXT_SIZE)
+    """Width of「★ 重要」as a menu entry renders it."""
+    return CATEGORY_STAR_SIZE + CATEGORY_STAR_GAP + text_width(
+        name, OPTION_TEXT_SIZE
+    )
+
+
+def date_card_width(page: ft.Page) -> float:
+    """Width one of the seven date cards gets on the current window."""
+    page_width = getattr(page, "width", None) or DATE_FALLBACK_PAGE_WIDTH
+    return (
+        page_width - 2 * PAGE_SIDE_PADDING - 6 * DATE_CARD_SPACING
+    ) / 7
+
+
+def date_card_label(day: date, card_width: float) -> str:
+    """「9月25日」, shortened to「9.25」when the card is too narrow for it."""
+    full = f"{day.month}月{day.day}日"
+    if text_width(full, DATE_DAY_SIZE) <= card_width - 2 * DATE_CARD_SIDE_PADDING:
+        return full
+    return f"{day.month}.{day.day}"
 
 
 def selectable_dates(anchors: list[date]) -> list[date]:
@@ -93,6 +113,9 @@ def build_home_page(
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     todos_by_day = group_todos_by_day(db.list_todos(dates))
     selected_index = 0
+    # The seven cards share the window width, which decides whether their date
+    # line can spell out 「9月25日」 or has to shorten to 「9.25」.
+    date_width = date_card_width(page)
     date_selector = ft.Row(spacing=DATE_CARD_SPACING)
     todo_title = ft.Text(
         "",
@@ -210,7 +233,7 @@ def build_home_page(
         day_items = todos_by_day.get(selected_date, {})
         groups = [
             build_category_group(name, color, day_items.get(name, []))
-            for name, color, _ in CATEGORIES
+            for name, color in CATEGORIES
             if day_items.get(name)
         ]
         todo_title.value = f"{selected_date.month}月{selected_date.day}日待办"
@@ -223,7 +246,9 @@ def build_home_page(
             key=f"date-{selected_date.isoformat()}",
             expand=1,
             height=DATE_CARD_HEIGHT,
-            padding=ft.Padding.symmetric(horizontal=4, vertical=3),
+            padding=ft.Padding.symmetric(
+                horizontal=DATE_CARD_SIDE_PADDING, vertical=3
+            ),
             border_radius=ft.BorderRadius.all(6),
             bgcolor="#172554" if selected else UNSELECTED_CARD_BG,
             alignment=ft.Alignment.CENTER,
@@ -240,8 +265,8 @@ def build_home_page(
                         color="#FFFFFF" if selected else "#64748B",
                     ),
                     ft.Text(
-                        str(selected_date.day),
-                        size=13,
+                        date_card_label(selected_date, date_width),
+                        size=DATE_DAY_SIZE,
                         weight=ft.FontWeight.BOLD,
                         color="#FFFFFF" if selected else "#172554",
                     ),
@@ -347,13 +372,13 @@ def build_home_page(
         )
         category_selector = build_option_selector(
             category_trigger,
-            [(name, name) for name, _, _ in CATEGORIES],
+            [(name, name) for name, _ in CATEGORIES],
             pick_category,
             label_builder=lambda name: option_row(
                 category_label(name, option_text(name))
             ),
             content_width=max(
-                category_content_width(name) for name, _, _ in CATEGORIES
+                category_content_width(name) for name, _ in CATEGORIES
             ),
         )
         cycle_selector = build_option_selector(
@@ -455,7 +480,11 @@ def build_home_page(
                         content=ft.Container(
                             expand=True,
                             alignment=ft.Alignment.TOP_LEFT,
-                            padding=ft.Padding.only(left=24, top=24, right=24),
+                            padding=ft.Padding.only(
+                                left=PAGE_SIDE_PADDING,
+                                top=PAGE_SIDE_PADDING,
+                                right=PAGE_SIDE_PADDING,
+                            ),
                             content=ft.Column(
                                 expand=True,
                                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,

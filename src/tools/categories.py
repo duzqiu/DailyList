@@ -1,18 +1,17 @@
-"""Todo categories: colours and star icons shared by the pages."""
+"""Todo categories: colours and the star that marks them."""
 
 import flet as ft
 
 STAR_SIZE = 13
-STAR_SPACING = 1
 DEFAULT_COLOR = "#64748B"
 
+# One star marks a category, in the category's own colour.
 CATEGORIES = (
-    ("重要", "#DC2626", 5),
-    ("一般", "#EAB308", 3),
-    ("可选", "#16A34A", 1),
+    ("重要", "#DC2626"),
+    ("一般", "#EAB308"),
+    ("可选", "#16A34A"),
 )
-CATEGORY_COLORS = {name: color for name, color, _ in CATEGORIES}
-CATEGORY_STARS = {name: stars for name, _, stars in CATEGORIES}
+CATEGORY_COLORS = {name: color for name, color in CATEGORIES}
 DEFAULT_CATEGORY = "一般"
 
 
@@ -22,13 +21,7 @@ def category_color(name: str) -> str:
 
 
 def build_category_icon(name: str, size: float = STAR_SIZE) -> ft.Control:
-    """Star rating: five red stars for 重要, three yellow, one green."""
-    stars = CATEGORY_STARS.get(name)
-    if stars is None:
+    """The category's star: red for 重要, yellow for 一般, green for 可选."""
+    if name not in CATEGORY_COLORS:
         return ft.Icon(ft.Icons.LABEL_OUTLINE, size=size, color=DEFAULT_COLOR)
-    color = category_color(name)
-    return ft.Row(
-        tight=True,
-        spacing=STAR_SPACING,
-        controls=[ft.Icon(ft.Icons.STAR, size=size, color=color) for _ in range(stars)],
-    )
+    return ft.Icon(ft.Icons.STAR, size=size, color=category_color(name))
