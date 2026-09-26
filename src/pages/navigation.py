@@ -1,6 +1,7 @@
 import flet as ft
 
 from pages.calendar import build_calendar_page
+from pages.countdown import build_countdown_page
 from pages.home import build_home_page
 from pages.settings import build_settings_page
 from tools.layout import (
@@ -80,8 +81,10 @@ def build_navigation(page: ft.Page) -> None:
         content.content = (
             build_home_page(page, set_menu_visible)
             if index == 0
-            else             build_calendar_page(page)
+            else             build_countdown_page(page, set_menu_visible)
             if index == 1
+            else             build_calendar_page(page, set_menu_visible)
+            if index == 2
             else build_settings_page(page)
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -129,13 +132,20 @@ def build_navigation(page: ft.Page) -> None:
             menu_item(0, ft.Icons.HOME_OUTLINED, ft.Icons.HOME, "首页", "home-tab"),
             menu_item(
                 1,
+                ft.Icons.HOURGLASS_EMPTY,
+                ft.Icons.HOURGLASS_BOTTOM,
+                "倒数日",
+                "countdown-tab",
+            ),
+            menu_item(
+                2,
                 ft.Icons.CALENDAR_MONTH_OUTLINED,
                 ft.Icons.CALENDAR_MONTH,
                 "日历",
                 "calendar-tab",
             ),
             menu_item(
-                2,
+                3,
                 ft.Icons.PERSON_OUTLINED,
                 ft.Icons.PERSON,
                 "我的",

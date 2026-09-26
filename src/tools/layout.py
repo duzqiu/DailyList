@@ -1,5 +1,7 @@
 """Shared layout metrics and page background of the app."""
 
+from datetime import date
+
 import flet as ft
 
 BACKGROUND_COLORS = ("#FFFFFF", "#EEF2FF")
@@ -10,6 +12,12 @@ PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 # keeps the same neutral card as a completed one - no fill either way. Only the
 # done state changes the text: grey, struck through, behind a green check.
 SKY_BLUE = "#B2E0F4"
+# Surface colour of an unselected card - the home date strip, the todo cards and
+# the compact date picker all share it.
+UNSELECTED_CARD_BG = "#F1F5F9"
+# The picked day's blue: the home date strip, the 日历 month grid and the dialogs'
+# compact calendar all read it from here.
+DATE_SELECTED_BG = "#DCEDF6"
 # A completed todo greys out and is struck through, the way a paper list reads
 # once an item is ticked off.
 TODO_DONE_TEXT = "#94A3B8"
@@ -109,6 +117,11 @@ def todo_text_style(done: bool) -> ft.TextStyle | None:
 def todo_time_label(due_time: str) -> str:
     """「09:30」- how a todo's time of day is printed, here and in the picker."""
     return due_time
+
+
+def date_label(day: date) -> str:
+    """「2026年10月1日」- the long form the dialogs show a picked day in."""
+    return f"{day.year}年{day.month}月{day.day}日"
 
 
 def text_width(text: str, size: float) -> float:

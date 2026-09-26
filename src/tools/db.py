@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS settings (
     name TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS countdowns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    due_date TEXT NOT NULL,
+    cycle TEXT NOT NULL DEFAULT '不循环',
+    content TEXT NOT NULL,
+    bgcolor TEXT NOT NULL DEFAULT '#F1F5F9',
+    created_at TEXT NOT NULL
+);
 """
 
 # 待办的循环周期: the value stored in `todos.repeat_cycle`.
@@ -60,17 +69,43 @@ MAX_OCCURRENCES = 400
 ADDED_COLUMNS = (
     ("todos", "repeat_cycle", "TEXT NOT NULL DEFAULT '不循环'"),
     ("todos", "due_time", "TEXT NOT NULL DEFAULT ''"),
+    ("countdowns", "bgcolor", "TEXT NOT NULL DEFAULT '#F1F5F9'"),
 )
 
-# The 时间 picker is split in two panels - one of hours, one of minutes - so any
-# minute of the day can be picked instead of a fixed grid of slots.
-TIME_HOURS = tuple(f"{hour:02d}" for hour in range(24))
-TIME_MINUTES = tuple(f"{minute:02d}" for minute in range(60))
 # The dialog opens on the current clock, rounded down to this many minutes so the
 # default reads as a round number.
 DEFAULT_TIME_STEP_MINUTES = 5
 
 _MONTH_STEPS = {"一月": 1, "三月": 3, "六月": 6, "一年": 12}
+_DAY_STEPS = {"每天": 1, "三天": 3, "一周": 7}
+
+
+def next_occurrence(start: date, cycle: str, on_or_after: date) -> date:
+    """First date of `start`'s cycle series that is not before `on_or_after`.
+
+    倒数日 reuse the todo cycles: 不循环 keeps its single date (even a past one),
+    while 每天/一周/每年… walk forward from the anchor so a birthday stays a
+    birthday every year. The step count is estimated first, then nudged, so an
+    anchor decades old still resolves in a couple of iterations.
+    """
+    if cycle not in REPEAT_CYCLES or cycle == DEFAULT_CYCLE:
+        return start
+    if start >= on_or_after:
+        return start
+    day_step = _DAY_STEPS.get(cycle)
+    if day_step:
+        steps = (on_or_after - start).days // day_step
+    else:
+        months = _MONTH_STEPS.get(cycle, 1)
+        steps = (
+            (on_or_after.year - start.year) * 12
+            + on_or_after.month
+            - start.month
+        ) // months
+    steps = max(0, steps - 1)
+    while _shift(start, cycle, steps) < on_or_after:
+        steps += 1
+    return _shift(start, cycle, steps)
 
 
 def default_time(now: datetime | None = None) -> str:
@@ -108,12 +143,9 @@ def _shift(start: date, repeat_cycle: str, steps: int) -> date:
     todo on the 31st stays on the 31st (clamping only in short months) instead of
     drifting to the 28th for good.
     """
-    if repeat_cycle == "三天":
-        return start + timedelta(days=3 * steps)
-    if repeat_cycle == "每天":
-        return start + timedelta(days=steps)
-    if repeat_cycle == "一周":
-        return start + timedelta(days=7 * steps)
+    day_step = _DAY_STEPS.get(repeat_cycle)
+    if day_step:
+        return start + timedelta(days=day_step * steps)
     months = _MONTH_STEPS.get(repeat_cycle, 0)
     if months == 0:
         return start
@@ -135,6 +167,18 @@ class Todo:
     # "HH:MM" for todos that carry a time of day; empty for rows created before
     # the 时间 field existed.
     due_time: str = ""
+
+
+@dataclass(frozen=True)
+class Countdown:
+    """一个倒数日: the anchor date, the repeat cycle and what it counts down to."""
+
+    id: int
+    due_date: date
+    cycle: str
+    content: str
+    # The card's own background, picked when the countdown is added.
+    bgcolor: str = "#F1F5F9"
 
 
 def connect() -> sqlite3.Connection:
@@ -213,6 +257,99 @@ def delete_todo(todo_id: int) -> None:
         connection.close()
 
 
+def get_todo(todo_id: int) -> Todo | None:
+    connection = connect()
+    try:
+        row = connection.execute(
+            "SELECT id, due_date, due_time, category, content, done,"
+            " repeat_cycle FROM todos WHERE id = ?",
+            (todo_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _to_todo(row) if row else None
+
+
+def todo_series(todo_id: int) -> list[Todo]:
+    """Every row of the repeating series `todo_id` belongs to, oldest first.
+
+    A repeating 待办 materialises one row per occurrence; the rows of one series
+    were inserted in the same call, so they share `created_at`, `repeat_cycle`
+    and content. A 不循环 todo is a series of one.
+    """
+    todo = get_todo(todo_id)
+    if todo is None:
+        return []
+    connection = connect()
+    try:
+        row = connection.execute(
+            "SELECT created_at FROM todos WHERE id = ?", (todo_id,)
+        ).fetchone()
+        if todo.repeat_cycle == DEFAULT_CYCLE:
+            return [todo]
+        rows = connection.execute(
+            "SELECT id, due_date, due_time, category, content, done,"
+            " repeat_cycle FROM todos WHERE created_at = ? AND repeat_cycle = ?"
+            " AND content = ? ORDER BY due_date, id",
+            (row["created_at"], todo.repeat_cycle, todo.content),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_to_todo(r) for r in rows]
+
+
+def update_todo(
+    todo_id: int,
+    due_date: date,
+    category: str,
+    content: str,
+    repeat_cycle: str = DEFAULT_CYCLE,
+    due_time: str = "",
+) -> int:
+    """Edit one 待办, keeping its whole cycle in step. Returns rows written.
+
+    The edited row may be any occurrence of a repeating series, so the series is
+    rebuilt from its own anchor shifted by however far the edited day moved -
+    editing the 5th of a daily series to the 6th moves the whole series by one
+    day. Occurrences that were already done stay done (matched by their place in
+    the series, so a shift keeps the ticks), and a 不循环 todo simply becomes its
+    single edited row.
+    """
+    todo = get_todo(todo_id)
+    if todo is None:
+        return 0
+    series = todo_series(todo_id) or [todo]
+    done_places = {index for index, item in enumerate(series) if item.done}
+    anchor = min(item.due_date for item in series)
+    start = due_date - (todo.due_date - anchor)
+    ids = [item.id for item in series]
+    created_at = _now()
+    connection = connect()
+    try:
+        placeholders = ", ".join("?" for _ in ids)
+        connection.execute(f"DELETE FROM todos WHERE id IN ({placeholders})", ids)
+        written = 0
+        for place, day in enumerate(occurrence_dates(start, repeat_cycle)):
+            connection.execute(
+                "INSERT INTO todos (due_date, due_time, category, content, done,"
+                " repeat_cycle, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    day.isoformat(),
+                    due_time,
+                    category,
+                    content,
+                    1 if place in done_places else 0,
+                    repeat_cycle,
+                    created_at,
+                ),
+            )
+            written += 1
+        connection.commit()
+        return written
+    finally:
+        connection.close()
+
+
 def clear_todos() -> int:
     """Delete every todo row, returning how many rows were removed."""
     connection = connect()
@@ -220,6 +357,100 @@ def clear_todos() -> int:
         cursor = connection.execute("DELETE FROM todos")
         connection.commit()
         return int(cursor.rowcount)
+    finally:
+        connection.close()
+
+
+def add_countdown(
+    due_date: date,
+    content: str,
+    cycle: str = DEFAULT_CYCLE,
+    bgcolor: str = "#F1F5F9",
+) -> int:
+    """Add a 倒数日 row and return its id."""
+    connection = connect()
+    try:
+        cursor = connection.execute(
+            "INSERT INTO countdowns (due_date, cycle, content, bgcolor,"
+            " created_at) VALUES (?, ?, ?, ?, ?)",
+            (due_date.isoformat(), cycle, content, bgcolor, _now()),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+    finally:
+        connection.close()
+
+
+def list_countdowns() -> list[Countdown]:
+    """Every 倒数日, oldest anchor first; the page sorts by the countdown."""
+    connection = connect()
+    try:
+        rows = connection.execute(
+            "SELECT id, due_date, cycle, content, bgcolor FROM countdowns"
+            " ORDER BY id"
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        Countdown(
+            id=row["id"],
+            due_date=date.fromisoformat(row["due_date"]),
+            cycle=row["cycle"],
+            content=row["content"],
+            bgcolor=row["bgcolor"],
+        )
+        for row in rows
+    ]
+
+
+def delete_countdown(countdown_id: int) -> None:
+    connection = connect()
+    try:
+        connection.execute(
+            "DELETE FROM countdowns WHERE id = ?", (countdown_id,)
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def get_countdown(countdown_id: int) -> Countdown | None:
+    connection = connect()
+    try:
+        row = connection.execute(
+            "SELECT id, due_date, cycle, content, bgcolor FROM countdowns"
+            " WHERE id = ?",
+            (countdown_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    return Countdown(
+        id=row["id"],
+        due_date=date.fromisoformat(row["due_date"]),
+        cycle=row["cycle"],
+        content=row["content"],
+        bgcolor=row["bgcolor"],
+    )
+
+
+def update_countdown(
+    countdown_id: int,
+    due_date: date,
+    content: str,
+    cycle: str = DEFAULT_CYCLE,
+    bgcolor: str = "#F1F5F9",
+) -> None:
+    """Edit a 倒数日. Its 周期 is a rule on this one row, so nothing else follows."""
+    connection = connect()
+    try:
+        connection.execute(
+            "UPDATE countdowns SET due_date = ?, content = ?, cycle = ?,"
+            " bgcolor = ? WHERE id = ?",
+            (due_date.isoformat(), content, cycle, bgcolor, countdown_id),
+        )
+        connection.commit()
     finally:
         connection.close()
 

@@ -2,8 +2,14 @@
 
 import flet as ft
 
+from tools.layout import text_width
+
 STAR_SIZE = 13
 DEFAULT_COLOR = "#64748B"
+# The dialog's 类别 picker draws the star pair smaller than the list headers do.
+PICKER_STAR_SIZE = 12
+PICKER_STAR_GAP = 6
+PICKER_TEXT_SIZE = 12
 
 # One star marks a category, in the category's own colour.
 CATEGORIES = (
@@ -25,3 +31,23 @@ def build_category_icon(name: str, size: float = STAR_SIZE) -> ft.Control:
     if name not in CATEGORY_COLORS:
         return ft.Icon(ft.Icons.LABEL_OUTLINE, size=size, color=DEFAULT_COLOR)
     return ft.Icon(ft.Icons.STAR, size=size, color=category_color(name))
+
+
+def build_category_label(name: str, text: ft.Control) -> ft.Control:
+    """「★ 重要」- the star pair the list pages and the 类别 picker show."""
+    return ft.Row(
+        tight=True,
+        spacing=PICKER_STAR_GAP,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            build_category_icon(name, size=PICKER_STAR_SIZE),
+            text,
+        ],
+    )
+
+
+def category_label_width(name: str) -> float:
+    """Width of「★ 重要」as a menu entry renders it."""
+    return PICKER_STAR_SIZE + PICKER_STAR_GAP + text_width(
+        name, PICKER_TEXT_SIZE
+    )

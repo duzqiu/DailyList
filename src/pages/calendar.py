@@ -1,13 +1,21 @@
 import calendar
+from collections.abc import Callable
 from datetime import date
 
 import flet as ft
 
 from tools import db
 from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
+from tools.countdown_card import (
+    ACCENT_COLOR as COUNTDOWN_COLOR,
+    build_countdown_card,
+    countdowns_on,
+)
+from tools.countdown_form import open_countdown_form
 # The month grid draws the very same day badge as the home date strip: same
 # circle, same face, same colours for today, the picked day and the rest.
 from pages.home import build_date_badge, date_badge_bg
+from tools.pickers import build_date_picker
 from tools.layout import (
     BOTTOM_MENU_INSET,
     TODO_DONE_TEXT,
@@ -20,6 +28,7 @@ from tools.layout import (
     todo_time_label,
 )
 from tools.swipe_delete import build_swipe_delete_row
+from tools.todo_form import open_todo_form
 
 DONE_COLOR = "#16A34A"
 PENDING_COLOR = "#EAB308"
@@ -38,7 +47,9 @@ DAY_CELL_HEIGHT = 36
 DAY_CELL_SPACING = 6
 
 
-def build_calendar_page(page: ft.Page) -> ft.Control:
+def build_calendar_page(
+    page: ft.Page, set_menu_visible: Callable[[bool], None]
+) -> ft.Control:
     today = date.today()
     visible_month = date(today.year, today.month, 1)
     selected_day = today
@@ -61,6 +72,30 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
         update_calendar()
+
+    def remove_countdown(countdown_id: int) -> None:
+        db.delete_countdown(countdown_id)
+        update_calendar()
+
+    def edit_countdown(item: db.Countdown) -> None:
+        open_countdown_form(
+            page,
+            set_menu_visible=set_menu_visible,
+            on_saved=update_calendar,
+            item=item,
+        )
+
+    def edit_todo(todo_id: int) -> None:
+        todo = db.get_todo(todo_id)
+        if todo is None:
+            return
+        open_todo_form(
+            page,
+            set_menu_visible=set_menu_visible,
+            on_saved=lambda _: update_calendar(),
+            default_date=todo.due_date,
+            todo=todo,
+        )
 
     def todo_card(todo: db.Todo) -> ft.Control:
         lines = [
@@ -106,7 +141,11 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 ],
             ),
         )
-        return build_swipe_delete_row(card, lambda _: delete_todo(todo.id))
+        return build_swipe_delete_row(
+            card,
+            lambda _: delete_todo(todo.id),
+            lambda _: edit_todo(todo.id),
+        )
 
     def build_empty_hint() -> ft.Control:
         return ft.Container(
@@ -136,8 +175,6 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         names = [name for name in CATEGORY_COLORS if grouped.get(name)]
         names += [name for name in grouped if name not in CATEGORY_COLORS]
         groups: list[ft.Control] = []
-        if not names:
-            groups.append(build_empty_hint())
         for name in names:
             color = category_color(name)
             groups.append(
@@ -159,6 +196,46 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                             ],
                         ),
                         *[todo_card(todo) for todo in grouped[name]],
+                    ],
+                )
+            )
+        countdowns = countdowns_on(day)
+        # The "nothing here" hint only shows for a day that is truly empty - a day
+        # that only carries a 倒数日 already has something to show.
+        if not names and not countdowns:
+            groups.append(build_empty_hint())
+        if countdowns:
+            groups.append(
+                ft.Column(
+                    tight=True,
+                    spacing=6,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        ft.Row(
+                            spacing=6,
+                            controls=[
+                                ft.Icon(
+                                    ft.Icons.EVENT,
+                                    size=15,
+                                    color=COUNTDOWN_COLOR,
+                                ),
+                                ft.Text(
+                                    "倒数日",
+                                    size=13,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=COUNTDOWN_COLOR,
+                                ),
+                            ],
+                        ),
+                        *[
+                            build_countdown_card(
+                                item,
+                                today=day,
+                                on_delete=lambda _, i=item: remove_countdown(i.id),
+                                on_edit=lambda _, i=item: edit_countdown(i),
+                            )
+                            for item in countdowns
+                        ],
                     ],
                 )
             )
@@ -297,71 +374,18 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         month_view.update()
         selected_content.update()
 
-    draft_day = selected_day
-    date_picker = ft.CupertinoDatePicker(
-        value=selected_day,
-        locale=ft.Locale("zh", "CN"),
-        date_picker_mode=ft.CupertinoDatePickerMode.DATE,
-        date_order=ft.CupertinoDatePickerDateOrder.YEAR_MONTH_DAY,
-        minimum_year=1900,
-        maximum_year=2100,
-        show_day_of_week=True,
-        item_extent=36,
-        height=190,
-    )
-    date_sheet = ft.CupertinoBottomSheet(content=ft.Container())
-
-    def date_picker_changed(e: ft.Event[ft.CupertinoDatePicker]) -> None:
-        nonlocal draft_day
-        selected = e.control.value
-        draft_day = selected.date() if hasattr(selected, "date") else selected
-
-    def confirm_date_picker(_: ft.Event[ft.Control]) -> None:
+    def jump_to_day(day: date) -> None:
+        """Follow a date picked in the system picker: month, selection, list."""
         nonlocal visible_month
-        visible_month = date(draft_day.year, draft_day.month, 1)
-        select_day(draft_day)
+        visible_month = date(day.year, day.month, 1)
+        select_day(day)
         update_calendar()
-        date_sheet.open = False
-        page.update()
 
-    date_picker.on_change = date_picker_changed
-    date_sheet.content = ft.Container(
-        bgcolor="#FFFFFF",
-        padding=ft.Padding.only(left=20, top=12, right=20, bottom=20),
-        content=ft.Column(
-            tight=True,
-            controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[
-                        ft.Text(
-                            "选择日期",
-                            size=14,
-                            weight=ft.FontWeight.BOLD,
-                            color="#172554",
-                        ),
-                        ft.TextButton(
-                            "确定",
-                            style=ft.ButtonStyle(
-                                padding=ft.Padding.symmetric(horizontal=12)
-                            ),
-                            on_click=confirm_date_picker,
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=date_picker,
-                ),
-            ],
-        ),
-    )
+    date_picker = build_date_picker(selected_day, jump_to_day)
 
     def open_date_picker(_: ft.Event[ft.Control]) -> None:
-        nonlocal draft_day
-        draft_day = selected_day
         date_picker.value = selected_day
-        page.show_dialog(date_sheet)
+        page.show_dialog(date_picker)
 
     month_view.content = build_month_view()
     selected_content.content = build_selected_content(selected_day)
