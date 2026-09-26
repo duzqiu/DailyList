@@ -5,7 +5,14 @@ from datetime import date, timedelta
 
 from tools import db, notifications
 from tools.categories import CATEGORIES, build_category_icon
-from tools.layout import BOTTOM_MENU_INSET, DIALOG_RADIUS, page_gradient, text_width
+from tools.layout import (
+    BOTTOM_MENU_INSET,
+    DIALOG_RADIUS,
+    DIALOG_SURFACE,
+    dialog_button_style,
+    page_gradient,
+    text_width,
+)
 from tools.line_chart import build_interactive_line_chart
 from tools.popup_select import (
     OPTION_TEXT_SIZE,
@@ -350,6 +357,10 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         return ft.AlertDialog(
             modal=True,
             shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
+            # Same surface as the add-todo dialog, so the option panels opening
+            # inside a settings dialog can be painted the same colour too.
+            bgcolor=DIALOG_SURFACE,
+            elevation=0,
             inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
             title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
             content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
@@ -380,8 +391,16 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                     size=12,
                 ),
                 [
-                    ft.TextButton("取消", on_click=lambda _: page.pop_dialog()),
-                    ft.TextButton("确认清除", on_click=clear_data),
+                    ft.TextButton(
+                        "取消",
+                        style=dialog_button_style(),
+                        on_click=lambda _: page.pop_dialog(),
+                    ),
+                    ft.TextButton(
+                        "确认清除",
+                        style=dialog_button_style(),
+                        on_click=clear_data,
+                    ),
                 ],
             )
         )
@@ -454,8 +473,16 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                 ],
             ),
             [
-                ft.TextButton("取消", on_click=lambda _: page.pop_dialog()),
-                ft.TextButton("保存", on_click=save_notify),
+                ft.TextButton(
+                    "取消",
+                    style=dialog_button_style(),
+                    on_click=lambda _: page.pop_dialog(),
+                ),
+                ft.TextButton(
+                    "保存",
+                    style=dialog_button_style(),
+                    on_click=save_notify,
+                ),
             ],
         )
         page.show_dialog(dialog)

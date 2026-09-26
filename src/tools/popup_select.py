@@ -20,6 +20,13 @@ OPTION_HEIGHT = 28
 OPTION_PADDING = ft.Padding.symmetric(horizontal=10)
 OPTION_TEXT_SIZE = 12
 OPTION_TEXT_COLOR = "#334155"
+# Every entry paints its own background, so a panel that borrows the dialog's
+# surface still reads as a list of options instead of a flat block of text.
+OPTION_BG = "#FFFFFF"
+OPTION_RADIUS = 6
+OPTION_VERTICAL_MARGIN = 1
+# Side gap between an entry's own background and the panel edge.
+OPTION_HORIZONTAL_MARGIN = 2
 TRIGGER_TEXT_SIZE = 13
 TRIGGER_TEXT_COLOR = "#334155"
 MENU_BG = "#FFFFFF"
@@ -103,6 +110,8 @@ def build_option_selector(
     max_menu_height: float | None = None,
     label_builder: Callable[[str], ft.Control] | None = None,
     content_width: float | None = None,
+    bgcolor: str = MENU_BG,
+    option_bgcolor: str = OPTION_BG,
 ) -> ft.PopupMenuButton:
     """Value-plus-caret trigger that opens an inset-bordered white panel.
 
@@ -114,6 +123,9 @@ def build_option_selector(
     its name) instead of the plain label text.
     `content_width` pins the panel to the width one entry needs, so a short list
     does not end up with a wide empty strip.
+    `bgcolor` repaints the panel itself - a selector inside a dialog passes the
+    dialog's own surface so the panel matches what it opens over.
+    `option_bgcolor` paints the individual entries sitting on that panel.
     """
     menu_constraints = {"min_width": menu_min_width(options)}
     if content_width is not None:
@@ -121,16 +133,37 @@ def build_option_selector(
         menu_constraints["max_width"] = panel_width(content_width)
     if max_menu_height is not None:
         menu_constraints["max_height"] = max_menu_height
+    # Material lays an entry's content out at its natural width, so an entry's
+    # own background is pinned to the panel width instead (minus its own side
+    # gaps) and every row is painted edge to edge.
+    row_width = (
+        panel_width(content_width)
+        if content_width is not None
+        else menu_min_width(options)
+    ) - 2 * OPTION_HORIZONTAL_MARGIN
     return ft.PopupMenuButton(
         items=[
             ft.PopupMenuItem(
-                content=(
-                    label_builder(label)
-                    if label_builder is not None
-                    else option_text(label)
+                content=ft.Container(
+                    width=row_width,
+                    bgcolor=option_bgcolor,
+                    border_radius=ft.BorderRadius.all(OPTION_RADIUS),
+                    margin=ft.Margin.symmetric(
+                        horizontal=OPTION_HORIZONTAL_MARGIN,
+                        vertical=OPTION_VERTICAL_MARGIN,
+                    ),
+                    # The entry's own padding lives inside its background, so
+                    # the colour reaches the panel edge on both sides.
+                    padding=OPTION_PADDING,
+                    alignment=ft.Alignment.CENTER_LEFT,
+                    content=(
+                        label_builder(label)
+                        if label_builder is not None
+                        else option_text(label)
+                    ),
                 ),
                 height=OPTION_HEIGHT,
-                padding=OPTION_PADDING,
+                padding=ft.Padding.all(0),
                 on_click=lambda _, key=key: on_pick(key),
             )
             for key, label in options
@@ -161,7 +194,7 @@ def build_option_selector(
         # overlaps the trigger and never floats away from it.
         menu_position=ft.PopupMenuPosition.UNDER,
         style=SELECTOR_STYLE,
-        bgcolor=MENU_BG,
+        bgcolor=bgcolor,
         elevation=0,
         shadow_color="#00000000",
         # The panel is white, exactly like the card or dialog it opens over, so a

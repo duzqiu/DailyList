@@ -11,15 +11,24 @@ from tools.categories import (
 from tools.layout import (
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
+    DIALOG_SURFACE,
     SKY_BLUE,
-    TODO_DONE_BG,
-    TODO_DONE_ICON,
-    TODO_TEXT,
+    TODO_DONE_TEXT,
+    TODO_TEXT_SIZE,
+    TODO_TIME_COLOR,
+    TODO_TIME_SIZE,
+    TODO_TITLE_SIZE,
+    build_todo_mark,
+    dialog_button_style,
     page_gradient,
     text_width,
+    todo_text_style,
+    todo_time_label,
 )
 from tools.popup_select import (
     OPTION_TEXT_SIZE,
+    TRIGGER_TEXT_COLOR,
+    TRIGGER_TEXT_SIZE,
     build_option_row,
     build_option_selector,
     build_option_text,
@@ -31,22 +40,37 @@ from tools.swipe_delete import build_swipe_delete_row
 # Shared surface colour of the unselected date card and the undone todo card.
 UNSELECTED_CARD_BG = "#F1F5F9"
 # The floating add button is a sky-blue glass tile: no border ring, and a
-# translucent fill (60%) so the blur behind it shows through. Kept independent
-# of TODO_DONE_BG, which is the colour of a completed todo card.
+# translucent fill (60%) so the blur behind it shows through.
 ADD_BUTTON_BG = "#99" + SKY_BLUE[1:]
-DATE_RANGE_BACK_DAYS = 7
+# A round tile, lifted clear of the floating menu bar.
+ADD_BUTTON_SIZE = 52
+ADD_BUTTON_LIFT = 10
+# The 日期 picker in the add-todo dialog starts at today and runs this far ahead.
+# Today itself is the earliest day it offers.
 DATE_RANGE_FORWARD_DAYS = 60
-# The seven day cards share the strip's width: every card is an expanding child
-# of a `Row`, so the free space is split evenly and the strip fills the screen
-# on any phone width instead of leaving a gap after the last 42px card.
+# The date strip is centred on today: three days before, today, three after.
+DATE_STRIP_SIDE_DAYS = 3
+# The day badges are circles, one step of the sky ramp apart: the picked day is
+# the deepest, today keeps the middle blue while another day is picked, and
+# every other day stays on the neutral card colour. Clicking never repaints the
+# weekday or the day number itself.
+DATE_TODAY_BG = "#DCEDF6"
+DATE_SELECTED_BG = "#4D93A5"
+DATE_TEXT_COLOR = "#172554"
+DATE_WEEKDAY_COLOR = "#64748B"
+# The seven day columns share the strip's width: every column is an expanding
+# child of a `Row`, so the free space is split evenly and the strip fills the
+# screen on any phone width instead of leaving a gap after the last column.
 DATE_CARD_SPACING = 8
-DATE_CARD_HEIGHT = 42
-DATE_CARD_SIDE_PADDING = 4
-# The date line carries the month. Below this card width 「9月25日」 no longer
-# fits between the card's paddings and the label shortens to 「9.25」.
-DATE_DAY_SIZE = 13
+DATE_CARD_HEIGHT = 56
+DATE_CARD_TOP_PADDING = 2
+# Weekday and day number are stacked: the weekday is a plain grey label, the day
+# number sits inside its own circular badge.
+DATE_WEEKDAY_SIZE = 11
+DATE_DAY_SIZE = 15
+DATE_BADGE_SIZE = 34
+DATE_COLUMN_SPACING = 4
 PAGE_SIDE_PADDING = 24
-DATE_FALLBACK_PAGE_WIDTH = 390
 # The dialog's 日期 panel lists every selectable day, so it is height-capped and
 # scrolls like the Dropdown it replaced did (menu_height=240).
 DATE_MENU_MAX_HEIGHT = 240
@@ -81,29 +105,19 @@ def category_content_width(name: str) -> float:
     )
 
 
-def date_card_width(page: ft.Page) -> float:
-    """Width one of the seven date cards gets on the current window."""
-    page_width = getattr(page, "width", None) or DATE_FALLBACK_PAGE_WIDTH
-    return (
-        page_width - 2 * PAGE_SIDE_PADDING - 6 * DATE_CARD_SPACING
-    ) / 7
-
-
-def date_card_label(day: date, card_width: float) -> str:
-    """「9月25日」, shortened to「9.25」when the card is too narrow for it."""
-    full = f"{day.month}月{day.day}日"
-    if text_width(full, DATE_DAY_SIZE) <= card_width - 2 * DATE_CARD_SIDE_PADDING:
-        return full
-    return f"{day.month}.{day.day}"
+def date_card_label(day: date, today: date) -> str:
+    """「今」for today, otherwise the day of the month alone (「25」)."""
+    return "今" if day == today else str(day.day)
 
 
 def selectable_dates(anchors: list[date]) -> list[date]:
+    """Days the 日期 picker offers: today is the earliest one."""
     today = date.today()
     window = {
         today + timedelta(days=offset)
-        for offset in range(-DATE_RANGE_BACK_DAYS, DATE_RANGE_FORWARD_DAYS + 1)
+        for offset in range(DATE_RANGE_FORWARD_DAYS + 1)
     }
-    return sorted(window.union(anchors))
+    return sorted(day for day in window.union(anchors) if day >= today)
 
 
 def group_todos_by_day(
@@ -119,17 +133,25 @@ def group_todos_by_day(
 def build_home_page(
     page: ft.Page, set_menu_visible: Callable[[bool], None]
 ) -> ft.Control:
-    dates = [date.today() + timedelta(days=offset) for offset in range(7)]
+    # Today sits in the middle of the strip so both neighbours stay visible, and
+    # its badge reads 「今」 instead of the day of the month.
+    today = date.today()
+    dates = [
+        today + timedelta(days=offset)
+        for offset in range(-DATE_STRIP_SIDE_DAYS, DATE_STRIP_SIDE_DAYS + 1)
+    ]
+    today_index = DATE_STRIP_SIDE_DAYS
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     todos_by_day = group_todos_by_day(db.list_todos(dates))
-    selected_index = 0
-    # The seven cards share the window width, which decides whether their date
-    # line can spell out 「9月25日」 or has to shorten to 「9.25」.
-    date_width = date_card_width(page)
+    selected_index = today_index
+    # The day the user actually tapped. Today starts out only as "the day the
+    # list is showing" - the pale blue day marker - and only turns into the
+    # picked day (light blue, like any other) once its badge is clicked.
+    tapped_index: int | None = None
     date_selector = ft.Row(spacing=DATE_CARD_SPACING)
     todo_title = ft.Text(
         "",
-        size=16,
+        size=TODO_TITLE_SIZE,
         weight=ft.FontWeight.BOLD,
         color="#172554",
     )
@@ -144,22 +166,39 @@ def build_home_page(
         nonlocal todos_by_day
         todos_by_day = group_todos_by_day(db.list_todos(dates))
 
-    def todo_row(item: str, completed: bool) -> ft.Row:
+    def todo_row(
+        todo: db.Todo, completed: bool, category_color: str
+    ) -> ft.Row:
+        # An open todo borrows its category's colour, so the row reads as part of
+        # the group above it; a completed one drops to grey with a strikethrough.
+        # Its time of day sits under the text as a quiet grey line.
+        lines = [
+            ft.Text(
+                todo.content,
+                size=TODO_TEXT_SIZE,
+                color=TODO_DONE_TEXT if completed else category_color,
+                style=todo_text_style(completed),
+            )
+        ]
+        if todo.due_time:
+            lines.append(
+                ft.Text(
+                    todo_time_label(todo.due_time),
+                    size=TODO_TIME_SIZE,
+                    weight=ft.FontWeight.BOLD,
+                    color=TODO_TIME_COLOR,
+                )
+            )
         return ft.Row(
             spacing=8,
             controls=[
-                ft.Icon(
-                    ft.Icons.CHECK_CIRCLE_OUTLINE
-                    if completed
-                    else ft.Icons.CIRCLE_OUTLINED,
-                    size=16,
-                    color=TODO_DONE_ICON if completed else "#94A3B8",
-                ),
-                ft.Text(
-                    item,
-                    size=13,
+                build_todo_mark(completed),
+                ft.Column(
+                    tight=True,
                     expand=True,
-                    color=TODO_TEXT,
+                    spacing=1,
+                    horizontal_alignment=ft.CrossAxisAlignment.START,
+                    controls=lines,
                 ),
             ],
         )
@@ -167,16 +206,18 @@ def build_home_page(
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
         reload_todos()
-        select_date(selected_index)
+        select_date(selected_index, tapped=False)
 
-    def build_todo_item(todo: db.Todo) -> ft.Control:
+    def build_todo_item(todo: db.Todo, category_color: str) -> ft.Control:
         completed = todo.done
         todo_card = ft.Container(
             key=f"todo-{todo.id}",
             padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             border_radius=ft.BorderRadius.all(10),
-            bgcolor=TODO_DONE_BG if completed else UNSELECTED_CARD_BG,
-            content=todo_row(todo.content, completed),
+            # Both states keep the neutral card: a completed todo is marked by
+            # its grey struck-through text and the green check, not by a fill.
+            bgcolor=UNSELECTED_CARD_BG,
+            content=todo_row(todo, completed, category_color),
         )
 
         def toggle_todo(_: ft.Event[ft.Container]) -> None:
@@ -184,8 +225,7 @@ def build_home_page(
             completed = not completed
             db.set_done(todo.id, completed)
             reload_todos()
-            todo_card.bgcolor = TODO_DONE_BG if completed else UNSELECTED_CARD_BG
-            todo_card.content = todo_row(todo.content, completed)
+            todo_card.content = todo_row(todo, completed, category_color)
             todo_card.update()
 
         todo_card.on_click = toggle_todo
@@ -214,14 +254,14 @@ def build_home_page(
                     ],
                 ),
                 *[
-                    build_todo_item(todo) for todo in items
+                    build_todo_item(todo, category_color) for todo in items
                 ],
             ],
         )
 
     def build_empty_hint() -> ft.Control:
         return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16, vertical=18),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             border_radius=ft.BorderRadius.all(12),
             bgcolor="#F8FAFC",
             border=ft.Border.all(1, "#E2E8F0"),
@@ -250,43 +290,55 @@ def build_home_page(
         todo_content.controls = groups or [build_empty_hint()]
 
     def build_date_item(index: int) -> ft.Control:
-        selected = index == selected_index
         selected_date = dates[index]
+        # The picked day always takes the light blue, today included. Today only
+        # falls back to its pale blue while some other day is the picked one, so
+        # it stays findable without ever overriding the selection.
+        if index == tapped_index:
+            badge_bg = DATE_SELECTED_BG
+        elif index == today_index:
+            badge_bg = DATE_TODAY_BG
+        else:
+            badge_bg = UNSELECTED_CARD_BG
         return ft.Container(
             key=f"date-{selected_date.isoformat()}",
             expand=1,
             height=DATE_CARD_HEIGHT,
-            padding=ft.Padding.symmetric(
-                horizontal=DATE_CARD_SIDE_PADDING, vertical=3
-            ),
-            border_radius=ft.BorderRadius.all(6),
-            bgcolor="#172554" if selected else UNSELECTED_CARD_BG,
-            alignment=ft.Alignment.CENTER,
-            ink=True,
+            padding=ft.Padding.only(top=DATE_CARD_TOP_PADDING),
+            alignment=ft.Alignment.TOP_CENTER,
             on_click=lambda _: select_date(index),
             content=ft.Column(
                 tight=True,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=2,
+                spacing=DATE_COLUMN_SPACING,
                 controls=[
                     ft.Text(
                         weekdays[selected_date.weekday()],
-                        size=9,
-                        color="#FFFFFF" if selected else "#64748B",
+                        size=DATE_WEEKDAY_SIZE,
+                        color=DATE_WEEKDAY_COLOR,
                     ),
-                    ft.Text(
-                        date_card_label(selected_date, date_width),
-                        size=DATE_DAY_SIZE,
-                        weight=ft.FontWeight.BOLD,
-                        color="#FFFFFF" if selected else "#172554",
+                    ft.Container(
+                        width=DATE_BADGE_SIZE,
+                        height=DATE_BADGE_SIZE,
+                        shape=ft.BoxShape.CIRCLE,
+                        bgcolor=badge_bg,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Text(
+                            date_card_label(selected_date, today),
+                            size=DATE_DAY_SIZE,
+                            weight=ft.FontWeight.BOLD,
+                            color=DATE_TEXT_COLOR,
+                        ),
                     ),
                 ],
             ),
         )
 
-    def select_date(index: int) -> None:
-        nonlocal selected_index
+    def select_date(index: int, tapped: bool = True) -> None:
+        nonlocal selected_index, tapped_index
         selected_index = index
+        if tapped:
+            tapped_index = index
         date_selector.controls = [
             build_date_item(date_index) for date_index in range(len(dates))
         ]
@@ -306,7 +358,11 @@ def build_home_page(
         selected_date = date.fromisoformat(selection["date"])
         # A repeating cycle also schedules the follow-ups from this start date.
         db.add_todo(
-            selected_date, selection["category"], item, selection["cycle"]
+            selected_date,
+            selection["category"],
+            item,
+            selection["cycle"],
+            selection["time"],
         )
         reload_todos()
         dialog.open = False
@@ -331,12 +387,20 @@ def build_home_page(
         # The 日期/类别 pickers are the very same option panel as the 我的 page's
         # 年/月/周 selector. A popup menu button keeps no value of its own, so the
         # picked entries live here and drive the trigger texts.
+        # The 日期 panel starts at today, so opening the dialog while a past day
+        # of the strip is selected falls back to today as the start date.
+        start_day = max(dates[selected_index], date.today())
+        # 时间 starts on the current clock, rounded down a step.
+        start_hour, _, start_minute = db.default_time().partition(":")
         selection = {
-            "date": dates[selected_index].isoformat(),
+            "date": start_day.isoformat(),
+            "time": f"{start_hour}:{start_minute}",
             "category": DEFAULT_CATEGORY,
             "cycle": db.DEFAULT_CYCLE,
         }
-        date_text = build_option_text(date_label(dates[selected_index]))
+        date_text = build_option_text(date_label(start_day))
+        hour_text = build_option_text(start_hour)
+        minute_text = build_option_text(start_minute)
         category_trigger = ft.Container(
             content=category_label(
                 DEFAULT_CATEGORY, build_option_text(DEFAULT_CATEGORY)
@@ -348,6 +412,16 @@ def build_home_page(
             selection["date"] = key
             date_text.value = date_label(date.fromisoformat(key))
             date_text.update()
+
+        def pick_hour(hour: str) -> None:
+            hour_text.value = hour
+            selection["time"] = f"{hour}:{minute_text.value}"
+            hour_text.update()
+
+        def pick_minute(minute: str) -> None:
+            minute_text.value = minute
+            selection["time"] = f"{hour_text.value}:{minute}"
+            minute_text.update()
 
         def pick_category(name: str) -> None:
             selection["category"] = name
@@ -391,6 +465,36 @@ def build_home_page(
                 category_content_width(name) for name, _ in CATEGORIES
             ),
         )
+        # 时间 is two panels - hours and minutes - so any minute can be picked
+        # without scrolling a list of preset slots.
+        hour_selector = build_option_selector(
+            hour_text,
+            [(value, value) for value in db.TIME_HOURS],
+            pick_hour,
+            max_menu_height=DATE_MENU_MAX_HEIGHT,
+            content_width=text_width("00", OPTION_TEXT_SIZE),
+        )
+        minute_selector = build_option_selector(
+            minute_text,
+            [(value, value) for value in db.TIME_MINUTES],
+            pick_minute,
+            max_menu_height=DATE_MENU_MAX_HEIGHT,
+            content_width=text_width("00", OPTION_TEXT_SIZE),
+        )
+        time_row = ft.Row(
+            tight=True,
+            spacing=2,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                hour_selector,
+                ft.Text(
+                    ":",
+                    size=TRIGGER_TEXT_SIZE,
+                    color=TRIGGER_TEXT_COLOR,
+                ),
+                minute_selector,
+            ],
+        )
         cycle_selector = build_option_selector(
             cycle_text,
             [(name, name) for name in db.REPEAT_CYCLES],
@@ -404,6 +508,10 @@ def build_home_page(
             # Same 12px radius as the 我的 page's 清除 dialog (Material would
             # round it to 28px by default).
             shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
+            # Pinned to the shared dialog surface so the option panels opening
+            # inside it can be painted the very same colour.
+            bgcolor=DIALOG_SURFACE,
+            elevation=0,
             title="新增待办",
             title_text_style=ft.TextStyle(
                 size=16,
@@ -422,6 +530,7 @@ def build_home_page(
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
                     build_option_row(date_selector),
+                    build_option_row(time_row),
                     build_option_row(category_selector),
                     build_option_row(cycle_selector),
                     todo_field,
@@ -430,10 +539,12 @@ def build_home_page(
             actions=[
                 ft.TextButton(
                     "取消",
+                    style=dialog_button_style(),
                     on_click=lambda _: close_dialog(dialog),
                 ),
                 ft.TextButton(
                     "保存",
+                    style=dialog_button_style(),
                     on_click=lambda _: save_todo(
                         dialog, todo_field, selection
                     ),
@@ -454,10 +565,11 @@ def build_home_page(
 
     add_button = ft.Container(
         right=24,
-        bottom=88,
-        width=52,
-        height=52,
-        border_radius=ft.BorderRadius.all(16),
+        # Sits 10px above the floating menu bar, whose height drives the inset.
+        bottom=BOTTOM_MENU_INSET + ADD_BUTTON_LIFT,
+        width=ADD_BUTTON_SIZE,
+        height=ADD_BUTTON_SIZE,
+        shape=ft.BoxShape.CIRCLE,
         bgcolor=ADD_BUTTON_BG,
         blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
         content=ft.IconButton(
@@ -465,9 +577,7 @@ def build_home_page(
             icon_color="#172554",
             icon_size=24,
             tooltip="新增待办",
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=16)
-            ),
+            style=ft.ButtonStyle(shape=ft.CircleBorder()),
             on_click=open_add_todo,
         ),
     )
@@ -501,7 +611,7 @@ def build_home_page(
                                 controls=[
                                     ft.Text(
                                         "待办",
-                                        size=22,
+                                        size=18,
                                         weight=ft.FontWeight.BOLD,
                                         color="#172554",
                                     ),

@@ -20,6 +20,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS todos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     due_date TEXT NOT NULL,
+    due_time TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL,
     content TEXT NOT NULL,
     done INTEGER NOT NULL DEFAULT 0,
@@ -58,9 +59,25 @@ MAX_OCCURRENCES = 400
 # separate migration step.
 ADDED_COLUMNS = (
     ("todos", "repeat_cycle", "TEXT NOT NULL DEFAULT '不循环'"),
+    ("todos", "due_time", "TEXT NOT NULL DEFAULT ''"),
 )
 
+# The 时间 picker is split in two panels - one of hours, one of minutes - so any
+# minute of the day can be picked instead of a fixed grid of slots.
+TIME_HOURS = tuple(f"{hour:02d}" for hour in range(24))
+TIME_MINUTES = tuple(f"{minute:02d}" for minute in range(60))
+# The dialog opens on the current clock, rounded down to this many minutes so the
+# default reads as a round number.
+DEFAULT_TIME_STEP_MINUTES = 5
+
 _MONTH_STEPS = {"一月": 1, "三月": 3, "六月": 6, "一年": 12}
+
+
+def default_time(now: datetime | None = None) -> str:
+    """The 时间 the add-todo dialog starts on: the clock rounded down a step."""
+    moment = now or datetime.now()
+    minute = moment.minute - moment.minute % DEFAULT_TIME_STEP_MINUTES
+    return f"{moment.hour:02d}:{minute:02d}"
 
 
 def occurrence_dates(
@@ -115,6 +132,9 @@ class Todo:
     content: str
     done: bool
     repeat_cycle: str
+    # "HH:MM" for todos that carry a time of day; empty for rows created before
+    # the 时间 field existed.
+    due_time: str = ""
 
 
 def connect() -> sqlite3.Connection:
@@ -139,12 +159,13 @@ def add_todo(
     category: str,
     content: str,
     repeat_cycle: str = DEFAULT_CYCLE,
+    due_time: str = "",
 ) -> int:
     """Add a todo and return the id of its first row.
 
     A repeating `repeat_cycle` also schedules the follow-ups: one row per cycle
     from `due_date` up to `REPEAT_HORIZON_DAYS` ahead, each carrying the same
-    cycle so the series stays recognisable.
+    cycle and time of day, so the series stays recognisable.
     """
     created_at = _now()
     connection = connect()
@@ -152,9 +173,16 @@ def add_todo(
         first_id = 0
         for day in occurrence_dates(due_date, repeat_cycle):
             cursor = connection.execute(
-                "INSERT INTO todos (due_date, category, content, repeat_cycle,"
-                " created_at) VALUES (?, ?, ?, ?, ?)",
-                (day.isoformat(), category, content, repeat_cycle, created_at),
+                "INSERT INTO todos (due_date, due_time, category, content,"
+                " repeat_cycle, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    day.isoformat(),
+                    due_time,
+                    category,
+                    content,
+                    repeat_cycle,
+                    created_at,
+                ),
             )
             if not first_id:
                 first_id = int(cursor.lastrowid)
@@ -204,7 +232,8 @@ def list_todos(days: Iterable[date]) -> list[Todo]:
     connection = connect()
     try:
         rows = connection.execute(
-            "SELECT id, due_date, category, content, done, repeat_cycle FROM todos"
+            "SELECT id, due_date, due_time, category, content, done, repeat_cycle"
+            " FROM todos"
             f" WHERE due_date IN ({placeholders})"
             " ORDER BY due_date, id",
             due_dates,
@@ -218,7 +247,8 @@ def list_range(start: date, end: date) -> list[Todo]:
     connection = connect()
     try:
         rows = connection.execute(
-            "SELECT id, due_date, category, content, done, repeat_cycle FROM todos"
+            "SELECT id, due_date, due_time, category, content, done, repeat_cycle"
+            " FROM todos"
             " WHERE due_date BETWEEN ? AND ?"
             " ORDER BY due_date, id",
             (start.isoformat(), end.isoformat()),
@@ -278,6 +308,7 @@ def _to_todo(row: sqlite3.Row) -> Todo:
     return Todo(
         id=row["id"],
         due_date=date.fromisoformat(row["due_date"]),
+        due_time=row["due_time"],
         category=row["category"],
         content=row["content"],
         done=bool(row["done"]),

@@ -7,10 +7,14 @@ from tools import db
 from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
 from tools.layout import (
     BOTTOM_MENU_INSET,
-    TODO_DONE_BG,
-    TODO_DONE_ICON,
-    TODO_TEXT,
+    TODO_DONE_TEXT,
+    TODO_TEXT_SIZE,
+    TODO_TIME_COLOR,
+    TODO_TIME_SIZE,
+    build_todo_mark,
     page_gradient,
+    todo_text_style,
+    todo_time_label,
 )
 from tools.swipe_delete import build_swipe_delete_row
 
@@ -48,25 +52,45 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
         update_calendar()
 
     def todo_card(todo: db.Todo) -> ft.Control:
+        lines = [
+            ft.Text(
+                todo.content,
+                size=TODO_TEXT_SIZE,
+                # Open todos wear their category's colour; done ones grey out and
+                # get the strikethrough.
+                color=(
+                    TODO_DONE_TEXT
+                    if todo.done
+                    else category_color(todo.category)
+                ),
+                style=todo_text_style(todo.done),
+            )
+        ]
+        if todo.due_time:
+            lines.append(
+                ft.Text(
+                    todo_time_label(todo.due_time),
+                    size=TODO_TIME_SIZE,
+                    weight=ft.FontWeight.BOLD,
+                    color=TODO_TIME_COLOR,
+                )
+            )
         card = ft.Container(
             padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             border_radius=ft.BorderRadius.all(10),
-            bgcolor=TODO_DONE_BG if todo.done else "#F1F5F9",
+            # Completed rows keep the neutral card too; the grey struck-through
+            # text and the green check carry the done state.
+            bgcolor="#F1F5F9",
             content=ft.Row(
                 spacing=8,
                 controls=[
-                    ft.Icon(
-                        ft.Icons.CHECK_CIRCLE_OUTLINE
-                        if todo.done
-                        else ft.Icons.CIRCLE_OUTLINED,
-                        size=16,
-                        color=TODO_DONE_ICON if todo.done else "#94A3B8",
-                    ),
-                    ft.Text(
-                        todo.content,
-                        size=13,
+                    build_todo_mark(todo.done),
+                    ft.Column(
+                        tight=True,
                         expand=True,
-                        color=TODO_TEXT,
+                        spacing=1,
+                        horizontal_alignment=ft.CrossAxisAlignment.START,
+                        controls=lines,
                     ),
                 ],
             ),
@@ -75,7 +99,7 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
 
     def build_empty_hint() -> ft.Control:
         return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16, vertical=18),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             border_radius=ft.BorderRadius.all(12),
             bgcolor="#F8FAFC",
             border=ft.Border.all(1, "#E2E8F0"),

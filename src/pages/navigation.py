@@ -3,7 +3,13 @@ import flet as ft
 from pages.calendar import build_calendar_page
 from pages.home import build_home_page
 from pages.settings import build_settings_page
-from tools.layout import MENU_BAR_BOTTOM, MENU_BAR_HEIGHT, PAGE_BGCOLOR
+from tools.layout import (
+    MENU_BAR_BOTTOM,
+    MENU_BAR_HEIGHT,
+    MENU_ICON_SIZE,
+    MENU_LABEL_SIZE,
+    PAGE_BGCOLOR,
+)
 
 # Dropdown carets are Material IconButtons; their default surface/overlay colour
 # painted over neighbouring content (the selected 年/月/周 and the popup below
@@ -24,7 +30,14 @@ def build_navigation(page: ft.Page) -> None:
     # hard-coded light text on them was barely readable.
     page.theme_mode = ft.ThemeMode.LIGHT
     page.theme = ft.Theme(
-        icon_button_theme=ft.IconButtonTheme(style=ICON_BUTTON_STYLE)
+        icon_button_theme=ft.IconButtonTheme(style=ICON_BUTTON_STYLE),
+        # Nothing in the app should flash a grey rectangle when tapped: the
+        # menu entries and the dialog's triggers and buttons stay flat, so the
+        # only thing that changes on a tap is the selected value.
+        splash_color="#00000000",
+        highlight_color="#00000000",
+        hover_color="#00000000",
+        focus_color="#00000000",
     )
     content = ft.Container(expand=True)
     selected_index = 0
@@ -94,12 +107,12 @@ def build_navigation(page: ft.Page) -> None:
                 controls=[
                     ft.Icon(
                         selected_icon if selected_index == index else icon,
-                        size=24,
+                        size=MENU_ICON_SIZE,
                         color="#1F2937",
                     ),
                     ft.Text(
                         label,
-                        size=12,
+                        size=MENU_LABEL_SIZE,
                         color="#1F2937",
                         weight=(
                             ft.FontWeight.BOLD
