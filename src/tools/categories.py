@@ -26,11 +26,19 @@ def category_color(name: str) -> str:
     return CATEGORY_COLORS.get(name, DEFAULT_COLOR)
 
 
-def build_category_icon(name: str, size: float = STAR_SIZE) -> ft.Control:
-    """The category's star: red for 重要, yellow for 一般, green for 可选."""
+def build_category_icon(
+    name: str, size: float = STAR_SIZE, color: str | None = None
+) -> ft.Control:
+    """The category's star: red for 重要, yellow for 一般, green for 可选.
+
+    `color` overrides the star's own colour - the 数据统计 headers paint the star
+    in the ink that reads on the category's solid background.
+    """
     if name not in CATEGORY_COLORS:
-        return ft.Icon(ft.Icons.LABEL_OUTLINE, size=size, color=DEFAULT_COLOR)
-    return ft.Icon(ft.Icons.STAR, size=size, color=category_color(name))
+        return ft.Icon(
+            ft.Icons.LABEL_OUTLINE, size=size, color=color or DEFAULT_COLOR
+        )
+    return ft.Icon(ft.Icons.STAR, size=size, color=color or category_color(name))
 
 
 def build_category_label(name: str, text: ft.Control) -> ft.Control:

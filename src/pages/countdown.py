@@ -84,7 +84,9 @@ def build_countdown_page(
     def open_form(item: db.Countdown | None = None) -> None:
         open_countdown_form(
             page,
-            set_menu_visible=set_menu_visible,
+            # Same callback the 待办 dialog gets: hiding the menu takes the
+            # floating + tile with it while the keyboard is up.
+            set_menu_visible=set_bottom_controls_visible,
             on_saved=refresh,
             item=item,
         )

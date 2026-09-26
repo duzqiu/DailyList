@@ -48,6 +48,11 @@ MENU_LABEL_SIZE = 10
 # Material 3 dialogs default to a 28px corner radius; the app uses 12, the same
 # radius as its cards and option panels, so every dialog shares this value.
 DIALOG_RADIUS = 12
+# A dialog keeps this much room from the screen edges. The bottom gap shrinks
+# while a field is focused - see `anchor_dialog_above_keyboard`.
+DIALOG_INSET_X = 48
+DIALOG_INSET_Y = 24
+DIALOG_INSET_Y_KEYBOARD = 8
 # Material's dialog surface (surfaceContainerHigh). Every dialog is painted this
 # colour, and an option panel opened *inside* a dialog borrows it too, so the
 # dropdown reads as part of the dialog instead of a white card floating on it.
@@ -65,6 +70,23 @@ def dialog_button_style() -> ft.ButtonStyle:
         shadow_color="#00000000",
         elevation=0,
     )
+
+
+def anchor_dialog_above_keyboard(dialog: ft.AlertDialog, above: bool) -> None:
+    """Park a dialog just above the keyboard while a field is focused.
+
+    Material centres a dialog in whatever space the keyboard leaves, which on a
+    phone leaves a dimmed strip between the dialog and the keyboard. Anchoring it
+    to the bottom of that space - and trimming the bottom gap - removes the strip.
+    """
+    dialog.alignment = (
+        ft.Alignment.BOTTOM_CENTER if above else ft.Alignment.CENTER
+    )
+    dialog.inset_padding = ft.Padding.symmetric(
+        horizontal=DIALOG_INSET_X,
+        vertical=DIALOG_INSET_Y_KEYBOARD if above else DIALOG_INSET_Y,
+    )
+    dialog.update()
 
 
 def page_gradient() -> ft.LinearGradient:
@@ -122,8 +144,6 @@ def todo_time_label(due_time: str) -> str:
 def date_label(day: date) -> str:
     """「2026年10月1日」- the long form the dialogs show a picked day in."""
     return f"{day.year}年{day.month}月{day.day}日"
-
-
 def text_width(text: str, size: float) -> float:
     """Rough advance width of `text` drawn at `size`.
 

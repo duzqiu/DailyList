@@ -13,6 +13,7 @@ from tools import db
 from tools.layout import (
     DIALOG_RADIUS,
     DIALOG_SURFACE,
+    anchor_dialog_above_keyboard,
     date_label,
     dialog_button_style,
     text_width,
@@ -145,14 +146,19 @@ def open_countdown_form(
         ),
         content_width=color_width,
     )
+    def focus_changed(focused: bool) -> None:
+        set_menu_visible(not focused)
+        anchor_dialog_above_keyboard(dialog, focused)
+
     content_field = ft.TextField(
         value=item.content if editing else "",
         hint_text="请输入倒数日事项",
         hint_style=ft.TextStyle(size=13, color=MUTED_COLOR),
-        # Typing opens the keyboard, so the floating menu bar steps out of
-        # the way exactly as it does in the 新增待办 dialog.
-        on_focus=lambda _: set_menu_visible(False),
-        on_blur=lambda _: set_menu_visible(True),
+        # Typing opens the keyboard, so the floating menu bar steps out of the
+        # way and the dialog parks just above the keyboard, exactly as it does in
+        # the 新增待办 dialog.
+        on_focus=lambda _: focus_changed(True),
+        on_blur=lambda _: focus_changed(False),
         filled=False,
         border=ft.NoInputBorder(),
         content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),

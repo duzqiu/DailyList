@@ -7,7 +7,7 @@ async def test_navigation(flet_app: ftt.FletTestApp):
 
     await tester.pump_and_settle()
 
-    assert (await tester.find_by_text("首页")).count == 2
+    assert (await tester.find_by_text("待办")).count == 2
     assert (await tester.find_by_text("日历")).count == 1
     assert (await tester.find_by_text("设置")).count == 1
 

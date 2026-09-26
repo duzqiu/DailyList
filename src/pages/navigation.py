@@ -85,7 +85,7 @@ def build_navigation(page: ft.Page) -> None:
             if index == 1
             else             build_calendar_page(page, set_menu_visible)
             if index == 2
-            else build_settings_page(page)
+            else build_settings_page(page, set_menu_visible)
         )
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = True
@@ -129,7 +129,7 @@ def build_navigation(page: ft.Page) -> None:
 
     def build_menu_items() -> None:
         menu_items.controls = [
-            menu_item(0, ft.Icons.HOME_OUTLINED, ft.Icons.HOME, "首页", "home-tab"),
+            menu_item(0, ft.Icons.HOME_OUTLINED, ft.Icons.HOME, "待办", "home-tab"),
             menu_item(
                 1,
                 ft.Icons.HOURGLASS_EMPTY,

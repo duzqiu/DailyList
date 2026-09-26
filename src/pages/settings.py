@@ -1,14 +1,21 @@
 import calendar
 from bisect import bisect_right
+from collections.abc import Callable
 import flet as ft
 from datetime import date, timedelta
 
 from tools import db, notifications
-from tools.categories import CATEGORIES, build_category_icon
+from tools.categories import (
+    CATEGORIES,
+    build_category_icon,
+    category_color,
+)
 from tools.layout import (
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
+    UNSELECTED_CARD_BG,
+    anchor_dialog_above_keyboard,
     dialog_button_style,
     page_gradient,
     text_width,
@@ -21,21 +28,41 @@ from tools.popup_select import (
     build_option_text,
 )
 
-CARD_BG = "#FFFFFF"
+# Every surface on this page is the same grey the 待办 cards use, so a card here
+# and a todo card read as the same material.
+CARD_BG = UNSELECTED_CARD_BG
 CARD_BORDER = "#E2E8F0"
-TILE_BG = "#F8FAFC"
+TILE_BG = UNSELECTED_CARD_BG
+# A tile's header is a pale tint of the category's own colour (see
+# tools/categories.py) with the same dark ink on all three, so the levels differ
+# only by hue. The text is 11pt like the rest of the tile.
+CATEGORY_HEADERS = {
+    "重要": "#D4DCE1",
+    "一般": "#D4DCE1",
+    "可选": "#D4DCE1",
+}
+HEADER_TEXT_SIZE = 11
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
 DONE_COLOR = "#16A34A"
 PENDING_COLOR = "#DC2626"
+# 三张卡的标题文字用同一个深色（只有底色按等级区分）。
+HEADER_TEXT_COLOR = TITLE_COLOR
 
 DIMENSIONS = ("年", "月", "周")
+# 数据统计 and 待办趋势 both open on 周; the picker still offers 年/月/周.
+DEFAULT_DIMENSION = "周"
 # 年 and 周 plot one point per month/day and stay few enough to name every point
 # on the x axis; 月's 28-31 points keep the sparse first/middle/last labels.
 NAMED_AXIS_DIMENSIONS = ("年", "周")
 STATUS_KEYS = ("all", "done", "pending")
 STATUS_LABELS = {"all": "全部", "done": "已完成", "pending": "未完成"}
 STATUS_COLORS = {"all": TITLE_COLOR, "done": DONE_COLOR, "pending": PENDING_COLOR}
+# A 数据统计 tile is a header in the category's colour over a grey data block.
+# Every row carries a dot: 全部/已完成/未完成 keep the green one, 完成率 flips to
+# red below half - and its percentage follows the dot.
+DOT_SIZE = 5
+RATE_THRESHOLD = 50
 # The 年/月/周 range selector is a `PopupMenuButton`, not a `Dropdown`: a
 # Dropdown trigger paints over an anchored panel - see tools/popup_select.py,
 # which the add-todo dialog's 日期/类别 pickers share with these two.
@@ -152,11 +179,13 @@ def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
     return per_category
 
 
-def build_settings_page(page: ft.Page) -> ft.Control:
+def build_settings_page(
+    page: ft.Page, set_menu_visible: Callable[[bool], None]
+) -> ft.Control:
     today = date.today()
     category_names = [name for name, _ in CATEGORIES]
     # The statistics card and the trend chart keep their own 年/月/周 selection.
-    state = {"dimension": DIMENSIONS[0], "trend": DIMENSIONS[0]}
+    state = {"dimension": DEFAULT_DIMENSION, "trend": DEFAULT_DIMENSION}
 
     numbers = {
         (name, key): ft.Text(
@@ -178,54 +207,114 @@ def build_settings_page(page: ft.Page) -> ft.Control:
         )
         for name in category_names
     }
+    # The 完成率 dot, the only one whose colour changes with the data.
+    rate_dots = {
+        name: ft.Container(
+            width=DOT_SIZE,
+            height=DOT_SIZE,
+            border_radius=ft.BorderRadius.all(DOT_SIZE / 2),
+            bgcolor=DONE_COLOR,
+        )
+        for name in category_names
+    }
 
     def category_card(name: str) -> ft.Control:
-        return ft.Container(
-            expand=1,
-            padding=ft.Padding.symmetric(horizontal=6, vertical=6),
-            border_radius=ft.BorderRadius.all(10),
-            bgcolor=TILE_BG,
-            border=ft.Border.all(1, CARD_BORDER),
-            content=ft.Column(
-                tight=True,
-                spacing=3,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        header_bg = CATEGORY_HEADERS.get(name, TILE_BG)
+
+        def dot(color: str) -> ft.Control:
+            return ft.Container(
+                width=DOT_SIZE,
+                height=DOT_SIZE,
+                border_radius=ft.BorderRadius.all(DOT_SIZE / 2),
+                bgcolor=color,
+            )
+
+        def row(
+            label: str, marker: ft.Control, value: ft.Control
+        ) -> ft.Control:
+            return ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                spacing=2,
                 controls=[
                     ft.Row(
                         tight=True,
-                        spacing=3,
+                        spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            build_category_icon(name, size=8),
-                            ft.Text(
-                                name,
-                                size=11,
-                                weight=ft.FontWeight.BOLD,
-                                color=TITLE_COLOR,
-                            ),
+                            marker,
+                            ft.Text(label, size=9, color=MUTED_COLOR),
                         ],
                     ),
-                    *[
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            spacing=2,
+                    value,
+                ],
+            )
+
+        return ft.Container(
+            expand=1,
+            border_radius=ft.BorderRadius.all(10),
+            border=ft.Border.all(1, CARD_BORDER),
+            # Keeps the header's grade inside the tile's rounded corners.
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            bgcolor=TILE_BG,
+            content=ft.Column(
+                tight=True,
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    # 头部：等级标题，底色是该分类颜色的浅色档
+                    ft.Container(
+                        padding=ft.Padding.symmetric(
+                            horizontal=8, vertical=5
+                        ),
+                        bgcolor=header_bg,
+                        content=ft.Row(
+                            # 星标和文字在卡片里左右居中
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=4,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Text(
-                                    STATUS_LABELS[key],
-                                    size=9,
-                                    color=MUTED_COLOR,
+                                build_category_icon(
+                                    name,
+                                    size=HEADER_TEXT_SIZE,
+                                    color=category_color(name),
                                 ),
-                                numbers[(name, key)],
+                                ft.Text(
+                                    name,
+                                    size=HEADER_TEXT_SIZE,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=HEADER_TEXT_COLOR,
+                                ),
                             ],
-                        )
-                        for key in STATUS_KEYS
-                    ],
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        spacing=2,
-                        controls=[
-                            ft.Text("完成率", size=9, color=MUTED_COLOR),
-                            rates[name],
-                        ],
+                        ),
+                    ),
+                    # 数据：灰底，每行前面一个小圆点
+                    ft.Container(
+                        padding=ft.Padding.symmetric(
+                            horizontal=8, vertical=6
+                        ),
+                        bgcolor=TILE_BG,
+                        content=ft.Column(
+                            tight=True,
+                            spacing=3,
+                            horizontal_alignment=(
+                                ft.CrossAxisAlignment.STRETCH
+                            ),
+                            controls=[
+                                *[
+                                    row(
+                                        STATUS_LABELS[key],
+                                        dot(
+                                            PENDING_COLOR
+                                            if key == "pending"
+                                            else DONE_COLOR
+                                        ),
+                                        numbers[(name, key)],
+                                    )
+                                    for key in STATUS_KEYS
+                                ],
+                                row("完成率", rate_dots[name], rates[name]),
+                            ],
+                        ),
                     ),
                 ],
             ),
@@ -321,12 +410,26 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             for key in STATUS_KEYS:
                 numbers[(name, key)].value = str(bucket[key])
             total = bucket["all"]
-            rates[name].value = (
-                f"{round(bucket['done'] / total * 100)}%" if total else "—"
-            )
+            if total:
+                rate = round(bucket["done"] / total * 100)
+                rate_color = (
+                    DONE_COLOR if rate >= RATE_THRESHOLD else PENDING_COLOR
+                )
+                rates[name].value = f"{rate}%"
+            else:
+                # Nothing to rate yet: a quiet grey instead of a red/green claim.
+                rate_color = MUTED_COLOR
+                rates[name].value = "—"
+            rates[name].color = rate_color
+            rate_dots[name].bgcolor = rate_color
         chart_holder.content = trend_chart()
         if update:
-            for control in [*numbers.values(), *rates.values(), chart_holder]:
+            for control in [
+                *numbers.values(),
+                *rates.values(),
+                *rate_dots.values(),
+                chart_holder,
+            ]:
                 control.update()
 
     def notify(message: str) -> None:
@@ -438,10 +541,19 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                 for name in notifications.CHANNELS
             ),
         )
+        def url_focus_changed(focused: bool) -> None:
+            set_menu_visible(not focused)
+            anchor_dialog_above_keyboard(dialog, focused)
+
         url_field = ft.TextField(
             value=db.get_setting(notifications.URL_SETTING, ""),
             hint_text="粘贴通知地址",
             hint_style=ft.TextStyle(size=13, color="#94A3B8"),
+            # Same as the 待办内容 field: the keyboard would cover the floating
+            # menu bar, so the bar steps out of the way and the dialog parks just
+            # above the keyboard while typing.
+            on_focus=lambda _: url_focus_changed(True),
+            on_blur=lambda _: url_focus_changed(False),
             filled=False,
             border=ft.NoInputBorder(),
             content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
@@ -456,6 +568,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                 notifications.URL_SETTING, (url_field.value or "").strip()
             )
             dialog.open = False
+            set_menu_visible(True)
             refresh_notify_summary()
             notify_summary.update()
             page.update()
@@ -476,7 +589,7 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                 ft.TextButton(
                     "取消",
                     style=dialog_button_style(),
-                    on_click=lambda _: page.pop_dialog(),
+                    on_click=lambda _: close_notify_settings(),
                 ),
                 ft.TextButton(
                     "保存",
@@ -486,6 +599,11 @@ def build_settings_page(page: ft.Page) -> ft.Control:
             ],
         )
         page.show_dialog(dialog)
+
+    def close_notify_settings() -> None:
+        """Dismiss the 通知渠道 dialog and bring the menu bar back."""
+        page.pop_dialog()
+        set_menu_visible(True)
 
     def settings_card() -> ft.Control:
         return build_card(
