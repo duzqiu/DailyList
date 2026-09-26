@@ -4,7 +4,7 @@ Only the configuration lives here so far - the names of the `settings` rows it
 owns and the channels the 通知渠道 picker offers.
 """
 
-CHANNELS = ("bark", "pushdeer", "企业微信", "飞书", "钉钉")
+CHANNELS = ("Bark", "Pushdeer", "Server酱", "企业微信", "钉钉", "飞书", "Telegram", "Discord", "Slack")
 DEFAULT_CHANNEL = CHANNELS[0]
 
 CHANNEL_SETTING = "notify_channel"

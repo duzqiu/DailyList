@@ -27,7 +27,14 @@ testpaths = ["tests"]
 
 [tool.flet]
 org = "com.duzqiu"
-product = "dailylist"
+# 显示名称：手机桌面上图标下面的名字（iOS 的 CFBundleDisplayName / Android 的
+# android:label / 桌面窗口标题）。官方模板里它只喂给 CFBundleDisplayName，
+# 所以可以安全地写成中文。
+product = "每日清单"
+# App ID 单独钉死成 ASCII：它由 `org + project.name` 推导，而签名用的描述文件
+# (iOS Team Provisioning Profile: com.duzqiu.dailylist) 就是注册在这个 id 上的，
+# 钉住它以后就算改了 product 或项目名也不会把签名弄坏。
+bundle_id = "com.duzqiu.dailylist"
 company = "Flet"
 copyright = "Copyright (C) 2023-2026 by Flet"
 
