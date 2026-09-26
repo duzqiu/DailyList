@@ -570,7 +570,8 @@ def build_settings_page(page: ft.Page) -> ft.Control:
                     controls=[
                         ft.Text(
                             "我的",
-                            size=22,
+                            # Same face as the home page's「待办」heading.
+                            size=18,
                             weight=ft.FontWeight.BOLD,
                             color=TITLE_COLOR,
                         ),

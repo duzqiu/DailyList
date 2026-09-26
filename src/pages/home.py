@@ -50,12 +50,10 @@ ADD_BUTTON_LIFT = 10
 DATE_RANGE_FORWARD_DAYS = 60
 # The date strip is centred on today: three days before, today, three after.
 DATE_STRIP_SIDE_DAYS = 3
-# The day badges are circles, one step of the sky ramp apart: the picked day is
-# the deepest, today keeps the middle blue while another day is picked, and
-# every other day stays on the neutral card colour. Clicking never repaints the
-# weekday or the day number itself.
-DATE_TODAY_BG = "#DCEDF6"
-DATE_SELECTED_BG = "#4D93A5"
+# The day badges are circles. The picked day - today when the app opens - takes
+# this blue; every other day, today included, stays on the neutral card colour.
+# Clicking never repaints the weekday or the day number itself.
+DATE_SELECTED_BG = "#DCEDF6"
 DATE_TEXT_COLOR = "#172554"
 DATE_WEEKDAY_COLOR = "#64748B"
 # The seven day columns share the strip's width: every column is an expanding
@@ -110,6 +108,48 @@ def date_card_label(day: date, today: date) -> str:
     return "今" if day == today else str(day.day)
 
 
+def date_badge_bg(is_picked: bool) -> str:
+    """Background of a day badge - the one rule the strip and the month share.
+
+    The picked day takes the blue; every other day - today included - stays on
+    the neutral card colour.
+    """
+    return DATE_SELECTED_BG if is_picked else UNSELECTED_CARD_BG
+
+
+def build_date_badge(
+    label: str, bgcolor: str, extra: ft.Control | None = None
+) -> ft.Control:
+    """The round day badge: same size, face and colours on both pages.
+
+    The home strip passes nothing extra; the calendar hands over its todo dot,
+    which is drawn under the day number inside the same circle.
+    """
+    number = ft.Text(
+        label,
+        size=DATE_DAY_SIZE,
+        weight=ft.FontWeight.BOLD,
+        color=DATE_TEXT_COLOR,
+    )
+    return ft.Container(
+        width=DATE_BADGE_SIZE,
+        height=DATE_BADGE_SIZE,
+        shape=ft.BoxShape.CIRCLE,
+        bgcolor=bgcolor,
+        alignment=ft.Alignment.CENTER,
+        content=(
+            number
+            if extra is None
+            else ft.Column(
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=1,
+                controls=[number, extra],
+            )
+        )
+    )
+
+
 def selectable_dates(anchors: list[date]) -> list[date]:
     """Days the 日期 picker offers: today is the earliest one."""
     today = date.today()
@@ -144,10 +184,6 @@ def build_home_page(
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     todos_by_day = group_todos_by_day(db.list_todos(dates))
     selected_index = today_index
-    # The day the user actually tapped. Today starts out only as "the day the
-    # list is showing" - the pale blue day marker - and only turns into the
-    # picked day (light blue, like any other) once its badge is clicked.
-    tapped_index: int | None = None
     date_selector = ft.Row(spacing=DATE_CARD_SPACING)
     todo_title = ft.Text(
         "",
@@ -206,7 +242,7 @@ def build_home_page(
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
         reload_todos()
-        select_date(selected_index, tapped=False)
+        select_date(selected_index)
 
     def build_todo_item(todo: db.Todo, category_color: str) -> ft.Control:
         completed = todo.done
@@ -291,15 +327,7 @@ def build_home_page(
 
     def build_date_item(index: int) -> ft.Control:
         selected_date = dates[index]
-        # The picked day always takes the light blue, today included. Today only
-        # falls back to its pale blue while some other day is the picked one, so
-        # it stays findable without ever overriding the selection.
-        if index == tapped_index:
-            badge_bg = DATE_SELECTED_BG
-        elif index == today_index:
-            badge_bg = DATE_TODAY_BG
-        else:
-            badge_bg = UNSELECTED_CARD_BG
+        badge_bg = date_badge_bg(index == selected_index)
         return ft.Container(
             key=f"date-{selected_date.isoformat()}",
             expand=1,
@@ -317,28 +345,16 @@ def build_home_page(
                         size=DATE_WEEKDAY_SIZE,
                         color=DATE_WEEKDAY_COLOR,
                     ),
-                    ft.Container(
-                        width=DATE_BADGE_SIZE,
-                        height=DATE_BADGE_SIZE,
-                        shape=ft.BoxShape.CIRCLE,
-                        bgcolor=badge_bg,
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Text(
-                            date_card_label(selected_date, today),
-                            size=DATE_DAY_SIZE,
-                            weight=ft.FontWeight.BOLD,
-                            color=DATE_TEXT_COLOR,
-                        ),
+                    build_date_badge(
+                        date_card_label(selected_date, today), badge_bg
                     ),
                 ],
             ),
         )
 
-    def select_date(index: int, tapped: bool = True) -> None:
-        nonlocal selected_index, tapped_index
+    def select_date(index: int) -> None:
+        nonlocal selected_index
         selected_index = index
-        if tapped:
-            tapped_index = index
         date_selector.controls = [
             build_date_item(date_index) for date_index in range(len(dates))
         ]

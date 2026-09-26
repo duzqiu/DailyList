@@ -5,6 +5,9 @@ import flet as ft
 
 from tools import db
 from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
+# The month grid draws the very same day badge as the home date strip: same
+# circle, same face, same colours for today, the picked day and the rest.
+from pages.home import build_date_badge, date_badge_bg
 from tools.layout import (
     BOTTOM_MENU_INSET,
     TODO_DONE_TEXT,
@@ -22,9 +25,17 @@ DONE_COLOR = "#16A34A"
 PENDING_COLOR = "#EAB308"
 OVERDUE_COLOR = "#DC2626"
 NO_DOT = "#00000000"
-# Compact month grid: a 6-week month is about 60px shorter than with the old
-# 38px cells (6*30 + 5*3 instead of 6*38 + 5*5).
-DAY_CELL_HEIGHT = 30
+# Only days that are already behind us wear their state on the badge: green when
+# every todo of that day is done, light yellow while something is still open.
+# Today and the days ahead keep the plain badge (neutral, or the selection blue
+# for the picked one), so the colours read as "how did that day end up".
+PENDING_DAY_BG = "#FEF08A"
+DONE_DAY_BG = "#4ADE80"
+# Compact month grid. The cell is one row tall and the day itself is the same
+# round badge the home strip draws, so the two pages match to the pixel.
+DAY_CELL_HEIGHT = 36
+# Left-right gap between two day cells (the cells share the row width).
+DAY_CELL_SPACING = 6
 
 
 def build_calendar_page(page: ft.Page) -> ft.Control:
@@ -185,25 +196,27 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
 
         day = date(visible_month.year, visible_month.month, day_number)
         is_selected = day == selected_day
-        dot_color = day_dot_color(day, day_todos.get(day, []))
+        todos = day_todos.get(day, [])
+        dot_color = day_dot_color(day, todos)
+        if is_selected:
+            badge_bg = date_badge_bg(True)
+        elif day < today and todos:
+            badge_bg = (
+                DONE_DAY_BG
+                if all(todo.done for todo in todos)
+                else PENDING_DAY_BG
+            )
+        else:
+            badge_bg = date_badge_bg(False)
         return ft.Container(
             expand=True,
             height=DAY_CELL_HEIGHT,
             alignment=ft.Alignment.CENTER,
-            border_radius=ft.BorderRadius.all(6),
-            bgcolor="#172554" if is_selected else "#F1F5F9",
             on_click=lambda _: select_day(day),
-            content=ft.Column(
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=1,
-                controls=[
-                    ft.Text(
-                        str(day_number),
-                        size=12,
-                        weight=ft.FontWeight.BOLD,
-                        color="#FFFFFF" if is_selected else "#172554",
-                    ),
+            content=build_date_badge(
+                str(day_number),
+                badge_bg,
+                extra=(
                     ft.Container(
                         width=3,
                         height=3,
@@ -214,8 +227,10 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                             if is_selected and dot_color != NO_DOT
                             else None
                         ),
-                    ),
-                ],
+                    )
+                    if dot_color != NO_DOT
+                    else None
+                ),
             ),
         )
 
@@ -244,9 +259,8 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                 *[
                     ft.Row(
                         # The cells share the row width, so this left-right gap
-                        # sets how wide each day card gets (10px here leaves the
-                        # cards about 59px wide on a 524px-wide window).
-                        spacing=10,
+                        # sets how wide each day cell gets.
+                        spacing=DAY_CELL_SPACING,
                         controls=[day_cell(day, day_todos) for day in week],
                     )
                     for week in month_days
@@ -369,13 +383,17 @@ def build_calendar_page(page: ft.Page) -> ft.Control:
                     controls=[
                         ft.Text(
                             "日历",
-                            size=22,
+                            # Same face as the home page's「待办」heading.
+                            size=18,
                             weight=ft.FontWeight.BOLD,
                             color="#172554",
                         ),
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            margin=ft.Margin.only(top=12),
+                            # The month selector sits right under the「日历」
+                            # heading: only the column's own gap is left between
+                            # them (the icon buttons keep their tap padding).
+                            margin=ft.Margin.only(top=0),
                             controls=[
                                 ft.IconButton(
                                     icon=ft.Icons.CHEVRON_LEFT,
