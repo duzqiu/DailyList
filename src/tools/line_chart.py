@@ -1,339 +1,76 @@
-"""Line chart drawn with `flet.canvas`.
+"""待办趋势折线图，用 flet_charts 的官方多系列 LineChart 绘制。
 
-Flet 1.0 ships no chart control (charts live in a separate package), so the
-trend chart is composed from canvas primitives: one stroked polyline per series
-(`Points` with `PointMode.POLYGON` - "draw the entire sequence of point as one
-line") plus grid lines and axis labels.
+Flet 1.0 把图表控件拆到了独立的 ``flet-charts`` 包：`LineChart` 可以在同一张图里挂多条
+`LineChartData`（多系列），自带网格、轴刻度和触摸提示 —— 点按某个点就会弹出该点所属
+系列的数值，所以「周/月/年」切换和「点击查看数据」都由控件本身负责。
+
+y 轴没有单独的「轴线」开关，fl_chart 只有整块图的一圈 border，所以这里给它只留左边
+一条：它正好落在 y 轴刻度右边，和 y=0 的横向网格线拼成一个 L 形坐标轴。浮框里不写
+分类名，改用该系列颜色的圆点，和图表下方的图例是同一套颜色；圆点与文字同色是因为
+fl_chart 的 `text_spans` 在 flet-charts 1.0.1 里是按值传给 Dart 的，Dart 侧却按控件
+解析，一用就在描边阶段抛异常、整个浮框画不出来，所以浮框只能整行一个颜色。
 """
 
-import math
-from collections.abc import Callable
+from collections.abc import Sequence
 
 import flet as ft
-import flet.canvas as cv
-
-from tools.layout import text_width
+import flet_charts as fch
 
 GRID_COLOR = "#E2E8F0"
-AXIS_COLOR = "#CBD5E1"
-LABEL_COLOR = "#94A3B8"
-LABEL_SIZE = 9
-# The 年 view names all twelve months, so each label gets half the horizontal
-# room a 月/周 label has; the smaller face keeps neighbouring months apart.
-DENSE_LABEL_SIZE = 8
-DOT_RADIUS = 2
-LINE_WIDTH = 2
-# Room reserved inside the canvas for the y-axis (left) and x-axis (bottom)
-# labels; the right/left insets also keep the first/last x label from clipping.
-PLOT_LEFT = 26
-PLOT_RIGHT = 20
-PLOT_TOP = 10
-PLOT_BOTTOM = 20
-LABEL_GAP = 2
-# An axis labelled 0/2/4/6/8 reads better than one tick per todo, so the scale
-# aims for at most this many intervals and rounds the top up to a 1/2/5/10...
-# step that keeps every tick a whole number.
-MAX_Y_INTERVALS = 4
-NICE_STEPS = (
-    1, 2, 5, 10, 20, 25, 50,
-    100, 200, 250, 500,
-    1_000, 2_000, 2_500, 5_000,
-    10_000, 20_000, 25_000, 50_000,
-    100_000, 200_000, 250_000, 500_000,
-    1_000_000,
-)
-# Tap-to-inspect: the tapped point keeps a guide line and a tooltip listing that
-# day's (or month's) numbers per category.
-GUIDE_COLOR = "#CBD5E1"
-TIP_BG = "#FFFFFF"
-TIP_BORDER = "#CBD5E1"
-TIP_TITLE_COLOR = "#172554"
-TIP_TEXT_COLOR = "#334155"
-TIP_FONT_SIZE = 9
-TIP_PAD = 6
-TIP_ROW_GAP = 4
-TIP_DOT_RADIUS = 2.5
-TIP_DOT_GAP = 5
-TIP_OFFSET = 8
-TIP_MARGIN = 2
+GRID_WIDTH = 1
+# The y axis line: fl_chart draws `LineChart.border` around the plot area, so a
+# left-only border is exactly a vertical axis standing next to the y labels. It
+# meets the y=0 grid line, which closes the corner the way a chart frame reads.
+Y_AXIS_WIDTH = 1
+# `ChartAxis.label_size` is the *slot width* each label may occupy, and the font
+# itself comes from the control passed as the label - fl_chart would otherwise
+# draw its own 14pt text, far too big for this card.
+AXIS_LABEL_SIZE = 9
+AXIS_LABEL_COLOR = "#64748B"
+X_LABEL_SLOT = 34
+Y_LABEL_SLOT = 18
+LINE_WIDTH = 2.5
+POINT_RADIUS = 2.5
+SELECTED_POINT_RADIUS = 5
+# Dots are drawn on every point up to this many points; a 28-31 day month would
+# otherwise turn into a dotted stripe.
+POINT_LIMIT = 14
+TOOLTIP_BG = "#F5FFFFFF"
+TOOLTIP_TEXT_SIZE = 11
+# The tooltip names a series by colour instead of by text: one filled round dot
+# in the series' own colour, the same dot the legend under the chart uses. The
+# line is painted in that colour too - `text_spans` (which would let the dot and
+# the numbers differ) aborts the tooltip paint in flet-charts 1.0.1, see the
+# module docstring.
+TOOLTIP_DOT = "●"
+MAX_Y_LABELS = 5
+# Round steps the y axis is allowed to count in, so the ticks read 0/25/50/75/100
+# rather than 0/19/38/57/76/95 when a month holds 90-odd todos.
+NICE_STEPS = (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000)
 
 
-def y_ticks(ceiling: int) -> tuple[list[int], int]:
-    """Y-axis tick values from 0 up, plus the rounded top of the axis."""
-    for candidate in NICE_STEPS:
-        step = candidate
-        if ceiling <= candidate * MAX_Y_INTERVALS:
+def axis_ceiling(values: Sequence[int]) -> tuple[int, int]:
+    """(顶部刻度, 刻度间隔)：最多 `MAX_Y_LABELS` 个标签，顶格落在数据上方。"""
+    top = max(1, max(values, default=0))
+    for step in NICE_STEPS:
+        if top <= step * (MAX_Y_LABELS - 1):
             break
     else:
-        # More todos than the listed steps cover: keep scaling the largest one.
-        while ceiling > step * MAX_Y_INTERVALS:
-            step *= 10
-    top = max(step, math.ceil(ceiling / step) * step)
-    return list(range(0, top + 1, step)), top
+        # Past the last round step just use the smallest step that still fits.
+        step = -(-top // (MAX_Y_LABELS - 1))
+    return step * ((top + step - 1) // step), step
 
 
-def x_label_indices(count: int, step: int | None) -> list[int]:
-    """Indices of the points that get an x-axis label.
-
-    `None` keeps the sparse axis (first, middle and last point); `1` names every
-    point, which is what the 年 view needs so no month goes unnamed.
-    """
-    if count <= 0:
-        return []
-    if step is None:
+def label_indices(count: int, step: int | None) -> list[int]:
+    """要标注的横轴位置：给了 step 就每 step 个标一次，否则首/中/尾。"""
+    if count <= 1:
+        return [0]
+    if not step:
         return sorted({0, count // 2, count - 1})
-    return list(range(0, count, max(1, step)))
-
-
-def chart_metrics(
-    series: list[tuple[str, list[int], str]], width: float
-) -> tuple[list[int], int, float, float]:
-    """Y ticks, axis top, left inset and plot width.
-
-    Drawing and tap hit-testing both go through this, so a tap lands on the
-    point the user actually sees. A multi-digit tick label widens the left inset
-    instead of losing the gap between itself and the axis.
-    """
-    counts = [count for _, values, _ in series for count in values]
-    ticks, ceiling = y_ticks(max([1, *counts]))
-    left = max(
-        PLOT_LEFT,
-        max(text_width(str(value), LABEL_SIZE) for value in ticks) + LABEL_GAP + 4,
-    )
-    return ticks, ceiling, left, max(1.0, width - left - PLOT_RIGHT)
-
-
-def selection_shapes(
-    labels: list[str],
-    series: list[tuple[str, list[int], str]],
-    index: int,
-    x_at: Callable[[int], float],
-    y_at: Callable[[int], float],
-    width: float,
-    height: float,
-) -> list[cv.Shape]:
-    """Enlarged dots on the tapped point plus its numbers tooltip."""
-    anchor_x = x_at(index)
-    rows = [(name, values[index], color) for name, values, color in series]
-    dot_width = TIP_DOT_RADIUS * 2 + TIP_DOT_GAP
-    row_width = max(
-        (text_width(f"{name} {value}", TIP_FONT_SIZE) for name, value, _ in rows),
-        default=0.0,
-    )
-    row_height = TIP_FONT_SIZE + TIP_ROW_GAP
-    box_width = max(text_width(labels[index], TIP_FONT_SIZE), dot_width + row_width)
-    box_width += TIP_PAD * 2
-    box_height = TIP_PAD * 2 + row_height * (len(rows) + 1)
-    # Sits above the tapped point, flipping below it when it would leave the top
-    # of the canvas, and always stays inside the canvas horizontally.
-    point_ys = [y_at(values[index]) for _, values, _ in series]
-    box_x = min(
-        max(anchor_x - box_width / 2, TIP_MARGIN), width - box_width - TIP_MARGIN
-    )
-    box_y = min(point_ys) - TIP_OFFSET - box_height
-    if box_y < TIP_MARGIN:
-        box_y = max(point_ys) + TIP_OFFSET
-    box_y = min(max(box_y, TIP_MARGIN), height - box_height - TIP_MARGIN)
-
-    shapes: list[cv.Shape] = []
-    for _, values, color in series:
-        y = y_at(values[index])
-        shapes.append(
-            cv.Circle(
-                anchor_x,
-                y,
-                DOT_RADIUS + 2,
-                paint=ft.Paint(color=TIP_BG, style=ft.PaintingStyle.FILL),
-            )
-        )
-        shapes.append(
-            cv.Circle(
-                anchor_x,
-                y,
-                DOT_RADIUS + 1,
-                paint=ft.Paint(color=color, style=ft.PaintingStyle.FILL),
-            )
-        )
-    # The 1px border is a filled rect behind the white one - canvas rects only
-    # take a fill paint.
-    shapes.append(
-        cv.Rect(
-            box_x,
-            box_y,
-            box_width,
-            box_height,
-            border_radius=6,
-            paint=ft.Paint(color=TIP_BORDER),
-        )
-    )
-    shapes.append(
-        cv.Rect(
-            box_x + 1,
-            box_y + 1,
-            box_width - 2,
-            box_height - 2,
-            border_radius=5,
-            paint=ft.Paint(color=TIP_BG),
-        )
-    )
-    title_y = box_y + TIP_PAD + row_height / 2
-    shapes.append(
-        cv.Text(
-            box_x + TIP_PAD,
-            title_y,
-            labels[index],
-            style=ft.TextStyle(
-                size=TIP_FONT_SIZE,
-                weight=ft.FontWeight.BOLD,
-                color=TIP_TITLE_COLOR,
-            ),
-            alignment=ft.Alignment.CENTER_LEFT,
-        )
-    )
-    for row_index, (name, value, color) in enumerate(rows):
-        row_y = title_y + row_height * (row_index + 1)
-        shapes.append(
-            cv.Circle(
-                box_x + TIP_PAD + TIP_DOT_RADIUS,
-                row_y,
-                TIP_DOT_RADIUS,
-                paint=ft.Paint(color=color, style=ft.PaintingStyle.FILL),
-            )
-        )
-        shapes.append(
-            cv.Text(
-                box_x + TIP_PAD + dot_width,
-                row_y,
-                f"{name} {value}",
-                style=ft.TextStyle(size=TIP_FONT_SIZE, color=TIP_TEXT_COLOR),
-                alignment=ft.Alignment.CENTER_LEFT,
-            )
-        )
-    return shapes
-
-
-def build_line_chart(
-    labels: list[str],
-    series: list[tuple[str, list[int], str]],
-    width: float,
-    height: float,
-    x_label_step: int | None = None,
-    selected: int | None = None,
-) -> cv.Canvas:
-    """Build a line chart; `series` is `[(name, one count per label, colour)]`.
-
-    `x_label_step` is the spacing between x-axis labels: `None` keeps the sparse
-    axis (first, middle and last point), `1` names every point.
-
-    `selected` marks one point as inspected: it gets a guide line, enlarged dots
-    and a tooltip with that point's numbers per series.
-    """
-    ticks, ceiling, plot_left, plot_width = chart_metrics(series, width)
-    label_size = (
-        DENSE_LABEL_SIZE if x_label_step == 1 and len(labels) > 8 else LABEL_SIZE
-    )
-    plot_height = max(1.0, height - PLOT_TOP - PLOT_BOTTOM)
-
-    def x_at(index: int) -> float:
-        if len(labels) <= 1:
-            return plot_left + plot_width / 2
-        return plot_left + plot_width * index / (len(labels) - 1)
-
-    def y_at(count: int) -> float:
-        return PLOT_TOP + plot_height * (1 - count / ceiling)
-
-    shapes: list[cv.Shape] = []
-    # Y axis (vertical, on the left) plus one labelled grid line per tick; the
-    # zero line doubles as the x axis and stays darker than the other ticks.
-    shapes.append(
-        cv.Line(
-            plot_left,
-            PLOT_TOP,
-            plot_left,
-            PLOT_TOP + plot_height,
-            paint=ft.Paint(color=AXIS_COLOR, stroke_width=1),
-        )
-    )
-    for count in ticks:
-        y = y_at(count)
-        shapes.append(
-            cv.Line(
-                plot_left,
-                y,
-                plot_left + plot_width,
-                y,
-                paint=ft.Paint(
-                    color=AXIS_COLOR if count == 0 else GRID_COLOR,
-                    stroke_width=1,
-                ),
-            )
-        )
-        shapes.append(
-            cv.Text(
-                plot_left - 6,
-                y,
-                str(count),
-                style=ft.TextStyle(size=LABEL_SIZE, color=LABEL_COLOR),
-                alignment=ft.Alignment.CENTER_RIGHT,
-            )
-        )
-
-    label_style = ft.TextStyle(size=label_size, color=LABEL_COLOR)
-    for index in x_label_indices(len(labels), x_label_step):
-        if 0 <= index < len(labels):
-            shapes.append(
-                cv.Text(
-                    x_at(index),
-                    PLOT_TOP + plot_height + label_size,
-                    labels[index],
-                    style=label_style,
-                    alignment=ft.Alignment.CENTER,
-                )
-            )
-
-    # The guide line belongs under the data, the tooltip on top of it.
-    if selected is not None and 0 <= selected < len(labels):
-        shapes.append(
-            cv.Line(
-                x_at(selected),
-                PLOT_TOP,
-                x_at(selected),
-                PLOT_TOP + plot_height,
-                paint=ft.Paint(color=GUIDE_COLOR, stroke_width=1),
-            )
-        )
-
-    for _, values, color in series:
-        points = [ft.Offset(x_at(i), y_at(c)) for i, c in enumerate(values)]
-        if len(points) > 1:
-            shapes.append(
-                cv.Points(
-                    points,
-                    point_mode=cv.PointMode.POLYGON,
-                    paint=ft.Paint(
-                        color=color,
-                        stroke_width=LINE_WIDTH,
-                        stroke_cap=ft.StrokeCap.ROUND,
-                        stroke_join=ft.StrokeJoin.ROUND,
-                    ),
-                )
-            )
-        shapes.extend(
-            cv.Circle(
-                point.x,
-                point.y,
-                DOT_RADIUS,
-                paint=ft.Paint(color=color, style=ft.PaintingStyle.FILL),
-            )
-            for point in points
-        )
-    if selected is not None and 0 <= selected < len(labels):
-        shapes.extend(
-            selection_shapes(
-                labels, series, selected, x_at, y_at, width, height
-            )
-        )
-    return cv.Canvas(width=width, height=height, shapes=shapes)
+    indices = list(range(0, count, step))
+    if indices[-1] != count - 1:
+        indices[-1] = count - 1
+    return indices
 
 
 def build_interactive_line_chart(
@@ -343,34 +80,107 @@ def build_interactive_line_chart(
     height: float,
     x_label_step: int | None = None,
 ) -> ft.Control:
-    """Line chart that reveals a point's numbers when it is tapped.
+    """多系列折线图。
 
-    Tapping a column pins that point's tooltip; tapping the same point again
-    dismisses it. The chart owns this selection, so a caller only rebuilds it
-    when the data or the range changes.
+    `labels`  每个点的横轴文字（1月…12月 / 9/21…9/27）
+    `series`  [(名称, 数值列表, 颜色)]，每个元素画一条线
     """
-    holder = ft.Container()
-    state: dict[str, int | None] = {"selected": None}
-
-    def render() -> None:
-        holder.content = build_line_chart(
-            labels, series, width, height, x_label_step, state["selected"]
-        )
-
-    def nearest_index(x: float) -> int:
-        """Index of the point under a canvas-local x, using the drawn geometry."""
-        _, _, plot_left, plot_width = chart_metrics(series, width)
-        if len(labels) <= 1:
-            return 0
-        slot = plot_width / (len(labels) - 1)
-        index = round((x - plot_left) / slot)
-        return min(max(index, 0), len(labels) - 1)
-
-    def on_tap(e: ft.TapEvent[ft.GestureDetector]) -> None:
-        index = nearest_index(e.local_position.x if e.local_position else 0.0)
-        state["selected"] = None if state["selected"] == index else index
-        render()
-        holder.update()
-
-    render()
-    return ft.GestureDetector(content=holder, on_tap_down=on_tap)
+    ceiling, y_step = axis_ceiling(
+        [value for _, values, _ in series for value in values]
+    )
+    x_max = max(1, len(labels) - 1)
+    return fch.LineChart(
+        width=width,
+        height=height,
+        min_x=0,
+        max_x=x_max,
+        min_y=0,
+        max_y=ceiling,
+        # 触摸提示：点/长按某个点会弹出它的数值
+        interactive=True,
+        tooltip=fch.LineChartTooltip(
+            bgcolor=TOOLTIP_BG,
+            border_radius=ft.BorderRadius.all(8),
+            border_side=ft.BorderSide(GRID_WIDTH, GRID_COLOR),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            # The card would otherwise clip a tooltip that opens above the plot.
+            fit_inside_horizontally=True,
+            fit_inside_vertically=True,
+        ),
+        horizontal_grid_lines=fch.ChartGridLines(
+            interval=y_step, color=GRID_COLOR, width=GRID_WIDTH
+        ),
+        border=ft.Border(
+            left=ft.BorderSide(Y_AXIS_WIDTH, GRID_COLOR),
+        ),
+        left_axis=fch.ChartAxis(
+            show_labels=True,
+            labels=[
+                fch.ChartAxisLabel(
+                    value=value,
+                    label=ft.Text(
+                        str(value),
+                        size=AXIS_LABEL_SIZE,
+                        color=AXIS_LABEL_COLOR,
+                    ),
+                )
+                for value in range(0, ceiling + 1, y_step)
+            ],
+            label_size=Y_LABEL_SLOT,
+            # 固定刻度间隔，标签才会正好落在 fl_chart 取的刻度值上。
+            label_spacing=y_step,
+        ),
+        bottom_axis=fch.ChartAxis(
+            show_labels=True,
+            labels=[
+                fch.ChartAxisLabel(
+                    value=index,
+                    label=ft.Text(
+                        labels[index],
+                        size=AXIS_LABEL_SIZE,
+                        color=AXIS_LABEL_COLOR,
+                        no_wrap=True,
+                    ),
+                )
+                for index in label_indices(len(labels), x_label_step)
+                if index < len(labels)
+            ],
+            label_size=X_LABEL_SLOT,
+        ),
+        data_series=[
+            fch.LineChartData(
+                points=[
+                    fch.LineChartDataPoint(
+                        x=index,
+                        y=value,
+                        show_tooltip=True,
+                        tooltip=fch.LineChartDataPointTooltip(
+                            # The dot carries the category, so the line reads
+                            # 「● 9/26 · 1」instead of naming the category.
+                            text=f"{TOOLTIP_DOT} {labels[index]} · {value}",
+                            text_style=ft.TextStyle(
+                                size=TOOLTIP_TEXT_SIZE,
+                                color=color,
+                                weight=ft.FontWeight.BOLD,
+                            ),
+                        ),
+                    )
+                    for index, value in enumerate(values)
+                ],
+                color=color,
+                stroke_width=LINE_WIDTH,
+                curved=True,
+                # A curve through few points otherwise dips under the zero line.
+                prevent_curve_over_shooting=True,
+                point=(
+                    fch.ChartCirclePoint(radius=POINT_RADIUS)
+                    if len(values) <= POINT_LIMIT
+                    else None
+                ),
+                selected_point=fch.ChartCirclePoint(
+                    radius=SELECTED_POINT_RADIUS, stroke_width=2
+                ),
+            )
+            for _name, values, color in series
+        ],
+    )

@@ -8,7 +8,10 @@ authors = [
     { name = "duzqiu", email = "duzqiu@outlook.com" }
 ]
 dependencies = [
-    "flet>=1.0.1"
+    "flet>=1.0.1",
+    # Flet 1.0 moved the chart controls out of the core package; 待办趋势 is the
+    # official multi-series LineChart. Keep it on the same version as flet.
+    "flet-charts>=1.0.1"
 ]
 
 [dependency-groups]
