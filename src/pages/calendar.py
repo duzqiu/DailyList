@@ -61,8 +61,8 @@ DIALOG_TITLE_SIZE = 15
 DIALOG_GROUP_SIZE = 12
 DIALOG_TEXT_SIZE = 13
 DIALOG_TIME_SIZE = 10
-# 日期格子的描边：比卡片边框 #E2E8F0 再淡一半，只把格子界限轻轻画出来。
-CELL_BORDER = "#F0F3F8"
+# 日期格子的描边：比卡片边框 #E2E8F0 再淡一点点，只要把格子界限画出来。
+CELL_BORDER = "#E2E8F0"
 MAX_ITEMS = 4
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 # 卡片里待办按等级排：重要 → 一般 → 可选（未知分类排在最后）。

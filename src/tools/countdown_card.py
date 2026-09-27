@@ -1,8 +1,9 @@
-"""The 倒数日 card, shared by the 倒数日 page and the 日历 day list.
+"""The 倒数日 card, shared by the 倒数日 page and the 日历 day dialog.
 
-One card shows what it counts down to, the anchor date with its lunar day and
-weekday, and how far off the next occurrence is - red once a fixed day slipped
-by, yellow within three days, green for anything further out.
+一张卡片分上中下三段：上段是图标 + 倒数日事项，底色就是这张卡自己选的颜色；
+中段是放大后的天数，「天后」贴在数字右上角；一条「--」虚线把中段和下段隔开，
+下段写倒数日的日期 · 农历 · 周几。天数照旧按剩余天数上色：已过红、三天内黄、
+其余绿。
 """
 
 from collections.abc import Callable
@@ -17,15 +18,28 @@ from tools.lunar import lunar_label
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
+# 没挑背景色时上段用的灰，以及卡片中下段的白底和描边。
 CARD_BG = "#F1F5F9"
+CARD_BODY_BG = "#FFFFFF"
+CARD_BORDER = "#E2E8F0"
 ACCENT_COLOR = "#0EA5E9"
-# 卡片最前面那个小图标：比标题字号(15)大一圈，一眼就能认出这是倒数日。
-ICON_SIZE = 28
-CARD_RADIUS = 10
-CARD_PADDING = ft.Padding.symmetric(horizontal=12, vertical=8)
-MUTED_SIZE = 11
-TITLE_SIZE = 15
-DAYS_SIZE = 13
+CARD_RADIUS = 12
+ICON_SIZE = 18
+HEADER_PADDING = ft.Padding.symmetric(horizontal=8, vertical=6)
+MID_PADDING = ft.Padding.only(left=8, right=8, top=6, bottom=2)
+SUB_PADDING = ft.Padding.only(left=8, right=8, top=4, bottom=8)
+TITLE_SIZE = 12
+DAYS_SIZE = 26
+SUFFIX_SIZE = 10
+SUB_SIZE = 9
+# 天数用黑字，状态色挪到「天后」那块底色上。
+DAYS_COLOR = "#111827"
+SUFFIX_TOP_PAD = 4
+SUFFIX_PADDING = ft.Padding.symmetric(horizontal=4, vertical=1)
+SUFFIX_RADIUS = 4
+# 「--」分隔线：细密短横线，卡片宽度变了也跟着重排。
+DASH_COUNT = 16
+DASH_GAP = 2
 # Countdown colours, each a darker tone of its hue so it cannot blend into any of
 # the pale card backgrounds the palette offers.
 PAST_COLOR = "#B91C1C"
@@ -44,14 +58,6 @@ def countdown_days(item: db.Countdown, today: date | None = None) -> int:
     ).days
 
 
-def countdown_label(days: int) -> str:
-    if days == 0:
-        return "就是今天"
-    if days > 0:
-        return f"还有 {days} 天"
-    return f"已过 {-days} 天"
-
-
 def countdown_color(days: int) -> str:
     """Red once a fixed day passed, yellow within three days, green otherwise."""
     if days < 0:
@@ -61,16 +67,78 @@ def countdown_color(days: int) -> str:
     return FUTURE_COLOR
 
 
-def countdown_subtitle(item: db.Countdown) -> str:
-    """「2026年10月1日 · 八月廿一 · 周四」- anchor date, lunar day, weekday."""
+def countdown_date_lunar(item: db.Countdown) -> str:
+    """「2026年10月1日 · 八月廿一」- anchor date with its lunar day."""
     return " · ".join(
         part
         for part in (
             date_label(item.due_date),
             lunar_label(item.due_date),
-            WEEKDAYS[item.due_date.weekday()],
         )
         if part
+    )
+
+
+def countdown_weekday(item: db.Countdown) -> str:
+    """「-周四-」- the weekday sits above the date, boxed in dashes."""
+    return f"-{WEEKDAYS[item.due_date.weekday()]}-"
+
+
+def days_block(days: int, color: str) -> ft.Control:
+    """中段居中：天数放大用黑字，「天后」带状态色的底贴在数字右上角。"""
+    badge = ft.Container(
+        padding=SUFFIX_PADDING,
+        border_radius=ft.BorderRadius.all(SUFFIX_RADIUS),
+        bgcolor=color,
+        content=ft.Text(
+            "天后" if days >= 0 else "天前",
+            size=SUFFIX_SIZE,
+            color="#FFFFFF",
+        ),
+    )
+    if days == 0:
+        return ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    padding=SUFFIX_PADDING,
+                    border_radius=ft.BorderRadius.all(SUFFIX_RADIUS),
+                    bgcolor=color,
+                    content=ft.Text(
+                        "就是今天",
+                        size=SUFFIX_SIZE + 1,
+                        color="#FFFFFF",
+                    ),
+                )
+            ],
+        )
+    return ft.Row(
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=2,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+        controls=[
+            ft.Text(
+                str(abs(days)),
+                size=DAYS_SIZE,
+                weight=ft.FontWeight.BOLD,
+                color=DAYS_COLOR,
+            ),
+            ft.Container(
+                padding=ft.Padding.only(top=SUFFIX_TOP_PAD),
+                content=badge,
+            ),
+        ],
+    )
+
+
+def dashed_rule() -> ft.Control:
+    """「--」：几段等宽短线排开，卡片宽窄变化都能铺满。"""
+    return ft.Row(
+        spacing=DASH_GAP,
+        controls=[
+            ft.Container(height=1, expand=True, bgcolor=CARD_BORDER)
+            for _ in range(DASH_COUNT)
+        ],
     )
 
 
@@ -85,32 +153,71 @@ def build_countdown_card(
     days = countdown_days(item, today)
     card = ft.Container(
         key=f"countdown-{item.id}",
-        padding=CARD_PADDING,
         border_radius=ft.BorderRadius.all(CARD_RADIUS),
-        bgcolor=item.bgcolor or CARD_BG,
-        content=ft.Row(
-            spacing=8,
+        border=ft.Border.all(1, CARD_BORDER),
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        bgcolor=CARD_BODY_BG,
+        content=ft.Column(
+            tight=True,
+            spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
-                ft.Icon(ft.Icons.EVENT, size=ICON_SIZE, color=ACCENT_COLOR),
-                ft.Column(
-                    tight=True,
-                    expand=True,
-                    spacing=1,
-                    horizontal_alignment=ft.CrossAxisAlignment.START,
-                    controls=[
-                        ft.Text(item.content, size=TITLE_SIZE, color=TITLE_COLOR),
-                        ft.Text(
-                            countdown_subtitle(item),
-                            size=MUTED_SIZE,
-                            color=MUTED_COLOR,
-                        ),
-                    ],
+                # 上：图标 + 倒数日事项，底色用这张卡自己的背景色
+                ft.Container(
+                    padding=HEADER_PADDING,
+                    bgcolor=item.bgcolor or CARD_BG,
+                    content=ft.Row(
+                        spacing=6,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(
+                                ft.Icons.EVENT,
+                                size=ICON_SIZE,
+                                color=ACCENT_COLOR,
+                            ),
+                            ft.Text(
+                                item.content,
+                                size=TITLE_SIZE,
+                                color=TITLE_COLOR,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                expand=True,
+                            ),
+                        ],
+                    ),
                 ),
-                ft.Text(
-                    countdown_label(days),
-                    size=DAYS_SIZE,
-                    weight=ft.FontWeight.BOLD,
-                    color=countdown_color(days),
+                # 中：天数 + 右上角的「天后」
+                ft.Container(
+                    padding=MID_PADDING,
+                    content=days_block(days, countdown_color(days)),
+                ),
+                # 「--」
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8),
+                    content=dashed_rule(),
+                ),
+                # 下：周几一行、日期 · 农历一行，都居中
+                ft.Container(
+                    padding=SUB_PADDING,
+                    content=ft.Column(
+                        tight=True,
+                        spacing=1,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        controls=[
+                            ft.Text(
+                                countdown_weekday(item),
+                                size=SUB_SIZE,
+                                color=MUTED_COLOR,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            ft.Text(
+                                countdown_date_lunar(item),
+                                size=SUB_SIZE,
+                                color=MUTED_COLOR,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                        ],
+                    ),
                 ),
             ],
         ),
@@ -119,10 +226,15 @@ def build_countdown_card(
         return card
     from tools.swipe_delete import build_swipe_delete_row
 
-    return build_swipe_delete_row(
-        card,
-        on_delete or (lambda _: None),
-        on_edit,
+    # 左滑会平移卡片，这里按卡片圆角裁一刀：网格里卡片不会盖到隔壁那张。
+    return ft.Container(
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        border_radius=ft.BorderRadius.all(CARD_RADIUS),
+        content=build_swipe_delete_row(
+            card,
+            on_delete or (lambda _: None),
+            on_edit,
+        ),
     )
 
 

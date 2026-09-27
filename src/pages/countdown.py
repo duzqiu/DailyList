@@ -26,6 +26,9 @@ ADD_BUTTON_BG = "#99" + SKY_BLUE[1:]
 ADD_BUTTON_SIZE = 52
 ADD_BUTTON_LIFT = 10
 PAGE_SIDE_PADDING = 24
+# 双列卡片：两张之间的缝，以及再窄也要保住的卡片宽度。
+COUNTDOWN_GAP = 10
+COUNTDOWN_MIN_WIDTH = 140
 
 
 def build_countdown_page(
@@ -34,10 +37,18 @@ def build_countdown_page(
     today = date.today()
     items = ft.ListView(
         expand=True,
-        spacing=10,
+        spacing=COUNTDOWN_GAP,
         scroll=ft.ScrollMode.HIDDEN,
         padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
     )
+
+    def card_width() -> float:
+        """卡片宽度跟着屏幕走：页面左右各 24px，中间留一道缝，正好两列。"""
+        page_width = getattr(page, "width", None) or 360
+        return max(
+            COUNTDOWN_MIN_WIDTH,
+            (page_width - PAGE_SIDE_PADDING * 2 - COUNTDOWN_GAP) / 2,
+        )
 
     def entry(item: db.Countdown) -> ft.Control:
         return build_countdown_card(
@@ -71,10 +82,27 @@ def build_countdown_page(
         )
 
     def render() -> None:
-        rows = sorted(db.list_countdowns(), key=lambda item: countdown_days(
-            item, today
-        ))
-        items.controls = [entry(item) for item in rows] or [empty_hint()]
+        rows = sorted(
+            db.list_countdowns(), key=lambda item: countdown_days(item, today)
+        )
+        if not rows:
+            items.controls = [empty_hint()]
+            return
+        # 最近的那个单独放最上面，占满一整行；其余的按两列排（窄屏自动落成一张）。
+        controls: list[ft.Control] = [entry(rows[0])]
+        if rows[1:]:
+            controls.append(
+                ft.Row(
+                    wrap=True,
+                    spacing=COUNTDOWN_GAP,
+                    run_spacing=COUNTDOWN_GAP,
+                    controls=[
+                        ft.Container(width=card_width(), content=entry(item))
+                        for item in rows[1:]
+                    ],
+                )
+            )
+        items.controls = controls
 
     def remove(countdown_id: int) -> None:
         db.delete_countdown(countdown_id)
