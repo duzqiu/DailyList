@@ -38,8 +38,8 @@ NO_DOT = "#00000000"
 # every todo of that day is done, light yellow while something is still open.
 # Today and the days ahead keep the plain badge (neutral, or the selection blue
 # for the picked one), so the colours read as "how did that day end up".
-PENDING_DAY_BG = "#FEF08A"
-DONE_DAY_BG = "#4ADE80"
+PENDING_DAY_BG = "#EEE364"
+DONE_DAY_BG = "#0C8237"
 # Compact month grid. The cell is one row tall and the day itself is the same
 # round badge the home strip draws, so the two pages match to the pixel.
 DAY_CELL_HEIGHT = 36

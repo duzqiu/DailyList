@@ -17,7 +17,7 @@ SKY_BLUE = "#B2E0F4"
 UNSELECTED_CARD_BG = "#F1F5F9"
 # The picked day's blue: the home date strip, the 日历 month grid and the dialogs'
 # compact calendar all read it from here.
-DATE_SELECTED_BG = "#DCEDF6"
+DATE_SELECTED_BG = "#B5D7EA"
 # A completed todo greys out and is struck through, the way a paper list reads
 # once an item is ticked off.
 TODO_DONE_TEXT = "#94A3B8"

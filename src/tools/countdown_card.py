@@ -19,7 +19,8 @@ TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
 CARD_BG = "#F1F5F9"
 ACCENT_COLOR = "#0EA5E9"
-ICON_SIZE = 20
+# 卡片最前面那个小图标：比标题字号(15)大一圈，一眼就能认出这是倒数日。
+ICON_SIZE = 28
 CARD_RADIUS = 10
 CARD_PADDING = ft.Padding.symmetric(horizontal=12, vertical=8)
 MUTED_SIZE = 11
