@@ -2,9 +2,10 @@ import calendar
 from bisect import bisect_right
 from collections.abc import Callable
 import flet as ft
+import flet_charts as fch
 from datetime import date, timedelta
 
-from tools import db, notifications
+from tools import db
 from tools.categories import (
     CATEGORIES,
     build_category_icon,
@@ -12,17 +13,12 @@ from tools.categories import (
 )
 from tools.layout import (
     BOTTOM_MENU_INSET,
-    DIALOG_RADIUS,
-    DIALOG_SURFACE,
     UNSELECTED_CARD_BG,
-    anchor_dialog_above_keyboard,
-    dialog_button_style,
     page_gradient,
-    text_width,
 )
 from tools.line_chart import build_interactive_line_chart
+from tools.pie_chart import build_category_pie_chart, highlight_section
 from tools.popup_select import (
-    OPTION_TEXT_SIZE,
     build_option_row,
     build_option_selector,
     build_option_text,
@@ -114,6 +110,9 @@ def period_span(dimension: str, today: date) -> tuple[date, date] | None:
 
 
 TREND_HEIGHT = 150
+# 饼图自己画在正方形画布上，圆孔里放「全部 N」；画布边长要给悬停时变粗的那段
+# 留出余量（外半径 26+45=71，画布 152 的一半是 76）。
+PIE_SIZE = 152
 # The chart canvas is given an explicit size, so it needs the width of the card
 # content area: page padding (24px per side) plus the card's own 16px padding.
 TREND_PAGE_INSETS = 80
@@ -180,12 +179,16 @@ def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
 
 
 def build_settings_page(
-    page: ft.Page, set_menu_visible: Callable[[bool], None]
+    page: ft.Page, open_preferences: Callable[[], None]
 ) -> ft.Control:
     today = date.today()
     category_names = [name for name, _ in CATEGORIES]
-    # The statistics card and the trend chart keep their own 年/月/周 selection.
-    state = {"dimension": DEFAULT_DIMENSION, "trend": DEFAULT_DIMENSION}
+    # 数据统计、分类占比和待办趋势各自留一份 年/月/周 选择。
+    state = {
+        "dimension": DEFAULT_DIMENSION,
+        "trend": DEFAULT_DIMENSION,
+        "pie": DEFAULT_DIMENSION,
+    }
 
     numbers = {
         (name, key): ft.Text(
@@ -361,6 +364,125 @@ def build_settings_page(
         )
     )
 
+    pie_holder = ft.Container()
+    pie_text = build_option_text(state["pie"])
+    # 凸出效果是在 on_event 里就地改扇区，所以要把当前这张图和悬停下标记住。
+    pie_state: dict[str, object] = {"chart": None, "section": -1}
+
+    def change_pie(name: str) -> None:
+        """饼图也有自己的年/月/周切换。"""
+        if name == state["pie"]:
+            return
+        state["pie"] = name
+        pie_text.value = name
+        pie_text.update()
+        pie_holder.content = pie_chart()
+        pie_holder.update()
+
+    pie_selector_row = build_option_row(
+        build_option_selector(
+            pie_text,
+            [(name, name) for name in DIMENSIONS],
+            change_pie,
+        )
+    )
+
+    def pie_counts(dimension: str) -> list[tuple[str, int, str]]:
+        """该周期里每个分类的待办条数，颜色用分类自己的颜色。"""
+        span = period_span(dimension, today)
+        rows = db.counts_in(*span) if span else db.counts_in()
+        per_category = summarize(rows)
+        return [
+            (name, per_category.get(name, {}).get("all", 0), color)
+            for name, color in CATEGORIES
+        ]
+
+    def on_pie_event(event: fch.PieChartEvent) -> None:
+        """悬停/点按某个扇区时把它凸出来，离开就复原。"""
+        chart = pie_state["chart"]
+        if chart is None:
+            return
+        index = -1 if event.section_index is None else event.section_index
+        if index == pie_state["section"]:
+            return
+        pie_state["section"] = index
+        highlight_section(chart, index)
+        chart.update()
+
+    def pie_chart() -> ft.Control:
+        counts = pie_counts(state["pie"])
+        total = sum(count for _, count, _ in counts)
+        if not total:
+            pie_state["chart"] = None
+            pie_state["section"] = -1
+            return ft.Container(
+                width=PIE_SIZE,
+                height=PIE_SIZE,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Text("本期没有待办", size=12, color=MUTED_COLOR),
+            )
+        chart = build_category_pie_chart(counts, PIE_SIZE, on_pie_event)
+        pie_state["chart"] = chart
+        pie_state["section"] = -1
+        return ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=16,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Stack(
+                    width=PIE_SIZE,
+                    height=PIE_SIZE,
+                    alignment=ft.Alignment.CENTER,
+                    controls=[
+                        chart,
+                        # 圆孔里写总数，外面一圈就是各分类的占比。
+                        ft.Column(
+                            tight=True,
+                            spacing=0,
+                            horizontal_alignment=(
+                                ft.CrossAxisAlignment.CENTER
+                            ),
+                            controls=[
+                                ft.Text(
+                                    str(total),
+                                    size=16,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=TITLE_COLOR,
+                                ),
+                                ft.Text("全部", size=9, color=MUTED_COLOR),
+                            ],
+                        ),
+                    ],
+                ),
+                # 图例挪到饼图右侧：一行一个分类，圆点颜色就是扇区颜色。
+                ft.Column(
+                    tight=True,
+                    spacing=10,
+                    horizontal_alignment=ft.CrossAxisAlignment.START,
+                    controls=[
+                        ft.Row(
+                            tight=True,
+                            spacing=6,
+                            controls=[
+                                ft.Container(
+                                    width=8,
+                                    height=8,
+                                    border_radius=ft.BorderRadius.all(4),
+                                    bgcolor=color,
+                                ),
+                                ft.Text(
+                                    f"{name} {count}",
+                                    size=11,
+                                    color=MUTED_COLOR,
+                                ),
+                            ],
+                        )
+                        for name, count, color in counts
+                    ],
+                ),
+            ],
+        )
+
     def trend_chart() -> ft.Control:
         buckets = chart_buckets(state["trend"], today)
         return ft.Column(
@@ -423,271 +545,18 @@ def build_settings_page(
             rates[name].color = rate_color
             rate_dots[name].bgcolor = rate_color
         chart_holder.content = trend_chart()
+        pie_holder.content = pie_chart()
         if update:
             for control in [
                 *numbers.values(),
                 *rates.values(),
                 *rate_dots.values(),
+                pie_holder,
                 chart_holder,
             ]:
                 control.update()
 
-    def notify(message: str) -> None:
-        page.show_dialog(
-            ft.SnackBar(
-                content=ft.Text(message, size=13, color="#FFFFFF"),
-                bgcolor=TITLE_COLOR,
-                duration=2000,
-            )
-        )
-
-    def compact_button_style() -> ft.ButtonStyle:
-        """Compact metrics of the card's own 清除 action button."""
-        return ft.ButtonStyle(
-            padding=ft.Padding.symmetric(horizontal=10, vertical=2),
-            text_style=ft.TextStyle(size=12),
-            visual_density=ft.VisualDensity.COMPACT,
-        )
-
-    def settings_dialog(
-        title: str, content: ft.Control, actions: list[ft.Control]
-    ) -> ft.AlertDialog:
-        """Dialog chrome shared by the 清除缓存 and 通知渠道 dialogs.
-
-        Both must look like the add-todo dialog: 12px radius, the same paddings
-        and the same plain text buttons.
-        """
-        return ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-            # Same surface as the add-todo dialog, so the option panels opening
-            # inside a settings dialog can be painted the same colour too.
-            bgcolor=DIALOG_SURFACE,
-            elevation=0,
-            inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
-            title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
-            content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
-            actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
-            action_button_padding=ft.Padding.symmetric(horizontal=8),
-            title=ft.Text(
-                title,
-                size=16,
-                weight=ft.FontWeight.BOLD,
-                color=TITLE_COLOR,
-            ),
-            content=content,
-            actions=actions,
-        )
-
-    def clear_data(_: ft.Event[ft.Control]) -> None:
-        page.pop_dialog()
-        removed = db.clear_todos()
-        render()
-        notify(f"已清除 {removed} 条待办数据")
-
-    def confirm_clear(_: ft.Event[ft.Control]) -> None:
-        # iOS-style dialog, the one Cupertino control Flet offers: the whole
-        # dialog scrolls as one card with the actions stacked under the text.
-        page.show_dialog(
-            ft.CupertinoAlertDialog(
-                modal=True,
-                title=ft.Text(
-                    "清除缓存",
-                    size=15,
-                    weight=ft.FontWeight.BOLD,
-                    color=TITLE_COLOR,
-                ),
-                content=ft.Container(
-                    padding=ft.Padding.only(top=6),
-                    content=ft.Text(
-                        "将删除数据库中当前所有的待办数据，且无法恢复。",
-                        size=13,
-                        color=TITLE_COLOR,
-                    ),
-                ),
-                actions=[
-                    ft.CupertinoDialogAction(
-                        content=ft.Text("取消", size=14),
-                        on_click=lambda _: page.pop_dialog(),
-                    ),
-                    ft.CupertinoDialogAction(
-                        content=ft.Text(
-                            "确认清除",
-                            size=14,
-                            color=PENDING_COLOR,
-                            weight=ft.FontWeight.BOLD,
-                        ),
-                        destructive=True,
-                        on_click=clear_data,
-                    ),
-                ],
-            )
-        )
-
-    notify_summary = ft.Text("", size=11, color=MUTED_COLOR)
-
-    def refresh_notify_summary() -> None:
-        notify_summary.value = notifications.summary(
-            db.get_setting(
-                notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
-            ),
-            db.get_setting(notifications.URL_SETTING, ""),
-        )
-
-    def open_notify_settings(_: ft.Event[ft.Container]) -> None:
-        """通知渠道 dialog: the channel picker plus its delivery address."""
-        channel_text = build_option_text(
-            db.get_setting(
-                notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
-            )
-        )
-        selection = {"channel": channel_text.value}
-
-        def pick_channel(name: str) -> None:
-            selection["channel"] = name
-            channel_text.value = name
-            channel_text.update()
-
-        channel_selector = build_option_selector(
-            channel_text,
-            [(name, name) for name in notifications.CHANNELS],
-            pick_channel,
-            content_width=max(
-                text_width(name, OPTION_TEXT_SIZE)
-                for name in notifications.CHANNELS
-            ),
-        )
-        def url_focus_changed(focused: bool) -> None:
-            set_menu_visible(not focused)
-            anchor_dialog_above_keyboard(dialog, focused)
-
-        url_field = ft.TextField(
-            value=db.get_setting(notifications.URL_SETTING, ""),
-            hint_text="粘贴通知地址",
-            hint_style=ft.TextStyle(size=13, color="#94A3B8"),
-            # Same as the 待办内容 field: the keyboard would cover the floating
-            # menu bar, so the bar steps out of the way and the dialog parks just
-            # above the keyboard while typing.
-            on_focus=lambda _: url_focus_changed(True),
-            on_blur=lambda _: url_focus_changed(False),
-            filled=False,
-            border=ft.NoInputBorder(),
-            content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
-            text_style=ft.TextStyle(size=13, color="#334155"),
-            dense=True,
-            height=40,
-        )
-
-        def save_notify(_: ft.Event[ft.Control]) -> None:
-            db.set_setting(notifications.CHANNEL_SETTING, selection["channel"])
-            db.set_setting(
-                notifications.URL_SETTING, (url_field.value or "").strip()
-            )
-            dialog.open = False
-            set_menu_visible(True)
-            refresh_notify_summary()
-            notify_summary.update()
-            page.update()
-            notify("通知渠道已保存")
-
-        dialog = settings_dialog(
-            "通知渠道",
-            ft.Column(
-                tight=True,
-                spacing=8,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=[
-                    build_option_row(channel_selector),
-                    url_field,
-                ],
-            ),
-            [
-                ft.TextButton(
-                    "取消",
-                    style=dialog_button_style(),
-                    on_click=lambda _: close_notify_settings(),
-                ),
-                ft.TextButton(
-                    "保存",
-                    style=dialog_button_style(),
-                    on_click=save_notify,
-                ),
-            ],
-        )
-        page.show_dialog(dialog)
-
-    def close_notify_settings() -> None:
-        """Dismiss the 通知渠道 dialog and bring the menu bar back."""
-        page.pop_dialog()
-        set_menu_visible(True)
-
-    def settings_card() -> ft.Control:
-        return build_card(
-            "设置",
-            [
-                ft.Container(
-                    border_radius=ft.BorderRadius.all(8),
-                    on_click=open_notify_settings,
-                    content=ft.Row(
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Column(
-                                tight=True,
-                                spacing=2,
-                                expand=True,
-                                controls=[
-                                    ft.Text(
-                                        "通知渠道",
-                                        size=13,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=TITLE_COLOR,
-                                    ),
-                                    notify_summary,
-                                ],
-                            ),
-                            ft.Icon(
-                                ft.Icons.CHEVRON_RIGHT,
-                                size=20,
-                                color="#94A3B8",
-                            ),
-                        ],
-                    ),
-                ),
-                ft.Row(
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Column(
-                            tight=True,
-                            spacing=2,
-                            expand=True,
-                            controls=[
-                                ft.Text(
-                                    "清除缓存",
-                                    size=13,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=TITLE_COLOR,
-                                ),
-                                ft.Text(
-                                    "删除当前所有的待办数据",
-                                    size=11,
-                                    color=MUTED_COLOR,
-                                ),
-                            ],
-                        ),
-                        ft.OutlinedButton(
-                            "清除",
-                            on_click=confirm_clear,
-                            style=compact_button_style(),
-                        ),
-                    ],
-                ),
-            ],
-        )
-
     render(update=False)
-    refresh_notify_summary()
 
     return ft.Container(
         expand=True,
@@ -702,12 +571,31 @@ def build_settings_page(
                     spacing=12,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        ft.Text(
-                            "我的",
-                            # Same face as the home page's「待办」heading.
-                            size=18,
-                            weight=ft.FontWeight.BOLD,
-                            color=TITLE_COLOR,
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Text(
+                                    "我的",
+                                    # Same face as the home page's「待办」heading.
+                                    size=18,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=TITLE_COLOR,
+                                ),
+                                # 右上角的设置入口，点开的是二级页「设置」。
+                                ft.Container(
+                                    ink=True,
+                                    tooltip="设置",
+                                    # 22px 的图标太难点，四周补一圈让手指够得着。
+                                    padding=ft.Padding.all(6),
+                                    on_click=lambda _: open_preferences(),
+                                    content=ft.Icon(
+                                        ft.Icons.SETTINGS_OUTLINED,
+                                        size=22,
+                                        color=TITLE_COLOR,
+                                    ),
+                                ),
+                            ],
                         ),
                         ft.ListView(
                             expand=True,
@@ -729,11 +617,15 @@ def build_settings_page(
                                     trailing=selector_row,
                                 ),
                                 build_card(
+                                    "分类占比",
+                                    [pie_holder],
+                                    trailing=pie_selector_row,
+                                ),
+                                build_card(
                                     "待办趋势",
                                     [chart_holder],
                                     trailing=trend_selector_row,
                                 ),
-                                settings_card(),
                             ],
                         ),
                     ],

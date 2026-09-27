@@ -3,6 +3,7 @@ import flet as ft
 from pages.calendar import build_calendar_page
 from pages.countdown import build_countdown_page
 from pages.home import build_home_page
+from pages.preferences import build_preferences_page
 from pages.settings import build_settings_page
 from tools.layout import (
     MENU_BAR_BOTTOM,
@@ -85,11 +86,24 @@ def build_navigation(page: ft.Page) -> None:
             if index == 1
             else             build_calendar_page(page, set_menu_visible)
             if index == 2
-            else build_settings_page(page, set_menu_visible)
+            else build_settings_page(page, show_preferences)
         )
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = True
         build_menu_items()
+        if update:
+            page.update()
+
+    def show_preferences(update: bool = True) -> None:
+        """「我的」右上角齿轮进来的设置页：二级页，进来后底部菜单收起。"""
+        content.content = build_preferences_page(
+            page,
+            # 二级页没有底部菜单：输入框弹键盘、弹窗收起时都不要把它叫回来。
+            set_menu_visible=lambda _visible: None,
+            go_back=lambda: show_page(3),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
         if update:
             page.update()
 
