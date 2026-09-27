@@ -1,3 +1,12 @@
+"""日历页：月历本身就是内容，不再在下面另开一张待办列表。
+
+日期格子没有底色，颜色全在「条目」上：当天每条待办都是一小块自己的颜色
+（分类色的浅底 + 分类色文字，重要红 / 一般黄 / 可选绿），已完成的那条沿用
+全局约定变灰并加删除线，同一天的倒数日用倒数日的天蓝色。选中的日期只在日期
+数字外面套一个统一的圆形底色，格子本身不变色。一天最多列 5 条，多出来的
+折成「+N」。
+"""
+
 import calendar
 from collections.abc import Callable
 from datetime import date
@@ -5,46 +14,80 @@ from datetime import date
 import flet as ft
 
 from tools import db
-from tools.categories import CATEGORY_COLORS, build_category_icon, category_color
+from tools.categories import (
+    CATEGORY_COLORS,
+    build_category_icon,
+    category_color,
+)
 from tools.countdown_card import (
     ACCENT_COLOR as COUNTDOWN_COLOR,
     build_countdown_card,
     countdowns_on,
 )
 from tools.countdown_form import open_countdown_form
-# The month grid draws the very same day badge as the home date strip: same
-# circle, same face, same colours for today, the picked day and the rest.
-from pages.home import build_date_badge, date_badge_bg
-from tools.pickers import build_date_picker
 from tools.layout import (
     BOTTOM_MENU_INSET,
+    # 选中日期的那圈圆形底色：和首页日期条、我的页日期选择器同一个蓝。
+    DATE_SELECTED_BG,
+    DIALOG_RADIUS,
+    DIALOG_SURFACE,
     TODO_DONE_TEXT,
-    TODO_TEXT_SIZE,
     TODO_TIME_COLOR,
-    TODO_TIME_SIZE,
     build_todo_mark,
+    dialog_button_style,
     page_gradient,
     todo_text_style,
     todo_time_label,
 )
+from tools.lunar import lunar_label
+from tools.pickers import build_date_picker
 from tools.swipe_delete import build_swipe_delete_row
 from tools.todo_form import open_todo_form
 
-DONE_COLOR = "#16A34A"
-PENDING_COLOR = "#EAB308"
-OVERDUE_COLOR = "#DC2626"
-NO_DOT = "#00000000"
-# Only days that are already behind us wear their state on the badge: green when
-# every todo of that day is done, light yellow while something is still open.
-# Today and the days ahead keep the plain badge (neutral, or the selection blue
-# for the picked one), so the colours read as "how did that day end up".
-PENDING_DAY_BG = "#EEE364"
-DONE_DAY_BG = "#0C8237"
-# Compact month grid. The cell is one row tall and the day itself is the same
-# round badge the home strip draws, so the two pages match to the pixel.
-DAY_CELL_HEIGHT = 36
-# Left-right gap between two day cells (the cells share the row width).
-DAY_CELL_SPACING = 6
+TITLE_COLOR = "#172554"
+MUTED_COLOR = "#64748B"
+# 每格的高度：一行日期 + 最多 4 条待办（条目本身带底色）。
+DAY_CELL_HEIGHT = 96
+# 卡片之间的左右间隔（卡片平分行宽，间隔越小卡片越宽）。
+DAY_CELL_SPACING = 4
+# 日期数字外面的圆：只有选中的那天填色。
+DAY_BADGE_SIZE = 22
+DAY_NUMBER_SIZE = 12
+# 日期右边那行农历：比日期小一号、灰色，只放日子（「廿三」）放得下。
+LUNAR_SIZE = 7
+ITEM_SIZE = 9
+# 弹窗里的字号整体小一档（弹窗比卡片宽松，但内容多，压小一点更像清单）。
+DIALOG_TITLE_SIZE = 15
+DIALOG_GROUP_SIZE = 12
+DIALOG_TEXT_SIZE = 13
+DIALOG_TIME_SIZE = 10
+# 日期格子的描边：比卡片边框 #E2E8F0 再淡一半，只把格子界限轻轻画出来。
+CELL_BORDER = "#F0F3F8"
+MAX_ITEMS = 4
+WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
+# 卡片里待办按等级排：重要 → 一般 → 可选（未知分类排在最后）。
+CATEGORY_ORDER = list(CATEGORY_COLORS)
+
+
+def lunar_short(day: date) -> str:
+    """卡片右角那半截农历。
+
+    格子只有一行位置：平常只写日子（「廿三」），碰上初一就写月份（「八月」）
+    —— 一个月里出现两次「初一」这种信息量为零的写法不如报月份。
+    """
+    label = lunar_label(day)
+    month, separator, rest = label.partition("月")
+    if separator and rest in ("", "初一"):
+        return f"{month}月"
+    return rest or label
+
+
+def readable_ink(bgcolor: str) -> str:
+    """压在条目底色上的字色：底色深用白字，浅色（尤其一般的黄）用深蓝字。"""
+    value = bgcolor.lstrip("#")
+    red, green, blue = (int(value[i: i + 2], 16) for i in (0, 2, 4))
+    luma = 0.299 * red + 0.587 * green + 0.114 * blue
+    return TITLE_COLOR if luma >= 150 else "#FFFFFF"
 
 
 def build_calendar_page(
@@ -54,54 +97,69 @@ def build_calendar_page(
     visible_month = date(today.year, today.month, 1)
     selected_day = today
     month_view = ft.Container()
-    selected_content = ft.Container()
-    selected_scroll = ft.ListView(
-        expand=True,
-        scroll=ft.ScrollMode.HIDDEN,
-        margin=ft.Margin.only(top=12),
-        padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
-        controls=[selected_content],
-    )
     month_title = ft.Text(
         f"{visible_month.year}年{visible_month.month}月",
         size=17,
         weight=ft.FontWeight.BOLD,
-        color="#172554",
+        color=TITLE_COLOR,
     )
 
-    def delete_todo(todo_id: int) -> None:
-        db.delete_todo(todo_id)
-        update_calendar()
+    def month_todos() -> dict[date, list[db.Todo]]:
+        last_day = calendar.monthrange(
+            visible_month.year, visible_month.month
+        )[1]
+        grouped: dict[date, list[db.Todo]] = {}
+        for todo in db.list_range(
+            visible_month,
+            date(visible_month.year, visible_month.month, last_day),
+        ):
+            grouped.setdefault(todo.due_date, []).append(todo)
+        return grouped
 
-    def remove_countdown(countdown_id: int) -> None:
-        db.delete_countdown(countdown_id)
-        update_calendar()
+    def remove_todo(todo: db.Todo, refresh: Callable[[], None]) -> None:
+        db.delete_todo(todo.id)
+        refresh()
 
-    def edit_countdown(item: db.Countdown) -> None:
-        open_countdown_form(
-            page,
-            set_menu_visible=set_menu_visible,
-            on_saved=update_calendar,
-            item=item,
-        )
-
-    def edit_todo(todo_id: int) -> None:
-        todo = db.get_todo(todo_id)
-        if todo is None:
-            return
+    def edit_todo(todo: db.Todo, refresh: Callable[[], None]) -> None:
         open_todo_form(
             page,
             set_menu_visible=set_menu_visible,
-            on_saved=lambda _: update_calendar(),
+            on_saved=lambda _: refresh(),
             default_date=todo.due_date,
             todo=todo,
         )
 
-    def todo_card(todo: db.Todo) -> ft.Control:
+    def remove_countdown(item: db.Countdown, refresh: Callable[[], None]) -> None:
+        db.delete_countdown(item.id)
+        refresh()
+
+    def edit_countdown(item: db.Countdown, refresh: Callable[[], None]) -> None:
+        open_countdown_form(
+            page,
+            set_menu_visible=set_menu_visible,
+            on_saved=refresh,
+            item=item,
+        )
+
+    def clip_in_dialog(row: ft.Control) -> ft.Control:
+        """把左滑行裁在弹窗边界内。
+
+        左滑是靠平移卡片实现的，平移量（两个按钮 144px）比弹窗的留白大得多，
+        不裁的话卡片会滑到弹窗外面、盖到页面上；这里按行自己的圆角裁一刀，
+        滑出弹窗的部分直接看不见，露出来的就是那两个按钮。
+        """
+        return ft.Container(
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border_radius=ft.BorderRadius.all(10),
+            content=row,
+        )
+
+    def todo_row(todo: db.Todo, refresh: Callable[[], None]) -> ft.Control:
+        """弹窗里的一行待办：左滑出「编辑 / 删除」，和首页那张列表同一套。"""
         lines = [
             ft.Text(
                 todo.content,
-                size=TODO_TEXT_SIZE,
+                size=DIALOG_TEXT_SIZE,
                 # Open todos wear their category's colour; done ones grey out and
                 # get the strikethrough.
                 color=(
@@ -116,13 +174,13 @@ def build_calendar_page(
             lines.append(
                 ft.Text(
                     todo_time_label(todo.due_time),
-                    size=TODO_TIME_SIZE,
+                    size=DIALOG_TIME_SIZE,
                     weight=ft.FontWeight.BOLD,
                     color=TODO_TIME_COLOR,
                 )
             )
         card = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
             border_radius=ft.BorderRadius.all(10),
             # Completed rows keep the neutral card too; the grey struck-through
             # text and the green check carry the done state.
@@ -141,18 +199,20 @@ def build_calendar_page(
                 ],
             ),
         )
-        return build_swipe_delete_row(
-            card,
-            lambda _: delete_todo(todo.id),
-            lambda _: edit_todo(todo.id),
+        return clip_in_dialog(
+            build_swipe_delete_row(
+                card,
+                lambda _: remove_todo(todo, refresh),
+                lambda _: edit_todo(todo, refresh),
+            )
         )
 
-    def build_empty_hint() -> ft.Control:
+    def empty_hint() -> ft.Control:
         return ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             border_radius=ft.BorderRadius.all(12),
             bgcolor="#F8FAFC",
-            border=ft.Border.all(1, "#E2E8F0"),
+            border=ft.Border.all(1, CELL_BORDER),
             content=ft.Row(
                 spacing=10,
                 controls=[
@@ -161,14 +221,15 @@ def build_calendar_page(
                         size=20,
                         color="#94A3B8",
                     ),
-                    ft.Text(
-                        "今天没有待办事项哦", size=13, color="#64748B"
-                    ),
+                    ft.Text("这天没有待办事项", size=12, color="#64748B"),
                 ],
             ),
         )
 
-    def build_selected_content(day: date) -> ft.Control:
+    def day_groups(
+        day: date, refresh: Callable[[], None]
+    ) -> list[ft.Control]:
+        """弹窗内容：当天的待办按分类分组，再跟上当天的倒数日。"""
         grouped: dict[str, list[db.Todo]] = {}
         for todo in db.list_range(day, day):
             grouped.setdefault(todo.category, []).append(todo)
@@ -186,24 +247,20 @@ def build_calendar_page(
                         ft.Row(
                             spacing=6,
                             controls=[
-                                build_category_icon(name, size=15),
+                                build_category_icon(name, size=13),
                                 ft.Text(
                                     name,
-                                    size=13,
+                                    size=DIALOG_GROUP_SIZE,
                                     weight=ft.FontWeight.BOLD,
                                     color=color,
                                 ),
                             ],
                         ),
-                        *[todo_card(todo) for todo in grouped[name]],
+                        *[todo_row(todo, refresh) for todo in grouped[name]],
                     ],
                 )
             )
         countdowns = countdowns_on(day)
-        # The "nothing here" hint only shows for a day that is truly empty - a day
-        # that only carries a 倒数日 already has something to show.
-        if not names and not countdowns:
-            groups.append(build_empty_hint())
         if countdowns:
             groups.append(
                 ft.Column(
@@ -216,54 +273,131 @@ def build_calendar_page(
                             controls=[
                                 ft.Icon(
                                     ft.Icons.EVENT,
-                                    size=15,
+                                    size=13,
                                     color=COUNTDOWN_COLOR,
                                 ),
                                 ft.Text(
                                     "倒数日",
-                                    size=13,
+                                    size=DIALOG_GROUP_SIZE,
                                     weight=ft.FontWeight.BOLD,
                                     color=COUNTDOWN_COLOR,
                                 ),
                             ],
                         ),
                         *[
-                            build_countdown_card(
-                                item,
-                                today=day,
-                                on_delete=lambda _, i=item: remove_countdown(i.id),
-                                on_edit=lambda _, i=item: edit_countdown(i),
+                            clip_in_dialog(
+                                build_countdown_card(
+                                    item,
+                                    today=day,
+                                    on_delete=lambda _, i=item: remove_countdown(
+                                        i, refresh
+                                    ),
+                                    on_edit=lambda _, i=item: edit_countdown(
+                                        i, refresh
+                                    ),
+                                )
                             )
                             for item in countdowns
                         ],
                     ],
                 )
             )
-        return ft.Column(
+        if not groups:
+            groups.append(empty_hint())
+        return groups
+
+    def open_day_dialog(day: date) -> None:
+        """点日期卡片：弹窗列出当天全部待办（左滑可编辑、删除）。"""
+        body = ft.Column(
             tight=True,
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[*groups],
         )
 
-    def day_dot_color(day: date, todos: list[db.Todo]) -> str:
-        if not todos:
-            return NO_DOT
-        if all(todo.done for todo in todos):
-            return DONE_COLOR
-        return OVERDUE_COLOR if day < today else PENDING_COLOR
+        def refresh() -> None:
+            # 删掉/改完一条，弹窗和月历一起刷新。
+            body.controls = day_groups(day, refresh)
+            body.update()
+            update_calendar()
 
-    def month_todos() -> dict[date, list[db.Todo]]:
-        last_day = calendar.monthrange(
-            visible_month.year, visible_month.month
-        )[1]
-        grouped: dict[date, list[db.Todo]] = {}
-        for todo in db.list_range(
-            visible_month,
-            date(visible_month.year, visible_month.month, last_day),
-        ):
-            grouped.setdefault(todo.due_date, []).append(todo)
-        return grouped
+        body.controls = day_groups(day, refresh)
+        page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                # 一天里条目多时整个弹窗内容可滚。
+                scrollable=True,
+                shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
+                bgcolor=DIALOG_SURFACE,
+                elevation=0,
+                inset_padding=ft.Padding.symmetric(horizontal=32, vertical=24),
+                title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
+                content_padding=ft.Padding.only(
+                    left=16, top=8, right=16, bottom=8
+                ),
+                actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
+                action_button_padding=ft.Padding.symmetric(horizontal=8),
+                title=ft.Text(
+                    f"{day.month}月{day.day}日 周{WEEKDAYS[day.weekday()]}",
+                    size=DIALOG_TITLE_SIZE,
+                    weight=ft.FontWeight.BOLD,
+                    color=TITLE_COLOR,
+                ),
+                content=body,
+                actions=[
+                    ft.TextButton(
+                        "关闭",
+                        style=dialog_button_style(),
+                        on_click=lambda _: page.pop_dialog(),
+                    ),
+                ],
+            )
+        )
+
+    def item_line(text: str, color: str, done: bool = False) -> ft.Control:
+        """卡片里的一条：底色就是待办对应的颜色，字色跟着底色选深浅。"""
+        ink = readable_ink(color)
+        return ft.Container(
+            bgcolor=color,
+            border_radius=ft.BorderRadius.all(4),
+            padding=ft.Padding.symmetric(horizontal=3, vertical=1),
+            content=ft.Text(
+                text,
+                size=ITEM_SIZE,
+                color=ink,
+                # 完成的画删除线；线跟着字色走，压在深底色上也看得见。
+                style=(
+                    ft.TextStyle(
+                        decoration=ft.TextDecoration.LINE_THROUGH,
+                        decoration_thickness=1.5,
+                        decoration_color=ink,
+                    )
+                    if done
+                    else None
+                ),
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+        )
+
+    def item_lines(day: date, todos: list[db.Todo]) -> list[ft.Control]:
+        """当天的待办 + 倒数日，按分类上色，最多 MAX_ITEMS 行。"""
+        entries: list[tuple[str, str, bool]] = [
+            # 完成的待办底色照旧用分类色，靠删除线表示已完成。
+            (todo.content, category_color(todo.category), todo.done)
+            for todo in todos
+        ]
+        entries += [
+            (item.content, COUNTDOWN_COLOR, False) for item in countdowns_on(day)
+        ]
+        if not entries:
+            return []
+        if len(entries) > MAX_ITEMS:
+            # 多出来的不硬挤：少列一条，末尾用「+N」交代。
+            shown = entries[: MAX_ITEMS - 1]
+            lines = [item_line(*entry) for entry in shown]
+            lines.append(item_line(f"+{len(entries) - len(shown)}", MUTED_COLOR))
+            return lines
+        return [item_line(*entry) for entry in entries]
 
     def day_cell(
         day_number: int, day_todos: dict[date, list[db.Todo]]
@@ -273,41 +407,63 @@ def build_calendar_page(
 
         day = date(visible_month.year, visible_month.month, day_number)
         is_selected = day == selected_day
-        todos = day_todos.get(day, [])
-        dot_color = day_dot_color(day, todos)
-        if is_selected:
-            badge_bg = date_badge_bg(True)
-        elif day < today and todos:
-            badge_bg = (
-                DONE_DAY_BG
-                if all(todo.done for todo in todos)
-                else PENDING_DAY_BG
-            )
-        else:
-            badge_bg = date_badge_bg(False)
+        # 重要 → 一般 → 可选：同一天里等级高的排在上面。
+        todos = sorted(
+            day_todos.get(day, []),
+            key=lambda todo: (
+                CATEGORY_ORDER.index(todo.category)
+                if todo.category in CATEGORY_ORDER
+                else len(CATEGORY_ORDER)
+            ),
+        )
+        lines = item_lines(day, todos)
         return ft.Container(
             expand=True,
             height=DAY_CELL_HEIGHT,
-            alignment=ft.Alignment.CENTER,
-            on_click=lambda _: select_day(day),
-            content=build_date_badge(
-                str(day_number),
-                badge_bg,
-                extra=(
-                    ft.Container(
-                        width=3,
-                        height=3,
-                        border_radius=ft.BorderRadius.all(2),
-                        bgcolor=dot_color,
-                        border=(
-                            ft.Border.all(1, "#FFFFFF")
-                            if is_selected and dot_color != NO_DOT
-                            else None
-                        ),
-                    )
-                    if dot_color != NO_DOT
-                    else None
-                ),
+            padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+            border_radius=ft.BorderRadius.all(8),
+            # 浅灰描边，把每格的边界画出来（格子本身还是透明底）。
+            border=ft.Border.all(1, CELL_BORDER),
+            on_click=lambda _: click_day(day),
+            content=ft.Column(
+                tight=True,
+                spacing=2,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    # 日期靠左（选中的那天只有数字外面套一圈圆形底色），
+                    # 右边跟一行农历，比日期小一号、灰色。
+                    ft.Row(
+                        spacing=2,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Container(
+                                width=DAY_BADGE_SIZE,
+                                height=DAY_BADGE_SIZE,
+                                shape=ft.BoxShape.CIRCLE,
+                                alignment=ft.Alignment.CENTER,
+                                bgcolor=(
+                                    DATE_SELECTED_BG if is_selected else None
+                                ),
+                                content=ft.Text(
+                                    str(day_number),
+                                    size=DAY_NUMBER_SIZE,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=TITLE_COLOR,
+                                ),
+                            ),
+                            ft.Text(
+                                lunar_short(day),
+                                size=LUNAR_SIZE,
+                                color=MUTED_COLOR,
+                                text_align=ft.TextAlign.RIGHT,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                expand=True,
+                            ),
+                        ],
+                    ),
+                    *lines,
+                ],
             ),
         )
 
@@ -328,15 +484,15 @@ def build_calendar_page(
                             weekday,
                             size=11,
                             weight=ft.FontWeight.BOLD,
-                            color="#64748B",
+                            color=MUTED_COLOR,
                         )
-                        for weekday in ["一", "二", "三", "四", "五", "六", "日"]
+                        for weekday in WEEKDAYS
                     ],
                 ),
                 *[
                     ft.Row(
                         # The cells share the row width, so this left-right gap
-                        # sets how wide each day cell gets.
+                        # sets how wide each day card gets.
                         spacing=DAY_CELL_SPACING,
                         controls=[day_cell(day, day_todos) for day in week],
                     )
@@ -347,14 +503,15 @@ def build_calendar_page(
 
     def update_calendar() -> None:
         nonlocal selected_day
-        if selected_day.month != visible_month.month or selected_day.year != visible_month.year:
+        if (
+            selected_day.month != visible_month.month
+            or selected_day.year != visible_month.year
+        ):
             selected_day = visible_month
         month_view.content = build_month_view()
-        selected_content.content = build_selected_content(selected_day)
         month_title.value = f"{visible_month.year}年{visible_month.month}月"
         month_title.update()
         month_view.update()
-        selected_content.update()
 
     def change_month(offset: int) -> None:
         nonlocal visible_month
@@ -369,13 +526,16 @@ def build_calendar_page(
     def select_day(day: date) -> None:
         nonlocal selected_day
         selected_day = day
-        selected_content.content = build_selected_content(day)
         month_view.content = build_month_view()
         month_view.update()
-        selected_content.update()
+
+    def click_day(day: date) -> None:
+        """点某天：先把它选上（日期圈变蓝），再弹出当天的待办清单。"""
+        select_day(day)
+        open_day_dialog(day)
 
     def jump_to_day(day: date) -> None:
-        """Follow a date picked in the system picker: month, selection, list."""
+        """Follow a date picked in the system picker: month and selection."""
         nonlocal visible_month
         visible_month = date(day.year, day.month, 1)
         select_day(day)
@@ -388,7 +548,6 @@ def build_calendar_page(
         page.show_dialog(date_picker)
 
     month_view.content = build_month_view()
-    selected_content.content = build_selected_content(selected_day)
 
     return ft.Container(
         expand=True,
@@ -410,7 +569,7 @@ def build_calendar_page(
                             # Same face as the home page's「待办」heading.
                             size=18,
                             weight=ft.FontWeight.BOLD,
-                            color="#172554",
+                            color=TITLE_COLOR,
                         ),
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -436,8 +595,13 @@ def build_calendar_page(
                                 ),
                             ],
                         ),
-                        month_view,
-                        selected_scroll,
+                        # 网格万一放不下（小屏）能滚动，正常手机上不用滚。
+                        ft.ListView(
+                            expand=True,
+                            scroll=ft.ScrollMode.HIDDEN,
+                            padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
+                            controls=[month_view],
+                        ),
                     ],
                 ),
             ),
