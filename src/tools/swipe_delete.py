@@ -8,7 +8,8 @@ import flet as ft
 # One action button; the swipe opens as wide as the number of actions needs.
 # Icon-only buttons (see the note on the reveal buttons below), so this is just
 # a comfortable tap target rather than room for a label.
-BUTTON_WIDTH = 60
+# 按钮只有图标，窄一点就够了；左右方向尤其不必留那么多。
+BUTTON_WIDTH = 44
 SNAP_DURATION = 160
 FLICK_VELOCITY = 300.0
 CLOSE_SLOP = 8.0
@@ -42,6 +43,13 @@ def build_swipe_delete_row(
             if animate
             else None
         )
+        # 卡片本身可能是透明的（首页时间轴就没有底色），按钮只在滑开时露面，
+        # 收着的时候完全藏起来，免得从卡片下面透出来。
+        opened = state["px"] < 0
+        for button in buttons:
+            if button.visible != opened:
+                button.visible = opened
+                button.update()
         card.update()
 
     def snap(px: float) -> None:
@@ -89,13 +97,14 @@ def build_swipe_delete_row(
             border_radius=ft.BorderRadius.all(ACTION_RADIUS),
             bgcolor=color,
             alignment=ft.Alignment.CENTER,
+            visible=False,
             ink=True,
             on_click=handler,
             # 按钮上只留图标：文字换成 tooltip，窄按钮里图标一眼就认得。
             tooltip=label,
             content=ft.Icon(
                 icon,
-                size=20,
+                size=18,
                 color="#FFFFFF",
             ),
         )

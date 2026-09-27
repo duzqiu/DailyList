@@ -14,11 +14,7 @@ from datetime import date
 import flet as ft
 
 from tools import db
-from tools.categories import (
-    CATEGORY_COLORS,
-    build_category_icon,
-    category_color,
-)
+from tools.categories import CATEGORY_COLORS, category_color
 from tools.countdown_card import (
     ACCENT_COLOR as COUNTDOWN_COLOR,
     build_countdown_card,
@@ -31,17 +27,12 @@ from tools.layout import (
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
-    TODO_DONE_TEXT,
-    TODO_TIME_COLOR,
-    build_todo_mark,
-    dialog_button_style,
     page_gradient,
-    todo_text_style,
-    todo_time_label,
+    readable_ink,
 )
 from tools.lunar import lunar_label
 from tools.pickers import build_date_picker
-from tools.swipe_delete import build_swipe_delete_row
+from tools.todo_timeline import build_todo_timeline
 from tools.todo_form import open_todo_form
 
 TITLE_COLOR = "#172554"
@@ -56,11 +47,13 @@ DAY_NUMBER_SIZE = 12
 # 日期右边那行农历：比日期小一号、灰色，只放日子（「廿三」）放得下。
 LUNAR_SIZE = 7
 ITEM_SIZE = 9
-# 弹窗里的字号整体小一档（弹窗比卡片宽松，但内容多，压小一点更像清单）。
+# 弹窗标题和分组名比正文小一档（弹窗比卡片宽松，但内容多）。
 DIALOG_TITLE_SIZE = 15
 DIALOG_GROUP_SIZE = 12
-DIALOG_TEXT_SIZE = 13
-DIALOG_TIME_SIZE = 10
+# 弹窗里的分组小标题（待办 / 倒数日）：图标 + 名称，统一用正文的深色。
+DIALOG_SECTION_COLOR = TITLE_COLOR
+# 弹窗表面（#E4E9EF）比首页底色深，点线要跟着深一点才看得见。
+DIALOG_AXIS_COLOR = "#CBD5E1"
 # 日期格子的描边：比卡片边框 #E2E8F0 再淡一点点，只要把格子界限画出来。
 CELL_BORDER = "#E2E8F0"
 MAX_ITEMS = 4
@@ -80,14 +73,6 @@ def lunar_short(day: date) -> str:
     if separator and rest in ("", "初一"):
         return f"{month}月"
     return rest or label
-
-
-def readable_ink(bgcolor: str) -> str:
-    """压在条目底色上的字色：底色深用白字，浅色（尤其一般的黄）用深蓝字。"""
-    value = bgcolor.lstrip("#")
-    red, green, blue = (int(value[i: i + 2], 16) for i in (0, 2, 4))
-    luma = 0.299 * red + 0.587 * green + 0.114 * blue
-    return TITLE_COLOR if luma >= 150 else "#FFFFFF"
 
 
 def build_calendar_page(
@@ -154,57 +139,19 @@ def build_calendar_page(
             content=row,
         )
 
-    def todo_row(todo: db.Todo, refresh: Callable[[], None]) -> ft.Control:
-        """弹窗里的一行待办：左滑出「编辑 / 删除」，和首页那张列表同一套。"""
-        lines = [
-            ft.Text(
-                todo.content,
-                size=DIALOG_TEXT_SIZE,
-                # Open todos wear their category's colour; done ones grey out and
-                # get the strikethrough.
-                color=(
-                    TODO_DONE_TEXT
-                    if todo.done
-                    else category_color(todo.category)
-                ),
-                style=todo_text_style(todo.done),
-            )
-        ]
-        if todo.due_time:
-            lines.append(
+    def section_header(name: str, icon: str, color: str) -> ft.Control:
+        """弹窗里的小标题：图标 + 名称，待办和倒数日共用一套。"""
+        return ft.Row(
+            spacing=6,
+            controls=[
+                ft.Icon(icon, size=13, color=color),
                 ft.Text(
-                    todo_time_label(todo.due_time),
-                    size=DIALOG_TIME_SIZE,
+                    name,
+                    size=DIALOG_GROUP_SIZE,
                     weight=ft.FontWeight.BOLD,
-                    color=TODO_TIME_COLOR,
-                )
-            )
-        card = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-            border_radius=ft.BorderRadius.all(10),
-            # Completed rows keep the neutral card too; the grey struck-through
-            # text and the green check carry the done state.
-            bgcolor="#F1F5F9",
-            content=ft.Row(
-                spacing=8,
-                controls=[
-                    build_todo_mark(todo.done),
-                    ft.Column(
-                        tight=True,
-                        expand=True,
-                        spacing=1,
-                        horizontal_alignment=ft.CrossAxisAlignment.START,
-                        controls=lines,
-                    ),
-                ],
-            ),
-        )
-        return clip_in_dialog(
-            build_swipe_delete_row(
-                card,
-                lambda _: remove_todo(todo, refresh),
-                lambda _: edit_todo(todo, refresh),
-            )
+                    color=color,
+                ),
+            ],
         )
 
     def empty_hint() -> ft.Control:
@@ -229,34 +176,25 @@ def build_calendar_page(
     def day_groups(
         day: date, refresh: Callable[[], None]
     ) -> list[ft.Control]:
-        """弹窗内容：当天的待办按分类分组，再跟上当天的倒数日。"""
-        grouped: dict[str, list[db.Todo]] = {}
-        for todo in db.list_range(day, day):
-            grouped.setdefault(todo.category, []).append(todo)
-        names = [name for name in CATEGORY_COLORS if grouped.get(name)]
-        names += [name for name in grouped if name not in CATEGORY_COLORS]
+        """弹窗内容：当天的待办用首页那套时间轴，倒数日接在下面。"""
         groups: list[ft.Control] = []
-        for name in names:
-            color = category_color(name)
+        todos = db.list_range(day, day)
+        if todos:
             groups.append(
                 ft.Column(
                     tight=True,
                     spacing=6,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        ft.Row(
-                            spacing=6,
-                            controls=[
-                                build_category_icon(name, size=13),
-                                ft.Text(
-                                    name,
-                                    size=DIALOG_GROUP_SIZE,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=color,
-                                ),
-                            ],
+                        section_header(
+                            "待办", ft.Icons.CHECKLIST, DIALOG_SECTION_COLOR
                         ),
-                        *[todo_row(todo, refresh) for todo in grouped[name]],
+                        build_todo_timeline(
+                            todos,
+                            axis_color=DIALOG_AXIS_COLOR,
+                            on_delete=lambda todo: remove_todo(todo, refresh),
+                            on_edit=lambda todo: edit_todo(todo, refresh),
+                        ),
                     ],
                 )
             )
@@ -268,21 +206,8 @@ def build_calendar_page(
                     spacing=6,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        ft.Row(
-                            spacing=6,
-                            controls=[
-                                ft.Icon(
-                                    ft.Icons.EVENT,
-                                    size=13,
-                                    color=COUNTDOWN_COLOR,
-                                ),
-                                ft.Text(
-                                    "倒数日",
-                                    size=DIALOG_GROUP_SIZE,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=COUNTDOWN_COLOR,
-                                ),
-                            ],
+                        section_header(
+                            "倒数日", ft.Icons.EVENT, DIALOG_SECTION_COLOR
                         ),
                         *[
                             clip_in_dialog(
@@ -330,26 +255,34 @@ def build_calendar_page(
                 bgcolor=DIALOG_SURFACE,
                 elevation=0,
                 inset_padding=ft.Padding.symmetric(horizontal=32, vertical=24),
-                title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
+                # 标题行和右上角的「×」都往角上靠一点。
+                title_padding=ft.Padding.only(left=16, top=4, right=4, bottom=0),
                 content_padding=ft.Padding.only(
                     left=16, top=8, right=16, bottom=8
                 ),
                 actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
                 action_button_padding=ft.Padding.symmetric(horizontal=8),
-                title=ft.Text(
-                    f"{day.month}月{day.day}日 周{WEEKDAYS[day.weekday()]}",
-                    size=DIALOG_TITLE_SIZE,
-                    weight=ft.FontWeight.BOLD,
-                    color=TITLE_COLOR,
+                # 标题右边就是关闭的「×」，底下不再放一整条 actions。
+                title=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(
+                            f"{day.month}月{day.day}日 周{WEEKDAYS[day.weekday()]}",
+                            size=DIALOG_TITLE_SIZE,
+                            weight=ft.FontWeight.BOLD,
+                            color=TITLE_COLOR,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE,
+                            icon_size=20,
+                            icon_color=MUTED_COLOR,
+                            tooltip="关闭",
+                            on_click=lambda _: page.pop_dialog(),
+                        ),
+                    ],
                 ),
                 content=body,
-                actions=[
-                    ft.TextButton(
-                        "关闭",
-                        style=dialog_button_style(),
-                        on_click=lambda _: page.pop_dialog(),
-                    ),
-                ],
             )
         )
 

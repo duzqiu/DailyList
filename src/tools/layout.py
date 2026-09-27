@@ -151,3 +151,11 @@ def text_width(text: str, size: float) -> float:
     enough to reserve room for a label without asking the renderer to measure it.
     """
     return sum(size * (1.0 if ord(char) > 0x2E80 else 0.55) for char in text)
+
+
+def readable_ink(bgcolor: str) -> str:
+    """压在有色底上的字色：底色深用白字，浅色（尤其一般的黄）用深蓝字。"""
+    value = bgcolor.lstrip("#")
+    red, green, blue = (int(value[i: i + 2], 16) for i in (0, 2, 4))
+    luma = 0.299 * red + 0.587 * green + 0.114 * blue
+    return "#172554" if luma >= 150 else "#FFFFFF"

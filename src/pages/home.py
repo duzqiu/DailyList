@@ -3,24 +3,17 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 from tools import db
-from tools.categories import CATEGORIES, build_category_icon
+from tools.categories import CATEGORIES
 from tools.layout import (
     BOTTOM_MENU_INSET,
     DATE_SELECTED_BG,
     SKY_BLUE,
-    TODO_DONE_TEXT,
-    TODO_TEXT_SIZE,
-    TODO_TIME_COLOR,
-    TODO_TIME_SIZE,
     TODO_TITLE_SIZE,
     UNSELECTED_CARD_BG,
-    build_todo_mark,
     page_gradient,
-    todo_text_style,
-    todo_time_label,
 )
-from tools.swipe_delete import build_swipe_delete_row
 from tools.todo_form import open_todo_form
+from tools.todo_timeline import build_todo_row, sorted_todos
 
 # The floating add button is a sky-blue glass tile: no border ring, and a
 # translucent fill (60%) so the blur behind it shows through.
@@ -131,7 +124,8 @@ def build_home_page(
     )
     todo_content = ft.ListView(
         expand=True,
-        spacing=12,
+        # 行之间几乎不留缝，短竖线上下相接才像一条轴。
+        spacing=2,
         scroll=ft.ScrollMode.HIDDEN,
         padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
     )
@@ -140,99 +134,26 @@ def build_home_page(
         nonlocal todos_by_day
         todos_by_day = group_todos_by_day(db.list_todos(dates))
 
-    def todo_row(
-        todo: db.Todo, completed: bool, category_color: str
-    ) -> ft.Row:
-        # An open todo borrows its category's colour, so the row reads as part of
-        # the group above it; a completed one drops to grey with a strikethrough.
-        # Its time of day sits under the text as a quiet grey line.
-        lines = [
-            ft.Text(
-                todo.content,
-                size=TODO_TEXT_SIZE,
-                color=TODO_DONE_TEXT if completed else category_color,
-                style=todo_text_style(completed),
-            )
-        ]
-        if todo.due_time:
-            lines.append(
-                ft.Text(
-                    todo_time_label(todo.due_time),
-                    size=TODO_TIME_SIZE,
-                    weight=ft.FontWeight.BOLD,
-                    color=TODO_TIME_COLOR,
-                )
-            )
-        return ft.Row(
-            spacing=8,
-            controls=[
-                build_todo_mark(completed),
-                ft.Column(
-                    tight=True,
-                    expand=True,
-                    spacing=1,
-                    horizontal_alignment=ft.CrossAxisAlignment.START,
-                    controls=lines,
-                ),
-            ],
-        )
-
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
         reload_todos()
         select_date(selected_index)
 
-    def build_todo_item(todo: db.Todo, category_color: str) -> ft.Control:
-        completed = todo.done
-        todo_card = ft.Container(
-            key=f"todo-{todo.id}",
-            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-            border_radius=ft.BorderRadius.all(10),
-            # Both states keep the neutral card: a completed todo is marked by
-            # its grey struck-through text and the green check, not by a fill.
-            bgcolor=UNSELECTED_CARD_BG,
-            content=todo_row(todo, completed, category_color),
-        )
+    def build_todo_item(todo: db.Todo, first: bool = False) -> ft.Control:
+        """一行时间轴：点一下切换完成，左滑编辑 / 删除（共用控件）。"""
 
-        def toggle_todo(_: ft.Event[ft.Container]) -> None:
-            nonlocal completed
-            completed = not completed
-            db.set_done(todo.id, completed)
+        def toggle_todo(item: db.Todo) -> None:
+            db.set_done(item.id, not item.done)
             reload_todos()
-            todo_card.content = todo_row(todo, completed, category_color)
-            todo_card.update()
+            render_todos(selected_index)
+            todo_content.update()
 
-        todo_card.on_click = toggle_todo
-        return build_swipe_delete_row(
-            todo_card,
-            lambda _: delete_todo(todo.id),
-            lambda _: edit_todo(todo.id),
-        )
-
-    def build_category_group(
-        category: str, category_color: str, items: list[db.Todo]
-    ) -> ft.Control:
-        return ft.Column(
-            tight=True,
-            spacing=6,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[
-                ft.Row(
-                    spacing=6,
-                    controls=[
-                        build_category_icon(category, size=15),
-                        ft.Text(
-                            category,
-                            size=13,
-                            weight=ft.FontWeight.BOLD,
-                            color=category_color,
-                        ),
-                    ],
-                ),
-                *[
-                    build_todo_item(todo, category_color) for todo in items
-                ],
-            ],
+        return build_todo_row(
+            todo,
+            first=first,
+            on_click=toggle_todo,
+            on_delete=lambda item: delete_todo(item.id),
+            on_edit=lambda item: edit_todo(item.id),
         )
 
     def build_empty_hint() -> ft.Control:
@@ -257,13 +178,16 @@ def build_home_page(
     def render_todos(index: int) -> None:
         selected_date = dates[index]
         day_items = todos_by_day.get(selected_date, {})
-        groups = [
-            build_category_group(name, color, day_items.get(name, []))
-            for name, color in CATEGORIES
-            if day_items.get(name)
+        # 时间轴：没有时间的（全天）排最前，其余按时间先后（同一时间按录入顺序）。
+        todos = [
+            todo for name, _ in CATEGORIES for todo in day_items.get(name, [])
         ]
+        todos = sorted_todos(todos)
         todo_title.value = f"{selected_date.month}月{selected_date.day}日待办"
-        todo_content.controls = groups or [build_empty_hint()]
+        todo_content.controls = [
+            build_todo_item(todo, first=index == 0)
+            for index, todo in enumerate(todos)
+        ] or [build_empty_hint()]
 
     def build_date_item(index: int) -> ft.Control:
         selected_date = dates[index]
