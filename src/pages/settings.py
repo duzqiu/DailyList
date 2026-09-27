@@ -486,22 +486,38 @@ def build_settings_page(
         notify(f"已清除 {removed} 条待办数据")
 
     def confirm_clear(_: ft.Event[ft.Control]) -> None:
+        # iOS-style dialog, the one Cupertino control Flet offers: the whole
+        # dialog scrolls as one card with the actions stacked under the text.
         page.show_dialog(
-            settings_dialog(
-                "清除缓存",
-                ft.Text(
-                    "将删除数据库中当前所有的待办数据，且无法恢复。",
-                    size=12,
+            ft.CupertinoAlertDialog(
+                modal=True,
+                title=ft.Text(
+                    "清除缓存",
+                    size=15,
+                    weight=ft.FontWeight.BOLD,
+                    color=TITLE_COLOR,
                 ),
-                [
-                    ft.TextButton(
-                        "取消",
-                        style=dialog_button_style(),
+                content=ft.Container(
+                    padding=ft.Padding.only(top=6),
+                    content=ft.Text(
+                        "将删除数据库中当前所有的待办数据，且无法恢复。",
+                        size=13,
+                        color=TITLE_COLOR,
+                    ),
+                ),
+                actions=[
+                    ft.CupertinoDialogAction(
+                        content=ft.Text("取消", size=14),
                         on_click=lambda _: page.pop_dialog(),
                     ),
-                    ft.TextButton(
-                        "确认清除",
-                        style=dialog_button_style(),
+                    ft.CupertinoDialogAction(
+                        content=ft.Text(
+                            "确认清除",
+                            size=14,
+                            color=PENDING_COLOR,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+                        destructive=True,
                         on_click=clear_data,
                     ),
                 ],
