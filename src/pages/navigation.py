@@ -43,6 +43,14 @@ def build_navigation(page: ft.Page) -> None:
     )
     content = ft.Container(expand=True)
     selected_index = 0
+    # 每个 Tab 一份页面状态。切页时页面控件是重建的（待办数据要现从 db 读），
+    # 但「在看哪个月 / 选了哪一档」这类选择不该跟着回到默认值，所以由这里保管：
+    # 切走再切回来还停在原处，只有热重载重新跑 main() 才回到初始值。
+    tab_state: dict[int, dict[str, object]] = {}
+
+    def state_of(index: int) -> dict[str, object]:
+        return tab_state.setdefault(index, {})
+
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -79,14 +87,15 @@ def build_navigation(page: ft.Page) -> None:
     def show_page(index: int, update: bool = True) -> None:
         nonlocal selected_index
         selected_index = index
+        page_state = state_of(index)
         content.content = (
             build_home_page(page, set_menu_visible)
             if index == 0
             else             build_countdown_page(page, set_menu_visible)
             if index == 1
-            else             build_calendar_page(page, set_menu_visible)
+            else             build_calendar_page(page, set_menu_visible, page_state)
             if index == 2
-            else build_settings_page(page, show_preferences)
+            else build_settings_page(page, show_preferences, page_state)
         )
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = True

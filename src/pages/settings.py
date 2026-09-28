@@ -18,11 +18,7 @@ from tools.layout import (
 )
 from tools.line_chart import build_interactive_line_chart
 from tools.pie_chart import build_category_pie_chart, highlight_section
-from tools.popup_select import (
-    build_option_row,
-    build_option_selector,
-    build_option_text,
-)
+from tools.segmented import build_segmented
 
 # Every surface on this page is the same grey the 待办 cards use, so a card here
 # and a todo card read as the same material.
@@ -48,6 +44,9 @@ HEADER_TEXT_COLOR = TITLE_COLOR
 DIMENSIONS = ("年", "月", "周")
 # 数据统计 and 待办趋势 both open on 周; the picker still offers 年/月/周.
 DEFAULT_DIMENSION = "周"
+# 三张卡各有一份 年/月/周 选择，key 也是保管它们的那份 state 的键名
+# （见 build_settings_page 的 `state` 参数）。
+DIMENSION_STATE_KEYS = ("dimension", "trend", "pie")
 # 年 and 周 plot one point per month/day and stay few enough to name every point
 # on the x axis; 月's 28-31 points keep the sparse first/middle/last labels.
 NAMED_AXIS_DIMENSIONS = ("年", "周")
@@ -59,9 +58,8 @@ STATUS_COLORS = {"all": TITLE_COLOR, "done": DONE_COLOR, "pending": PENDING_COLO
 # red below half - and its percentage follows the dot.
 DOT_SIZE = 5
 RATE_THRESHOLD = 50
-# The 年/月/周 range selector is a `PopupMenuButton`, not a `Dropdown`: a
-# Dropdown trigger paints over an anchored panel - see tools/popup_select.py,
-# which the add-todo dialog's 日期/类别 pickers share with these two.
+# 年/月/周 是卡片标题行里的横向胶囊开关（tools/segmented.py），不再是下拉触发器：
+# 三档直接摊在标题行里，点一下就切。
 
 
 def build_card(
@@ -179,16 +177,19 @@ def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
 
 
 def build_settings_page(
-    page: ft.Page, open_preferences: Callable[[], None]
+    page: ft.Page,
+    open_preferences: Callable[[], None],
+    state: dict[str, object],
 ) -> ft.Control:
+    """「我的」页。`state` 由调用方保管（见 pages/navigation.py）：三张卡各自的
+    年/月/周 要能跨 Tab 留住，切走再回来还是原来那一档。
+    """
     today = date.today()
     category_names = [name for name, _ in CATEGORIES]
-    # 数据统计、分类占比和待办趋势各自留一份 年/月/周 选择。
-    state = {
-        "dimension": DEFAULT_DIMENSION,
-        "trend": DEFAULT_DIMENSION,
-        "pie": DEFAULT_DIMENSION,
-    }
+    # 数据统计、分类占比和待办趋势各自留一份 年/月/周 选择：首次进来按默认值
+    # 落一份，之后就沿用调用方存下的那一份。
+    for key in DIMENSION_STATE_KEYS:
+        state.setdefault(key, DEFAULT_DIMENSION)
 
     numbers = {
         (name, key): ft.Text(
@@ -323,49 +324,31 @@ def build_settings_page(
             ),
         )
 
-    dimension_text = build_option_text(state["dimension"])
-
     def change_dimension(name: str) -> None:
         if name == state["dimension"]:
             return
         state["dimension"] = name
-        # The trigger is our own Text, so the picked 年/月/周 renders right away
-        # (a Dropdown only re-synced its trigger text on a full rebuild).
-        dimension_text.value = name
-        dimension_text.update()
         render()
 
-    selector_row = build_option_row(
-        build_option_selector(
-            dimension_text,
-            [(name, name) for name in DIMENSIONS],
-            change_dimension,
-        )
+    selector_row = build_segmented(
+        [(name, name) for name in DIMENSIONS], state["dimension"], change_dimension
     )
 
     chart_holder = ft.Container()
-    trend_text = build_option_text(state["trend"])
 
     def change_trend(name: str) -> None:
         """Re-render the chart; it has its own 年/月/周 switch."""
         if name == state["trend"]:
             return
         state["trend"] = name
-        trend_text.value = name
-        trend_text.update()
         chart_holder.content = trend_chart()
         chart_holder.update()
 
-    trend_selector_row = build_option_row(
-        build_option_selector(
-            trend_text,
-            [(name, name) for name in DIMENSIONS],
-            change_trend,
-        )
+    trend_selector_row = build_segmented(
+        [(name, name) for name in DIMENSIONS], state["trend"], change_trend
     )
 
     pie_holder = ft.Container()
-    pie_text = build_option_text(state["pie"])
     # 凸出效果是在 on_event 里就地改扇区，所以要把当前这张图和悬停下标记住。
     pie_state: dict[str, object] = {"chart": None, "section": -1}
 
@@ -374,17 +357,11 @@ def build_settings_page(
         if name == state["pie"]:
             return
         state["pie"] = name
-        pie_text.value = name
-        pie_text.update()
         pie_holder.content = pie_chart()
         pie_holder.update()
 
-    pie_selector_row = build_option_row(
-        build_option_selector(
-            pie_text,
-            [(name, name) for name in DIMENSIONS],
-            change_pie,
-        )
+    pie_selector_row = build_segmented(
+        [(name, name) for name in DIMENSIONS], state["pie"], change_pie
     )
 
     def pie_counts(dimension: str) -> list[tuple[str, int, str]]:

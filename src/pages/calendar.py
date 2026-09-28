@@ -75,11 +75,29 @@ def lunar_short(day: date) -> str:
 
 
 def build_calendar_page(
-    page: ft.Page, set_menu_visible: Callable[[bool], None]
+    page: ft.Page,
+    set_menu_visible: Callable[[bool], None],
+    state: dict[str, object],
 ) -> ft.Control:
+    """日历页。`state` 由调用方保管（见 pages/navigation.py）：翻到哪个月、
+    选中了哪一天要能跨 Tab 留住，切走再回来不会被拉回今天。控件本身照旧每次
+    重建，所以上面的待办还是现从 db 读的。
+    """
     today = date.today()
-    visible_month = date(today.year, today.month, 1)
-    selected_day = today
+    saved_month = state.get("month")
+    saved_day = state.get("day")
+    visible_month = (
+        saved_month
+        if isinstance(saved_month, date)
+        else date(today.year, today.month, 1)
+    )
+    selected_day = saved_day if isinstance(saved_day, date) else today
+
+    def remember() -> None:
+        """把当前所在的月份和选中的日期写回 `state`，供下次重建时恢复。"""
+        state["month"] = visible_month
+        state["day"] = selected_day
+
     month_view = ft.Container()
     month_title = ft.Text(
         f"{visible_month.year}年{visible_month.month}月",
@@ -435,6 +453,7 @@ def build_calendar_page(
             or selected_day.year != visible_month.year
         ):
             selected_day = visible_month
+        remember()
         month_view.content = build_month_view()
         month_title.value = f"{visible_month.year}年{visible_month.month}月"
         month_title.update()
@@ -453,6 +472,7 @@ def build_calendar_page(
     def select_day(day: date) -> None:
         nonlocal selected_day
         selected_day = day
+        remember()
         month_view.content = build_month_view()
         month_view.update()
 

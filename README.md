@@ -53,11 +53,11 @@
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
 | `src/main.py` | 13 | 入口：`db.init_db()` 建库 → `build_navigation(page)` |
-| `src/pages/navigation.py` | 182 | 底部毛玻璃菜单 + 4 个 Tab 切换 + 二级页（设置）跳转；键盘弹起时把菜单顶起来 |
+| `src/pages/navigation.py` | 191 | 底部毛玻璃菜单 + 4 个 Tab 切换 + 二级页（设置）跳转；跨 Tab 保管各页状态 |
 | `src/pages/home.py` | 325 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」 |
 | `src/pages/countdown.py` | 198 | 倒数日页：通栏 + 两列卡片列表 |
-| `src/pages/calendar.py` | 536 | 日历页：月历卡片网格、当天详情弹窗 |
-| `src/pages/settings.py` | 635 | 「我的」页：数据统计 / 分类占比 / 待办趋势三张卡 |
+| `src/pages/calendar.py` | 556 | 日历页：月历卡片网格、当天详情弹窗（月份与选中日期跨 Tab 保留） |
+| `src/pages/settings.py` | 612 | 「我的」页：数据统计 / 分类占比 / 待办趋势三张卡（年/月/周 跨 Tab 保留） |
 | `src/pages/preferences.py` | 413 | 设置二级页：通知渠道、清除缓存、云端开关 |
 | `src/tools/db.py` | 610 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings |
 | `src/tools/layout.py` | 172 | 全局配色与尺寸常量、页面渐变、弹窗键盘定位、文字宽度估算、可读字色、时间文案 |
@@ -65,7 +65,9 @@
 | `src/tools/todo_timeline.py` | 274 | 待办时间轴行（首页与日历弹窗共用） |
 | `src/tools/todo_form.py` | 298 | 新增 / 编辑待办弹窗（起止时间 + 三个分类勾选框） |
 | `src/tools/swipe_delete.py` | 124 | 左滑露出操作按钮的行容器 |
-| `src/tools/popup_select.py` | 219 | 统一的下拉选择器（年/月/周、类别、循环、通知渠道都用它） |
+| `src/tools/popup_select.py` | 219 | 统一的下拉选择器（待办/倒数日的日期、类别、循环、通知渠道都用它） |
+| `src/tools/segmented.py` | 102 | 「我的」页 年/月/周 的横向胶囊分段开关 |
+
 | `src/tools/pickers.py` | 129 | 系统日期 / 时间选择器封装（含 UTC 时区修正、可选标题） |
 | `src/tools/countdown_card.py` | 267 | 倒数日卡片（三档状态色、过期不循环的自动收起） |
 | `src/tools/countdown_form.py` | 237 | 新增 / 编辑倒数日弹窗（含卡片底色选择） |
@@ -121,12 +123,13 @@ main.py
 改代码前值得知道的几条（都是踩过坑留下来的）：
 
 1. **颜色 / 尺寸集中在 `tools/layout.py` 和 `tools/categories.py`**：卡片色、选中蓝、完成灰、弹窗圆角（`DIALOG_RADIUS = 12`，Material 默认 28）、弹窗表面色（`DIALOG_SURFACE`）等都在这里，页面里不要再手写十六进制。
-2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。
+2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。例外是「我的」页的 年/月/周：三档直接摊在卡片标题行里，用 `tools/segmented.py` 的横向胶囊开关，点一下就切，不必先点开面板。
 3. **弹窗**统一 `shape=RoundedRectangleBorder(radius=DIALOG_RADIUS)` + `bgcolor=DIALOG_SURFACE` + `elevation=0`。
 4. **键盘处理**：输入框 `on_focus` 里调 `anchor_dialog_above_keyboard(dialog, True)`（弹窗贴键盘上方）并用 `set_menu_visible(False)` 收起底部菜单和浮动按钮；`on_blur` 复原。
 5. **列表底部留白**用 `BOTTOM_MENU_INSET`，否则最后一行会被浮动菜单栏压住。
 6. 页面内容滚动一律 `scroll=ft.ScrollMode.HIDDEN` 隐藏滚动条。
 7. **折线图的浮框是自绘的**（`tools/line_chart.py`）：fl_chart 的浮框是一个系列一行、每行只能一种颜色（`text_spans` 在 flet-charts 1.0.1 里传不到 Dart 侧，一用整个浮框都画不出来），做不出「灰色日期 + 彩点 + 黑色数值」。所以控件自带的浮框只留一个透明的壳，内容换成挂在 `ft.Stack` 上的 `ft.Container`，由 `LineChart.on_event` 的悬停事件摆位置、换内容。浮框贴在锚点左右：`TIP_OFFSET` 比 fl_chart 10px 的 x 命中半径大，光标压不到它，否则会出现「浮框盖住光标 → 图表 pointerExit → 浮框消失 → 又冒出来」的抖动。浮框是毛玻璃：半透明灰白底（`#CCF1F5F9`，`#AARRGGBB`）+ `blur=ft.Blur(12, 12, ft.BlurTileMode.CLAMP)`，与「+」按钮、底部菜单栏同一套写法。
+8. **Tab 状态存在 `pages/navigation.py`**：切 Tab 时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份 `tab_state`（一个 Tab 一份 `dict`），由 `show_page` 传给 `build_calendar_page` / `build_settings_page`，页面只读写这份 `dict`。热重载会重新跑 `main()`，状态自然回到初始值。
 
 ---
 
