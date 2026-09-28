@@ -25,6 +25,7 @@ from tools.layout import (
     readable_ink,
     todo_text_style,
     todo_time_label,
+    todo_time_range,
 )
 from tools.swipe_delete import build_swipe_delete_row
 
@@ -141,7 +142,36 @@ def _time_column(
 
 
 def _card_content(todo: db.Todo, color: str) -> ft.Control:
-    """待办那一行：等级标签 + 文字，完成的在末尾补一枚绿色对勾。"""
+    """待办那一行：等级标签 + 正文，正文上方是灰字起止时间，完成的末尾补绿勾。
+
+    时间只写进卡片；左边那条时间轴照旧只报开始时间。
+    """
+    time_range = todo_time_range(todo.due_time, todo.end_time)
+    body = ft.Column(
+        tight=True,
+        spacing=0,
+        expand=True,
+        controls=[
+            *(
+                [
+                    ft.Text(
+                        time_range,
+                        size=TODO_TIME_SIZE,
+                        color=TODO_TIME_COLOR,
+                    )
+                ]
+                if time_range
+                else []
+            ),
+            ft.Text(
+                todo.content,
+                size=TODO_TEXT_SIZE,
+                # 开着的待办用分类色，完成的变灰加删除线。
+                color=TODO_DONE_TEXT if todo.done else color,
+                style=todo_text_style(todo.done),
+            ),
+        ],
+    )
     return ft.Row(
         spacing=CATEGORY_TAG_GAP,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -156,14 +186,7 @@ def _card_content(todo: db.Todo, color: str) -> ft.Control:
                     color=readable_ink(color),
                 ),
             ),
-            ft.Text(
-                todo.content,
-                size=TODO_TEXT_SIZE,
-                # 开着的待办用分类色，完成的变灰加删除线。
-                color=TODO_DONE_TEXT if todo.done else color,
-                style=todo_text_style(todo.done),
-                expand=True,
-            ),
+            body,
             # 完成的在卡片最后收一枚绿勾，和 layout 里那枚完成态图标是同一枚。
             *([build_todo_mark(todo.done)] if todo.done else []),
         ],

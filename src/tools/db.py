@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS todos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     due_date TEXT NOT NULL,
     due_time TEXT NOT NULL DEFAULT '',
+    end_time TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL,
     content TEXT NOT NULL,
     done INTEGER NOT NULL DEFAULT 0,
@@ -47,11 +48,18 @@ CREATE TABLE IF NOT EXISTS countdowns (
 
 # 待办的循环周期: the value stored in `todos.repeat_cycle`.
 DEFAULT_CYCLE = "不循环"
+# 两个「跳着来」的周期：工作日只落在周一..周五，非工作日只落在周六 / 周日。
+# 它们不是「隔几天一次」，所以由 `_weekday_dates` / `_keeps_weekday` 处理。
+WORKDAY_CYCLE = "工作日"
+WEEKEND_CYCLE = "非工作日"
+SKIP_CYCLES = (WORKDAY_CYCLE, WEEKEND_CYCLE)
 REPEAT_CYCLES = (
     DEFAULT_CYCLE,
     "每天",
     "三天",
     "一周",
+    WORKDAY_CYCLE,
+    WEEKEND_CYCLE,
     "一月",
     "三月",
     "六月",
@@ -69,6 +77,7 @@ MAX_OCCURRENCES = 400
 ADDED_COLUMNS = (
     ("todos", "repeat_cycle", "TEXT NOT NULL DEFAULT '不循环'"),
     ("todos", "due_time", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "end_time", "TEXT NOT NULL DEFAULT ''"),
     ("countdowns", "bgcolor", "TEXT NOT NULL DEFAULT '#F1F5F9'"),
 )
 
@@ -90,6 +99,12 @@ def next_occurrence(start: date, cycle: str, on_or_after: date) -> date:
     """
     if cycle not in REPEAT_CYCLES or cycle == DEFAULT_CYCLE:
         return start
+    if cycle in SKIP_CYCLES:
+        # 工作日 / 非工作日：从这天起往后找第一个属于该周期的日子。
+        day = max(start, on_or_after)
+        while not _keeps_weekday(cycle, day):
+            day += timedelta(days=1)
+        return day
     if start >= on_or_after:
         return start
     day_step = _DAY_STEPS.get(cycle)
@@ -121,10 +136,13 @@ def occurrence_dates(
     """Every 待办 date of a repeating todo: `start`, then one row per cycle.
 
     `不循环` is a single date. Longer steps stop at the last occurrence that still
-    falls within `horizon_days` of the start.
+    falls within `horizon_days` of the start. 工作日 / 非工作日 walk the calendar
+    day by day and keep only the days that cycle covers.
     """
     if repeat_cycle == DEFAULT_CYCLE or repeat_cycle not in REPEAT_CYCLES:
         return [start]
+    if repeat_cycle in SKIP_CYCLES:
+        return _weekday_dates(start, repeat_cycle, horizon_days)
     last = start + timedelta(days=horizon_days)
     dates = [start]
     steps = 0
@@ -134,6 +152,27 @@ def occurrence_dates(
         if current > last or len(dates) >= MAX_OCCURRENCES:
             return dates
         dates.append(current)
+
+
+def _keeps_weekday(cycle: str, day: date) -> bool:
+    """工作日 keeps 周一..周五, 非工作日 keeps 周六 / 周日."""
+    return day.weekday() < 5 if cycle == WORKDAY_CYCLE else day.weekday() >= 5
+
+
+def _weekday_dates(start: date, cycle: str, horizon_days: int) -> list[date]:
+    """工作日 / 非工作日 的序列：从锚点起一天天走，只留下属于这个周期的那几天。
+
+    锚点自己不在周期里时（比如「工作日」挑了个周六），序列从它之后第一个符合的
+    日子开始 —— 周日不算「工作日」，所以序列里永远不会出现周末。
+    """
+    last = start + timedelta(days=horizon_days)
+    dates: list[date] = []
+    day = start
+    while day <= last and len(dates) < MAX_OCCURRENCES:
+        if _keeps_weekday(cycle, day):
+            dates.append(day)
+        day += timedelta(days=1)
+    return dates
 
 
 def _shift(start: date, repeat_cycle: str, steps: int) -> date:
@@ -164,9 +203,11 @@ class Todo:
     content: str
     done: bool
     repeat_cycle: str
-    # "HH:MM" for todos that carry a time of day; empty for rows created before
-    # the 时间 field existed.
+    # "HH:MM" 起止时间: `due_time` is the 开始时间 the timeline shows, `end_time`
+    # the optional 结束时间 the card prints above its text. Empty on rows created
+    # before the 时间 fields existed.
     due_time: str = ""
+    end_time: str = ""
 
 
 @dataclass(frozen=True)
@@ -204,12 +245,13 @@ def add_todo(
     content: str,
     repeat_cycle: str = DEFAULT_CYCLE,
     due_time: str = "",
+    end_time: str = "",
 ) -> int:
     """Add a todo and return the id of its first row.
 
     A repeating `repeat_cycle` also schedules the follow-ups: one row per cycle
     from `due_date` up to `REPEAT_HORIZON_DAYS` ahead, each carrying the same
-    cycle and time of day, so the series stays recognisable.
+    cycle and 起止时间, so the series stays recognisable.
     """
     created_at = _now()
     connection = connect()
@@ -217,11 +259,12 @@ def add_todo(
         first_id = 0
         for day in occurrence_dates(due_date, repeat_cycle):
             cursor = connection.execute(
-                "INSERT INTO todos (due_date, due_time, category, content,"
-                " repeat_cycle, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO todos (due_date, due_time, end_time, category,"
+                " content, repeat_cycle, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     day.isoformat(),
                     due_time,
+                    end_time,
                     category,
                     content,
                     repeat_cycle,
@@ -261,7 +304,7 @@ def get_todo(todo_id: int) -> Todo | None:
     connection = connect()
     try:
         row = connection.execute(
-            "SELECT id, due_date, due_time, category, content, done,"
+            "SELECT id, due_date, due_time, end_time, category, content, done,"
             " repeat_cycle FROM todos WHERE id = ?",
             (todo_id,),
         ).fetchone()
@@ -288,7 +331,7 @@ def todo_series(todo_id: int) -> list[Todo]:
         if todo.repeat_cycle == DEFAULT_CYCLE:
             return [todo]
         rows = connection.execute(
-            "SELECT id, due_date, due_time, category, content, done,"
+            "SELECT id, due_date, due_time, end_time, category, content, done,"
             " repeat_cycle FROM todos WHERE created_at = ? AND repeat_cycle = ?"
             " AND content = ? ORDER BY due_date, id",
             (row["created_at"], todo.repeat_cycle, todo.content),
@@ -305,6 +348,7 @@ def update_todo(
     content: str,
     repeat_cycle: str = DEFAULT_CYCLE,
     due_time: str = "",
+    end_time: str = "",
 ) -> int:
     """Edit one 待办, keeping its whole cycle in step. Returns rows written.
 
@@ -331,11 +375,13 @@ def update_todo(
         written = 0
         for place, day in enumerate(occurrence_dates(start, repeat_cycle)):
             connection.execute(
-                "INSERT INTO todos (due_date, due_time, category, content, done,"
-                " repeat_cycle, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO todos (due_date, due_time, end_time, category,"
+                " content, done, repeat_cycle, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     day.isoformat(),
                     due_time,
+                    end_time,
                     category,
                     content,
                     1 if place in done_places else 0,
@@ -463,7 +509,8 @@ def list_todos(days: Iterable[date]) -> list[Todo]:
     connection = connect()
     try:
         rows = connection.execute(
-            "SELECT id, due_date, due_time, category, content, done, repeat_cycle"
+            "SELECT id, due_date, due_time, end_time, category, content, done,"
+            " repeat_cycle"
             " FROM todos"
             f" WHERE due_date IN ({placeholders})"
             " ORDER BY due_date, id",
@@ -478,7 +525,8 @@ def list_range(start: date, end: date) -> list[Todo]:
     connection = connect()
     try:
         rows = connection.execute(
-            "SELECT id, due_date, due_time, category, content, done, repeat_cycle"
+            "SELECT id, due_date, due_time, end_time, category, content, done,"
+            " repeat_cycle"
             " FROM todos"
             " WHERE due_date BETWEEN ? AND ?"
             " ORDER BY due_date, id",
@@ -540,6 +588,7 @@ def _to_todo(row: sqlite3.Row) -> Todo:
         id=row["id"],
         due_date=date.fromisoformat(row["due_date"]),
         due_time=row["due_time"],
+        end_time=row["end_time"],
         category=row["category"],
         content=row["content"],
         done=bool(row["done"]),

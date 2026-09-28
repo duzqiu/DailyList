@@ -141,6 +141,17 @@ def todo_time_label(due_time: str) -> str:
     return due_time
 
 
+def todo_time_range(due_time: str, end_time: str) -> str:
+    """「09:30 - 10:30」- 卡片正文上方那行灰色时间。
+
+    Only one end filled in prints just that one; neither end prints nothing, and
+    the card falls back to its single line.
+    """
+    if due_time and end_time:
+        return f"{due_time} - {end_time}"
+    return due_time or end_time
+
+
 def date_label(day: date) -> str:
     """「2026年10月1日」- the long form the dialogs show a picked day in."""
     return f"{day.year}年{day.month}月{day.day}日"

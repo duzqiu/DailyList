@@ -99,16 +99,22 @@ def build_date_picker(
 
 
 def build_time_picker(
-    value: time, on_confirm: Callable[[time], None]
+    value: time,
+    on_confirm: Callable[[time], None],
+    help_text: str = "选择时间",
 ) -> ft.TimePicker:
-    """Flet's system time picker. 点选 only - the dial, no typed input."""
+    """Flet's system time picker. 点选 only - the dial, no typed input.
+
+    `help_text` is the dial's own headline, which is how the 开始时间 and 结束时间
+    pickers of one dialog tell themselves apart.
+    """
     picker = ft.TimePicker(
         value=value,
         # 24-hour dial so the picked value matches the "HH:MM" the app prints.
         hour_format=ft.TimePickerHourFormat.H24,
         # Dial only: the mode button that switches to typing a time is hidden.
         entry_mode=ft.TimePickerEntryMode.DIAL_ONLY,
-        help_text="选择时间",
+        help_text=help_text,
         cancel_text="取消",
         confirm_text="确定",
     )

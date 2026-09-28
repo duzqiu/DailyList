@@ -14,8 +14,7 @@ from tools import db
 from tools.categories import (
     CATEGORIES,
     DEFAULT_CATEGORY,
-    build_category_label,
-    category_label_width,
+    category_color,
 )
 from tools.layout import (
     DIALOG_RADIUS,
@@ -23,6 +22,7 @@ from tools.layout import (
     anchor_dialog_above_keyboard,
     date_label,
     dialog_button_style,
+    readable_ink,
 )
 from tools.pickers import (
     build_date_picker,
@@ -35,17 +35,26 @@ from tools.popup_select import (
     build_option_row,
     build_option_selector,
     build_option_text,
-    option_row,
-    option_text,
 )
 
 MUTED_COLOR = "#94A3B8"
 FIELD_COLOR = "#334155"
+# 没填过结束时间时的默认时长：开始时间往后一个小时。
+DEFAULT_DURATION_MINUTES = 60
+# 三个分类勾选框之间的间距。
+CATEGORY_CHECK_GAP = 14
 
 
 def default_time() -> str:
     """The 时间 a fresh dialog opens on: the clock rounded down."""
     return db.default_time()
+
+
+def shift_time(value: str, minutes: int) -> str:
+    """「09:30」往后推 60 分钟，绕回 00:00 也不越界。"""
+    hour, _, minute = value.partition(":")
+    total = (int(hour) * 60 + int(minute) + minutes) % (24 * 60)
+    return f"{total // 60:02d}:{total % 60:02d}"
 
 
 def open_todo_form(
@@ -60,24 +69,28 @@ def open_todo_form(
     editing = todo is not None
     start_day = todo.due_date if editing else default_date
     start_time = todo.due_time if editing and todo.due_time else default_time()
+    # 结束时间没存过就默认「开始 + 1 小时」，两个框任何时候都有值。
+    end_time = (
+        todo.end_time
+        if editing and todo.end_time
+        else shift_time(start_time, DEFAULT_DURATION_MINUTES)
+    )
     start_category = todo.category if editing else DEFAULT_CATEGORY
     start_cycle = todo.repeat_cycle if editing else db.DEFAULT_CYCLE
     start_hour, _, start_minute = start_time.partition(":")
+    end_hour, _, end_minute = end_time.partition(":")
 
     selection = {
         "date": start_day.isoformat(),
         "time": f"{start_hour}:{start_minute}",
+        "end": f"{end_hour}:{end_minute}",
         "category": start_category,
         "cycle": start_cycle,
     }
     date_text = build_option_text(date_label(start_day))
     time_text = build_option_text(selection["time"])
+    end_text = build_option_text(selection["end"])
     cycle_text = build_option_text(start_cycle)
-    category_trigger = ft.Container(
-        content=build_category_label(
-            start_category, build_option_text(start_category)
-        )
-    )
 
     def apply_date(chosen: date) -> None:
         selection["date"] = chosen.isoformat()
@@ -89,6 +102,11 @@ def open_todo_form(
         time_text.value = selection["time"]
         time_text.update()
 
+    def apply_end(chosen: time) -> None:
+        selection["end"] = f"{chosen.hour:02d}:{chosen.minute:02d}"
+        end_text.value = selection["end"]
+        end_text.update()
+
     # 新增 only looks forward (today is the earliest day); editing an old row has
     # to be able to keep - or move to - a day in the past.
     date_picker = build_date_picker(
@@ -97,7 +115,14 @@ def open_todo_form(
         first_date=None if editing else midnight(date.today()),
     )
     time_picker = build_time_picker(
-        time(int(start_hour), int(start_minute)), apply_time
+        time(int(start_hour), int(start_minute)),
+        apply_time,
+        help_text="选择开始时间",
+    )
+    end_picker = build_time_picker(
+        time(int(end_hour), int(end_minute)),
+        apply_end,
+        help_text="选择结束时间",
     )
     date_selector = build_value_trigger(
         date_text, lambda _: page.show_dialog(date_picker)
@@ -105,14 +130,22 @@ def open_todo_form(
     time_selector = build_value_trigger(
         time_text, lambda _: page.show_dialog(time_picker)
     )
+    end_selector = build_value_trigger(
+        end_text, lambda _: page.show_dialog(end_picker)
+    )
 
-    def pick_category(name: str) -> None:
-        selection["category"] = name
-        # Swapping the whole pair keeps the stars in step with the name.
-        category_trigger.content = build_category_label(
-            name, build_option_text(name)
-        )
-        category_trigger.update()
+    def pick_category(name: str, checked: bool) -> None:
+        """勾选框做成单选：勾上另一个就松开前一个，而且永远留一个勾着。"""
+        if not checked and selection["category"] == name:
+            # 想把当前这项取消 → 把这一勾弹回去，不留「一个都没选」的状态。
+            category_checks[name].value = True
+            category_checks[name].update()
+            return
+        if checked:
+            selection["category"] = name
+        for other, box in category_checks.items():
+            box.value = other == selection["category"]
+            box.update()
 
     def pick_cycle(name: str) -> None:
         selection["cycle"] = name
@@ -141,16 +174,28 @@ def open_todo_form(
         max_lines=5,
     )
 
-    category_selector = build_option_selector(
-        category_trigger,
-        [(name, name) for name, _ in CATEGORIES],
-        pick_category,
-        label_builder=lambda name: option_row(
-            build_category_label(name, option_text(name))
-        ),
-        content_width=max(
-            category_label_width(name) for name, _ in CATEGORIES
-        ),
+    # 分类：三个勾选框并排，勾上另一个自动取消前一个（单选）。勾是分类自己的
+    # 颜色，勾里的对号用 `readable_ink` 选深浅，黄底配深蓝、红 / 绿底配白。
+    category_checks = {
+        name: ft.Checkbox(
+            label=name,
+            value=name == start_category,
+            active_color=color,
+            check_color=readable_ink(color),
+            label_style=ft.TextStyle(size=OPTION_TEXT_SIZE, color=FIELD_COLOR),
+            visual_density=ft.VisualDensity.COMPACT,
+            splash_radius=12,
+            on_change=lambda event, name=name: pick_category(
+                name, bool(event.control.value)
+            ),
+        )
+        for name, color in CATEGORIES
+    }
+    category_row = ft.Row(
+        tight=True,
+        spacing=CATEGORY_CHECK_GAP,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=list(category_checks.values()),
     )
     cycle_selector = build_option_selector(
         cycle_text,
@@ -179,6 +224,7 @@ def open_todo_form(
                 content,
                 selection["cycle"],
                 selection["time"],
+                selection["end"],
             )
         else:
             db.add_todo(
@@ -187,6 +233,7 @@ def open_todo_form(
                 content,
                 selection["cycle"],
                 selection["time"],
+                selection["end"],
             )
         close()
         on_saved(chosen_day)
@@ -218,8 +265,27 @@ def open_todo_form(
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
                 build_option_row(date_selector),
-                build_option_row(time_selector),
-                build_option_row(category_selector),
+                # 起止时间并成一行：开始 ~ 结束，两个都是系统的时钟刻度盘。
+                build_option_row(
+                    ft.Row(
+                        tight=True,
+                        spacing=0,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            time_selector,
+                            ft.Container(
+                                padding=ft.Padding.symmetric(
+                                    horizontal=2, vertical=4
+                                ),
+                                content=ft.Text(
+                                    "~", size=12, color=MUTED_COLOR
+                                ),
+                            ),
+                            end_selector,
+                        ],
+                    )
+                ),
+                build_option_row(category_row),
                 build_option_row(cycle_selector),
                 todo_field,
             ],
