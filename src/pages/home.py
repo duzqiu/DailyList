@@ -176,8 +176,14 @@ def build_home_page(
         reload_todos()
         select_date(selected_index)
 
-    def build_todo_item(todo: db.Todo, first: bool = False) -> ft.Control:
-        """一行时间轴：点一下切换完成，左滑编辑 / 删除（共用控件）。"""
+    def build_todo_item(
+        todo: db.Todo, first: bool = False, last: bool = False
+    ) -> ft.Control:
+        """一行时间轴：点一下切换完成，左滑编辑 / 删除（共用控件）。
+
+        `first` / `last` 是这条轴的两个端点：首行不往上补点、末行不往下补点，和
+        日历弹窗里那条轴一个样（两处共用 tools/todo_timeline.py）。
+        """
 
         def toggle_todo(item: db.Todo) -> None:
             db.set_done(item.id, not item.done)
@@ -188,6 +194,7 @@ def build_home_page(
         return build_todo_row(
             todo,
             first=first,
+            last=last,
             on_click=toggle_todo,
             on_delete=lambda item: delete_todo(item.id),
             on_edit=lambda item: edit_todo(item.id),
@@ -221,7 +228,12 @@ def build_home_page(
         ]
         todos = sorted_todos(todos)
         todo_content.controls = [
-            build_todo_item(todo, first=index == 0)
+            build_todo_item(
+                todo,
+                first=index == 0,
+                # 最后一条下面不再补点：轴到它为止，跟日历弹窗里那条轴一致。
+                last=index == len(todos) - 1,
+            )
             for index, todo in enumerate(todos)
         ] or [build_empty_hint()]
 

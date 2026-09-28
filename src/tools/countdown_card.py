@@ -8,7 +8,9 @@
 的那种过了到期日第二天就整张收起。
 
 收起来的那些没有消失：倒数日页把它们收进列表底部的开关里，展开时用 `expired=True` 再
-渲染同一张卡；日历页也照常在当天格子里把它们列出来。`expired=True` 的卡片整张置灰 ——
+渲染同一张卡；日历页也照常在当天格子里把它们列出来 —— 而且只要所看的那天在今天
+之前，这一次的倒数日就照 `expired=True` 显示（循环的那条也算：`countdown_expired`
+只判不循环的那条，循环的按设计永远等下一次）。`expired=True` 的卡片整张置灰 ——
 上段丢掉自选色、中下段丢掉白底，图标和「天前」那块小底也不留状态色，只有天数本身
 照旧，下段的日期那行换成「已过期 N 天」。
 """
@@ -30,9 +32,13 @@ MUTED_COLOR = "#64748B"
 CARD_BG = "#F1F5F9"
 CARD_BODY_BG = "#FFFFFF"
 # 过期卡片整张置灰：上段不再用这张卡自选的颜色，中下段也不再是白底，两段各降一档
-# 灰（上段比卡片底深一点，三段的分界还看得出来）；图标、「天前」那块小底、以及
-# 日历页当天格里那条小标签，统统用下面这档灰，不留一点状态色。
-EXPIRED_HEADER_BG = "#E2E8F0"
+# 灰（上段比中下段深，三段的分界还看得出来）；图标、「天前」那块小底、以及日历页
+# 当天格里那条小标签，统统用下面这档灰，不留一点状态色。
+#
+# 上段这档灰还必须比日历弹窗的底色（`layout.DIALOG_SURFACE` = #E4E9EF）深出一截：
+# 早先用的 #E2E8F0 和它只差一两个色阶，过期卡片一放进弹窗，上段就跟弹窗底色融成
+# 一片，看着像是根本没画背景（倒数日页是白底渐变，所以那里看得出来、这儿看不出）。
+EXPIRED_HEADER_BG = "#D5DBE4"
 EXPIRED_BODY_BG = "#F1F5F9"
 EXPIRED_ICON_COLOR = "#94A3B8"
 EXPIRED_CHIP_BG = "#CBD5E1"
@@ -217,6 +223,7 @@ def build_countdown_card(
     *,
     today: date | None = None,
     expired: bool = False,
+    days: int | None = None,
     on_delete: Callable[[ft.Event[ft.Container]], Any] | None = None,
     on_edit: Callable[[ft.Event[ft.Container]], Any] | None = None,
 ) -> ft.Control:
@@ -225,14 +232,27 @@ def build_countdown_card(
     `expired=True`（倒数日页底部展开的那些、日历页当天格里的过期项）只动外观：
     整张卡片连同图标、「天前」那块小底一并置灰，下段的日期换成「已过期 N 天」，
     卡片本身还是同一张。
+
+    `days` 是「这张卡片讲的那一天」相对今天的天数：正数还有几天、负数已经过了几天、
+    0 就是今天。给了就用它，不给则卡片按这条倒数日自己推。**中段和下段共用这一个
+    数**，所以过期卡片中段写的天数和下段「已过期 N 天」永远是同一个数、同一个状态。
+    日历里必须给：那儿一张卡讲的是「所看的那天」，而循环倒数日的 `next_occurrence`
+    只会往前找下一次，推不出这一天已经过去了（会推到还在未来的下一次去）。
     """
-    days = countdown_days(item, today)
+    # 中段和下段共用这一个数，两处永远同步。
+    shown_days = days if days is not None else countdown_days(item, today)
+    # 下段那行「已过期 N 天」：天数直接取中段那个数（负的就是已经过了几天）。
+    expired_text = (
+        f"已过期 {-shown_days} 天"
+        if shown_days < 0
+        else countdown_expired_label(item, today)
+    )
     # 过期卡片整张置灰：上段丢掉自选色，中下段丢掉白底，图标和「天前」那块小底
     # 也跟着灰下去。
     header_bg = EXPIRED_HEADER_BG if expired else (item.bgcolor or CARD_BG)
     body_bg = EXPIRED_BODY_BG if expired else CARD_BODY_BG
     icon_color = EXPIRED_ICON_COLOR if expired else ACCENT_COLOR
-    badge_bg = EXPIRED_CHIP_BG if expired else countdown_color(days)
+    badge_bg = EXPIRED_CHIP_BG if expired else countdown_color(shown_days)
     card = ft.Container(
         key=f"countdown-{item.id}",
         border_radius=ft.BorderRadius.all(CARD_RADIUS),
@@ -268,10 +288,11 @@ def build_countdown_card(
                         ],
                     ),
                 ),
-                # 中：天数 + 右上角的「天后」
+                # 中：天数 + 右上角的「天后 / 天前」（过期的和下面的「已过期 N 天」
+                # 是同一个数）
                 ft.Container(
                     padding=MID_PADDING,
-                    content=days_block(days, badge_bg),
+                    content=days_block(shown_days, badge_bg),
                 ),
                 # 「--」
                 ft.Container(
@@ -294,7 +315,7 @@ def build_countdown_card(
                                 text_align=ft.TextAlign.CENTER,
                             ),
                             ft.Text(
-                                countdown_expired_label(item, today)
+                                expired_text
                                 if expired
                                 else countdown_date_lunar(item),
                                 size=SUB_SIZE,

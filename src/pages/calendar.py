@@ -385,16 +385,22 @@ def build_calendar_page(
         def countdown_card(item: db.Countdown) -> ft.Control:
             """当天这一条倒数日的卡片。
 
-            过期的按「今天」算 —— 卡片上要写「已过期 N 天」，不能按所看的那天算成
-            「就是今天」；没过期的按所看的那天算（那天就是它的日子）。灰的是哪几张
-            由 tools/countdown_card.py 的 `countdown_expired` 说了算。
+            天数一律按「所看那天 − 今天」给：正数还有几天、负数已经过了几天、0 就
+            是今天 —— 中段写的和下面「已过期 N 天」是同一个数。循环的那条必须这样
+            给：`countdown_expired` 只判不循环的那条，而循环倒数日的 `next_occurrence`
+            只会往前找下一次，既判不出这一天已经过去，也会把天数推到还在未来的
+            下一次去。
+
+            只要那天在今天之前，这一次的倒数日就按过期样式显示（整张置灰）。
             """
-            overdue = countdown_expired(item)
+            left = (day - date.today()).days
+            overdue = countdown_expired(item) or left < 0
             return clip_in_dialog(
                 build_countdown_card(
                     item,
                     today=None if overdue else day,
                     expired=overdue,
+                    days=left,
                     on_delete=lambda _, i=item: remove_countdown(i, refresh),
                     on_edit=lambda _, i=item: edit_countdown(i, refresh),
                 )
@@ -534,9 +540,13 @@ def build_calendar_page(
             (category_color(todo.category), todo.done) for todo in todos
         ]
         # 过期的倒数日也在格子里，换成同一档灰 —— 和倒数日页、当天弹窗一个样。
+        # 「过了的」按所看的那天算：循环的那条 `countdown_expired` 判不出来（它按
+        # 设计永远等下一次），只能看那天是不是在今天之前。
         entries += [
             (
-                EXPIRED_CHIP_BG if countdown_expired(item) else COUNTDOWN_COLOR,
+                EXPIRED_CHIP_BG
+                if countdown_expired(item) or day < date.today()
+                else COUNTDOWN_COLOR,
                 False,
             )
             for item in countdowns_on(day)
