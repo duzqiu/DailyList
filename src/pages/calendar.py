@@ -29,6 +29,8 @@ from tools.layout import (
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
+    # 待办全部完成时那枚对勾用的绿：和首页列表里的完成标记同一个色。
+    TODO_MARK_DONE_BG,
     TODO_TEXT_SIZE,
     TODO_TIME_SIZE,
     page_gradient,
@@ -57,6 +59,10 @@ LUNAR_SIZE = 7
 # 画几个点，从左往右排；一格横里摆不下时点自己换到下一行，不硬凑也不省略。
 DOT_SIZE = 6
 DOT_GAP = 2
+# 当天的待办全打完勾：格子下面不再一颗颗摆淡掉的点，改成一枚居中的绿色对勾
+# （见 item_lines）。对勾比一颗点大，格子的高度也按它留（见 cell_height）。
+DONE_MARK_SIZE = 14
+DONE_MARK_COLOR = TODO_MARK_DONE_BG
 # 格子正文里控件之间的行距：日期和圆点几行挨紧，格子的高度才压得住。
 CELL_SPACING = 1
 # 格子自己的留白：左右/上下各 2 的内边距 + 各 1 的描边，横竖都占掉 6。
@@ -107,11 +113,14 @@ def cell_height(rows: int) -> float:
     点少的格子空一点不要紧，点多的那天绝不会被格子切掉半截。
     """
     dots = rows * DOT_SIZE + (rows - 1) * DOT_GAP
+    # 只摆一行的那天可能只画一枚对勾（当天待办全完成，见 item_lines），对勾比
+    # 一颗点高，格子的高度按它留 —— 否则对勾会顶到格子边框上。
+    content = max(dots, DONE_MARK_SIZE)
     return (
         CELL_VERTICAL_CHROME
         + DAY_BADGE_SIZE
         + CELL_SPACING
-        + dots
+        + content
         + CELL_HEIGHT_SLACK
     )
 
@@ -528,11 +537,43 @@ def build_calendar_page(
         ]
         return entries
 
-    def item_lines(day: date, todos: list[db.Todo]) -> list[ft.Control]:
-        """当天的待办 + 倒数日：有几个画几个实心小圆点，从左往右排。"""
+    def all_done(todos: list[db.Todo]) -> bool:
+        """当天有待办，而且每一条都打完了勾 —— 格子上改用一枚对勾概括。"""
+        return bool(todos) and all(todo.done for todo in todos)
+
+    def done_mark(height: float) -> ft.Control:
+        """待办全做完那天的标记：日期行下面那块空档里，一枚居中的绿色对勾。
+
+        格子是定高的（见 build_month_view），日期行占掉多少就剩多少给对勾；对勾
+        在这个高度里上下居中，横向由外层 Column 的 STRETCH 拉满整格宽后居中。
+        """
+        slot = max(
+            DONE_MARK_SIZE,
+            height - CELL_VERTICAL_CHROME - DAY_BADGE_SIZE - CELL_SPACING,
+        )
+        return ft.Container(
+            height=slot,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Icon(
+                ft.Icons.CHECK,
+                size=DONE_MARK_SIZE,
+                color=DONE_MARK_COLOR,
+            ),
+        )
+
+    def item_lines(
+        day: date, todos: list[db.Todo], height: float
+    ) -> list[ft.Control]:
+        """当天的待办 + 倒数日：有几个画几个实心小圆点，从左往右排。
+
+        当天的待办全做完时不再一颗颗摆淡掉的点（全淡了也没什么可看的），换成
+        一枚居中的绿色对勾。
+        """
         entries = entries_of(day, todos)
         if not entries:
             return []
+        if all_done(todos):
+            return [done_mark(height)]
         # 点从左往右排（Row 吃满整格宽，点从左边开始）；一天有几条就画几个，格子
         # 横里放不下时圆点自己换到下一行（`wrap` 配 `run_spacing`，见 Flet 文档的
         # Row.wrap / Row.run_spacing）。要摆几行由 build_month_view 事先算好、格子
@@ -565,7 +606,7 @@ def build_calendar_page(
         # 卡片里的先后只看时间：全天的排最前，其余按时间早晚，同一时间按录入
         # 顺序 —— 和首页时间轴、当天弹窗共用同一套排序（tools/todo_timeline.py）。
         todos = sorted_todos(day_todos.get(day, []))
-        lines = item_lines(day, todos)
+        lines = item_lines(day, todos, height)
         return ft.Container(
             expand=True,
             height=height,
@@ -651,13 +692,19 @@ def build_calendar_page(
             else estimated_grid_width()
         )
         per_run = dots_per_run(cell_inner_width(grid_width))
-        # 每天要几个点：键是日期（month_todos 按 date 分组），别拿日号去取。
-        dots_per_day = [
-            len(entries_of(day_of(number), day_todos.get(day_of(number), [])))
-            for week in month_days
-            for number in week
-            if number
-        ]
+        # 每天要占几行：键是日期（month_todos 按 date 分组），别拿日号去取。
+        # 待办全做完的那天只画一枚对勾（见 item_lines），占一行就够，不必按条目
+        # 数把整个月的格子都撑高。
+        dots_per_day = []
+        for week in month_days:
+            for number in week:
+                if not number:
+                    continue
+                day = day_of(number)
+                todos = day_todos.get(day, [])
+                dots_per_day.append(
+                    1 if all_done(todos) else len(entries_of(day, todos))
+                )
         rows = max(
             dot_row_count(count, per_run) for count in dots_per_day
         )
