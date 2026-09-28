@@ -64,6 +64,10 @@ DOT_GAP = 2
 # （见 item_lines）。对勾比一颗点大，格子的高度也按它留（见 cell_height）。
 DONE_MARK_SIZE = 14
 DONE_MARK_COLOR = TODO_MARK_DONE_BG
+# 过了的日子里还挂着没做完的待办：格子上画一枚红色的「×」—— 它和「全做完」那枚
+# 绿色对勾是一对（同样的大小、同样的摆法），所以尺寸直接用 DONE_MARK_SIZE，不再
+# 另起一套。
+OVERDUE_MARK_COLOR = "#DC2626"
 # 点月份标题弹出的日期滚轮：能滚到所选年份往前 / 往后多少年，以及滚轮自己多高
 # （Cupertino 滚轮是 LayoutControl，自己不定高度；216 是这一款在 Flutter 里的
 # 常用高度，正好 6 行 × item_extent 32 多一点）。
@@ -163,6 +167,7 @@ GROUP_GAP = 6
 BODY_GAP = 8
 # 时间轴的行距（build_todo_timeline 的 spacing），以及卡片上下各 6 的留白。
 TODO_ROW_GAP = 2
+# 卡片上下各 6 的留白（类别标签已经排进「起止时间」那一排，不再额外占高度）。
 TODO_CARD_PADDING = 12
 # 卡片里每行文字的高度：字号 × 1.35（Flutter 的默认行高）。
 TODO_LINE_EST = TODO_TEXT_SIZE * 1.35
@@ -215,8 +220,9 @@ def estimate_day_height(day: date) -> float:
                 ),
             )
             card = TODO_CARD_PADDING + lines * TODO_LINE_EST
-            if todo.due_time or todo.end_time:
-                card += TODO_TIME_EST
+            # 上面那一排（起止时间 + 类别标签）有没有起止时间都在，按时间行的高度
+            # 估（标签 9pt 和它量级相当，这么估略高一点点，正好合「估高不估矮」）。
+            card += TODO_TIME_EST
             rows.append(max(SPINE_MIN_HEIGHT, card))
         groups.append(
             GROUP_EST
@@ -233,6 +239,18 @@ def estimate_day_height(day: date) -> float:
             + (count - 1) * GROUP_GAP
         )
     return sum(groups) + BODY_GAP * (len(groups) - 1)
+
+
+def overdue_count(day: date, todos: list[db.Todo]) -> int:
+    """过了的日子里还挂着**几条**没做完的待办 —— 格子上就画几枚红色的「×」。
+
+    一条一枚：几条没做完就画几个叉，条数照样看得出来（点被叉顶掉了，数量靠叉
+    数接着）。纯函数（不碰数据库），所以画点的 `entries_of` / `item_lines` 和算
+    格子高度的 `build_month_view` 都能直接问它。
+    """
+    if day >= date.today():
+        return 0
+    return sum(1 for todo in todos if not todo.done)
 
 
 def build_calendar_page(
@@ -535,9 +553,16 @@ def build_calendar_page(
         )
 
     def entries_of(day: date, todos: list[db.Todo]) -> list[tuple[str, bool]]:
-        """当天要在格子上画的点：每条待办一个（分类色，完成的淡一半），倒数日一个。"""
+        """当天要在格子上画的点：每条待办一个（分类色，完成的淡一半），倒数日一个。
+
+        过了的日子里**没做完**的那些不画点 —— 它们改成格子上的红色「×」，一条一枚
+        （见 `overdue_count`），点留给做完的和倒数日。
+        """
+        passed = day < date.today()
         entries: list[tuple[str, bool]] = [
-            (category_color(todo.category), todo.done) for todo in todos
+            (category_color(todo.category), todo.done)
+            for todo in todos
+            if todo.done or not passed
         ]
         # 过期的倒数日也在格子里，换成同一档灰 —— 和倒数日页、当天弹窗一个样。
         # 「过了的」按所看的那天算：循环的那条 `countdown_expired` 判不出来（它按
@@ -556,6 +581,27 @@ def build_calendar_page(
     def all_done(todos: list[db.Todo]) -> bool:
         """当天有待办，而且每一条都打完了勾 —— 格子上改用一枚对勾概括。"""
         return bool(todos) and all(todo.done for todo in todos)
+
+    def overdue_mark(height: float) -> ft.Control:
+        """过了的日子还挂着没做完的：日期行下面那块空档里，一枚居中的红色「×」。
+
+        和「全做完」那枚绿色对勾（`done_mark`）是一对：大小、摆法都一样（占满日期
+        行下面的空档、上下左右居中），只是颜色和「对 / 错」相反。只要有一条没做完
+        就画这么一枚，不按条数堆。
+        """
+        slot = max(
+            DONE_MARK_SIZE,
+            height - CELL_VERTICAL_CHROME - DAY_BADGE_SIZE - CELL_SPACING,
+        )
+        return ft.Container(
+            height=slot,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Icon(
+                ft.Icons.CLOSE,
+                size=DONE_MARK_SIZE,
+                color=OVERDUE_MARK_COLOR,
+            ),
+        )
 
     def done_mark(height: float) -> ft.Control:
         """待办全做完那天的标记：日期行下面那块空档里，一枚居中的绿色对勾。
@@ -582,14 +628,20 @@ def build_calendar_page(
     ) -> list[ft.Control]:
         """当天的待办 + 倒数日：有几个画几个实心小圆点，从左往右排。
 
-        当天的待办全做完时不再一颗颗摆淡掉的点（全淡了也没什么可看的），换成
-        一枚居中的绿色对勾。
+        两种日子只画**一枚**标记、不再摆点：待办全做完 → 居中的绿色对勾；过了的
+        日子还挂着没做完的 → 居中的红色「×」（`overdue_count` 判定、`overdue_mark`
+        画；它和对勾是一对 —— 一样大、一样摆法，只要有一条没做完就画一枚）。
         """
         entries = entries_of(day, todos)
-        if not entries:
+        pending = overdue_count(day, todos)
+        if not entries and not pending:
             return []
         if all_done(todos):
             return [done_mark(height)]
+        # 过了的日子还挂着没做完的：和「全做完」那枚对勾一样，日期行下面那块空档
+        # 里只画一枚居中的红色「×」—— 只要有一条没做完就画，不按条数堆。
+        if pending:
+            return [overdue_mark(height)]
         # 点从左往右排（Row 吃满整格宽，点从左边开始）；一天有几条就画几个，格子
         # 横里放不下时圆点自己换到下一行（`wrap` 配 `run_spacing`，见 Flet 文档的
         # Row.wrap / Row.run_spacing）。要摆几行由 build_month_view 事先算好、格子
@@ -709,8 +761,8 @@ def build_calendar_page(
         )
         per_run = dots_per_run(cell_inner_width(grid_width))
         # 每天要占几行：键是日期（month_todos 按 date 分组），别拿日号去取。
-        # 待办全做完的那天只画一枚对勾（见 item_lines），占一行就够，不必按条目
-        # 数把整个月的格子都撑高。
+        # 只画一枚标记的那两天 —— 全做完（对勾）、过了还挂着没做完的（红叉）——
+        # 占一行就够，不必按条目数把整个月的格子都撑高。
         dots_per_day = []
         for week in month_days:
             for number in week:
@@ -718,9 +770,10 @@ def build_calendar_page(
                     continue
                 day = day_of(number)
                 todos = day_todos.get(day, [])
-                dots_per_day.append(
-                    1 if all_done(todos) else len(entries_of(day, todos))
-                )
+                if all_done(todos) or overdue_count(day, todos):
+                    dots_per_day.append(1)
+                    continue
+                dots_per_day.append(len(entries_of(day, todos)))
         rows = max(
             dot_row_count(count, per_run) for count in dots_per_day
         )

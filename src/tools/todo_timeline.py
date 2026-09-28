@@ -21,12 +21,18 @@ import flet as ft
 from tools import db
 from tools.categories import category_color
 from tools.layout import (
+    TODO_CHECK_BORDER_WIDTH,
+    TODO_CHECK_COLOR,
+    TODO_CHECK_DONE_BG,
+    TODO_CHECK_DONE_CHECK,
+    TODO_CHECK_RADIUS,
+    TODO_CHECK_SIZE,
     TODO_DONE_TEXT,
+    TODO_TEXT_COLOR,
     TODO_TEXT_SIZE,
     TODO_TIME_COLOR,
     TODO_TIME_SIZE,
     UNSELECTED_CARD_BG,
-    build_todo_mark,
     readable_ink,
     todo_text_style,
     todo_time_label,
@@ -85,6 +91,12 @@ CATEGORY_TAG_PADDING = ft.Padding.symmetric(horizontal=4, vertical=1)
 CATEGORY_TAG_RADIUS = 4
 CATEGORY_TAG_GAP = 6
 ALL_DAY_LABEL = "全天"
+# 完成后挂在行尾的那行灰字：字号跟着起止时间那行，颜色就是完成态的灰。它**垂直
+# 居中**（和勾选框、文字同一条中线），被 expand 的文字顶到最右；标签另在上一排
+# （跟着起止时间），所以谁也压不着谁。
+DONE_LABEL = "已完成"
+DONE_LABEL_SIZE = TODO_TIME_SIZE
+
 # 每条待办自己的一块底色（等级标签也在这一块里）。纯白在首页渐变上太亮、在日历
 # 弹窗的灰底上又太跳，统一用全局那张「未选中的卡片」灰：和数据页卡片、分类 tile
 # 是同一档（tools/layout.py 的 UNSELECTED_CARD_BG）。
@@ -206,16 +218,65 @@ def _time_label(
     )
 
 
-def _card_content(todo: db.Todo, color: str) -> ft.Control:
-    """待办那一行：等级标签 + 正文，正文上方是灰字起止时间，完成的末尾补绿勾。
+def build_todo_check(
+    done: bool, on_toggle: Callable[[], None] | None = None
+) -> ft.Control:
+    """待办前面那枚勾选框：方框带圆角，勾上了是青绿底 + 一枚黑色对勾。
 
-    时间只写进卡片；左边那条时间轴照旧只报开始时间。
+    `on_toggle` 给了就能点 —— 点它和点卡片别处一样是切换完成。
+    """
+    box = ft.Container(
+        width=TODO_CHECK_SIZE,
+        height=TODO_CHECK_SIZE,
+        # 方形带圆角：不是列表里那枚圆形的完成标记。
+        border_radius=ft.BorderRadius.all(TODO_CHECK_RADIUS),
+        alignment=ft.Alignment.CENTER,
+        bgcolor=TODO_CHECK_DONE_BG if done else None,
+        border=(
+            None
+            if done
+            else ft.Border.all(TODO_CHECK_BORDER_WIDTH, TODO_CHECK_COLOR)
+        ),
+        content=(
+            ft.Icon(
+                ft.Icons.CHECK,
+                size=TODO_CHECK_SIZE * 0.72,
+                color=TODO_CHECK_DONE_CHECK,
+            )
+            if done
+            else None
+        ),
+    )
+    if on_toggle is not None:
+        box.on_click = lambda _: on_toggle()
+    return box
+
+
+def _card_content(
+    todo: db.Todo, color: str, on_toggle: Callable[[], None] | None
+) -> ft.Control:
+    """卡片里两排：上面一排「起止时间 —— 类别标签」，下面一排「勾选框 - 文字 - 已完成」。
+
+    两排各自水平对齐：标签跟着起止时间排在同一排（顶到行尾），勾选框 / 文字 /
+    「已完成」共用下面那一排的中线。时间只写进卡片；左边那条时间轴照旧只报开始
+    时间。
     """
     time_range = todo_time_range(todo.due_time, todo.end_time)
-    body = ft.Column(
-        tight=True,
-        spacing=0,
-        expand=True,
+    tag = ft.Container(
+        padding=CATEGORY_TAG_PADDING,
+        border_radius=ft.BorderRadius.all(CATEGORY_TAG_RADIUS),
+        bgcolor=color,
+        content=ft.Text(
+            todo.category,
+            size=CATEGORY_TAG_SIZE,
+            color=readable_ink(color),
+        ),
+    )
+    # 上面一排：左边起止时间（没有就留空），右边那枚类别标签 —— 两者水平对齐。
+    # 中间那格 `expand` 只负责把标签顶到行尾。
+    header_row = ft.Row(
+        spacing=CATEGORY_TAG_GAP,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
             *(
                 [
@@ -228,33 +289,56 @@ def _card_content(todo: db.Todo, color: str) -> ft.Control:
                 if time_range
                 else []
             ),
-            ft.Text(
-                todo.content,
-                size=TODO_TEXT_SIZE,
-                # 开着的待办用分类色，完成的变灰加删除线。
-                color=TODO_DONE_TEXT if todo.done else color,
-                style=todo_text_style(todo.done),
-            ),
+            ft.Container(expand=True),
+            tag,
         ],
     )
-    return ft.Row(
+    # 下面这一行：勾选框 - 待办文字 - 已完成。文字用 `expand` 撑开，「已完成」就
+    # 被顶到最右，三者共用 Row 的 CENTER 那条中线。
+    content_row = ft.Row(
         spacing=CATEGORY_TAG_GAP,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
+            build_todo_check(todo.done, on_toggle),
             ft.Container(
-                padding=CATEGORY_TAG_PADDING,
-                border_radius=ft.BorderRadius.all(CATEGORY_TAG_RADIUS),
-                bgcolor=color,
+                expand=True,
                 content=ft.Text(
-                    todo.category,
-                    size=CATEGORY_TAG_SIZE,
-                    color=readable_ink(color),
+                    todo.content,
+                    size=TODO_TEXT_SIZE,
+                    # 待办文字就一种墨色；完成的变灰加删除线。
+                    color=TODO_DONE_TEXT if todo.done else TODO_TEXT_COLOR,
+                    style=todo_text_style(todo.done),
                 ),
             ),
-            body,
-            # 完成的在卡片最后收一枚绿勾，和 layout 里那枚完成态图标是同一枚。
-            *([build_todo_mark(todo.done)] if todo.done else []),
+            # 完成了的挂一行灰字：被 expand 的文字顶到最右，和文字之间的间距就是
+            # Row 自己的 spacing —— 与左边「勾选框 - 文字」那一档相同。
+            *(
+                [
+                    ft.Text(
+                        DONE_LABEL,
+                        size=DONE_LABEL_SIZE,
+                        color=TODO_DONE_TEXT,
+                    )
+                ]
+                if todo.done
+                else []
+            ),
         ],
+    )
+    return ft.Container(
+        # 卡片的内边距在这一层：左右对称（左边留多少，靠右的标签和「已完成」就
+        # 离边多少）。标签进了行里，所以顶部不再需要为它额外让位。
+        padding=ft.Padding.only(
+            left=DOT_TO_TEXT_GAP,
+            right=DOT_TO_TEXT_GAP,
+            top=6,
+            bottom=6,
+        ),
+        content=ft.Column(
+            tight=True,
+            spacing=0,
+            controls=[header_row, content_row],
+        ),
     )
 
 
@@ -282,13 +366,16 @@ def build_todo_row(
     color = category_color(todo.category)
     card = ft.Container(
         key=f"todo-{todo.id}",
-        # 待办自己一块白底（标签也在里面），左边留出轴到文字的空当。
+        # 待办自己一块灰底（标签也在里面），左边留出轴到文字的空当。
         bgcolor=CARD_BG,
         border_radius=ft.BorderRadius.all(CARD_RADIUS),
-        padding=ft.Padding.only(
-            left=DOT_TO_TEXT_GAP, right=12, top=6, bottom=6
+        # 内边距在 `_card_content` 里：标签跟着起止时间排进那一排，不再需要这一层
+        # 额外裁剪。
+        content=_card_content(
+            todo,
+            color,
+            (lambda: on_click(todo)) if on_click is not None else None,
         ),
-        content=_card_content(todo, color),
     )
     if on_click is not None:
         card.on_click = lambda _: on_click(todo)

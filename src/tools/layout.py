@@ -33,9 +33,20 @@ TODO_MARK_COLOR = "#94A3B8"
 TODO_MARK_BORDER_WIDTH = 1.5
 TODO_MARK_DONE_BG = "#22C55E"
 TODO_MARK_DONE_CHECK = "#FFFFFF"
+# 待办卡片上那枚勾选框：方框带圆角（不是圆），空心的表示还没做，勾上了填青绿底
+# 加一枚黑色对勾 —— 它管的是这条待办的「做完了」，和上面那枚列表标记两回事。
+TODO_CHECK_SIZE = 18
+TODO_CHECK_RADIUS = 5
+TODO_CHECK_BORDER_WIDTH = 1.5
+TODO_CHECK_COLOR = "#94A3B8"
+TODO_CHECK_DONE_BG = "#14B8A6"
+TODO_CHECK_DONE_CHECK = "#000000"
 # The「9月26日待办」heading above the list stays a quiet caption next to the
 # rows, so it sits a step below the todo text itself.
 TODO_TITLE_SIZE = 14
+# 待办正文就一种墨色，不再跟着分类上色 —— 分类色只留在右上角那枚标签和时间轴的
+# 点上。
+TODO_TEXT_COLOR = "#172554"
 # A todo's time of day is a quiet second line under its text.
 TODO_TIME_SIZE = 11
 TODO_TIME_COLOR = "#94A3B8"
