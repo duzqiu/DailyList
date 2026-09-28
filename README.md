@@ -23,7 +23,8 @@
 
 ### 倒数日
 - 卡片分三段：上段「图标 + 事项」（底色是这张卡自选的颜色）；中段天数大字 + 「天后」色块；下段「日期 · 农历 · 周几」
-- 天数按剩余天数上色：已过 → 红，3 天内 → 黄，其余 → 绿
+- 「天后」色块按剩余天数分三档，用的就是待办类别那三色，天数越近越像「重要」：**≥7 天 = 可选绿（`#16A34A`）/ 3–6 天 = 一般黄（`#EAB308`）/ <3 天（含已过）= 重要红（`#DC2626`）**；黄底上的字自动换成深蓝
+- 不循环的倒数日**过了到期日第二天就不再展示**（到期当天和到期后第一天还看得到），循环的永远等下一次
 - 最近的一张通栏，其余按两列排（窄屏自动落成一张）
 - 左滑编辑 / 删除；周期和待办共用一套，循环锚点会自动走到下一次（生日只需记一次）
 
@@ -54,19 +55,19 @@
 | `src/main.py` | 13 | 入口：`db.init_db()` 建库 → `build_navigation(page)` |
 | `src/pages/navigation.py` | 182 | 底部毛玻璃菜单 + 4 个 Tab 切换 + 二级页（设置）跳转；键盘弹起时把菜单顶起来 |
 | `src/pages/home.py` | 325 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」 |
-| `src/pages/countdown.py` | 195 | 倒数日页：通栏 + 两列卡片列表 |
-| `src/pages/calendar.py` | 534 | 日历页：月历卡片网格、当天详情弹窗 |
+| `src/pages/countdown.py` | 198 | 倒数日页：通栏 + 两列卡片列表 |
+| `src/pages/calendar.py` | 536 | 日历页：月历卡片网格、当天详情弹窗 |
 | `src/pages/settings.py` | 635 | 「我的」页：数据统计 / 分类占比 / 待办趋势三张卡 |
 | `src/pages/preferences.py` | 413 | 设置二级页：通知渠道、清除缓存、云端开关 |
 | `src/tools/db.py` | 561 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开 / settings |
 | `src/tools/layout.py` | 161 | 全局配色与尺寸常量、页面渐变、弹窗键盘定位、文字宽度估算、可读字色 |
-| `src/tools/categories.py` | 61 | 三个类别及其颜色、星标控件 |
+| `src/tools/categories.py` | 62 | 三个类别及其颜色（红 / 黄 / 绿）、星标控件 |
 | `src/tools/todo_timeline.py` | 251 | 待办时间轴行（首页与日历弹窗共用） |
 | `src/tools/todo_form.py` | 232 | 新增 / 编辑待办弹窗 |
 | `src/tools/swipe_delete.py` | 124 | 左滑露出操作按钮的行容器 |
 | `src/tools/popup_select.py` | 219 | 统一的下拉选择器（年/月/周、类别、循环、通知渠道都用它） |
 | `src/tools/pickers.py` | 123 | 系统日期 / 时间选择器封装（含 UTC 时区修正） |
-| `src/tools/countdown_card.py` | 247 | 倒数日卡片 |
+| `src/tools/countdown_card.py` | 267 | 倒数日卡片（三档状态色、过期不循环的自动收起） |
 | `src/tools/countdown_form.py` | 237 | 新增 / 编辑倒数日弹窗（含卡片底色选择） |
 | `src/tools/line_chart.py` | 186 | 待办趋势折线图（`flet-charts` 多系列 LineChart） |
 | `src/tools/pie_chart.py` | 82 | 分类占比饼图（`flet-charts` PieChart + 悬停凸出） |

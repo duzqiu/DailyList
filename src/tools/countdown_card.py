@@ -2,8 +2,9 @@
 
 一张卡片分上中下三段：上段是图标 + 倒数日事项，底色就是这张卡自己选的颜色；
 中段是放大后的天数，「天后」贴在数字右上角；一条「--」虚线把中段和下段隔开，
-下段写倒数日的日期 · 农历 · 周几。天数照旧按剩余天数上色：已过红、三天内黄、
-其余绿。
+下段写倒数日的日期 · 农历 · 周几。天数徽标按剩余天数分三档上色，用的就是类别三色，
+天数越近越像「重要」那一档：七天及以上绿、三到六天黄、不到三天（含已过）红；不循环
+的那种过了到期日第二天就整张收起。
 """
 
 from collections.abc import Callable
@@ -13,7 +14,8 @@ from typing import Any
 import flet as ft
 
 from tools import db
-from tools.layout import date_label
+from tools.categories import category_color
+from tools.layout import date_label, readable_ink
 from tools.lunar import lunar_label
 
 TITLE_COLOR = "#172554"
@@ -40,12 +42,15 @@ SUFFIX_RADIUS = 4
 # 「--」分隔线：细密短横线，卡片宽度变了也跟着重排。
 DASH_COUNT = 16
 DASH_GAP = 2
-# Countdown colours, each a darker tone of its hue so it cannot blend into any of
-# the pale card backgrounds the palette offers.
-PAST_COLOR = "#B91C1C"
-SOON_COLOR = "#A16207"
-FUTURE_COLOR = "#15803D"
+# 天数徽标的三档状态色直接借待办类别的三色：红 = 重要、黄 = 一般、绿 = 可选，天数
+# 越近越像「重要」。三张卡都取同一份色值（tools/categories.py），别再手写十六进制。
+URGENT_COLOR = category_color("重要")
+SOON_COLOR = category_color("一般")
+FUTURE_COLOR = category_color("可选")
 SOON_DAYS = 3
+FUTURE_DAYS = 7
+# 不循环的倒数日过期后还挂几天：到期当天算第 0 天，到期后第二天（+2）起不再展示。
+EXPIRED_HIDE_AFTER_DAYS = 2
 # 周一..周日, indexed by `date.weekday()`.
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -59,12 +64,27 @@ def countdown_days(item: db.Countdown, today: date | None = None) -> int:
 
 
 def countdown_color(days: int) -> str:
-    """Red once a fixed day passed, yellow within three days, green otherwise."""
-    if days < 0:
-        return PAST_COLOR
-    if days <= SOON_DAYS:
+    """七天及以上绿、三到六天黄、不到三天（含已过）红。"""
+    if days < SOON_DAYS:
+        return URGENT_COLOR
+    if days < FUTURE_DAYS:
         return SOON_COLOR
     return FUTURE_COLOR
+
+
+def countdown_visible(item: db.Countdown, today: date | None = None) -> bool:
+    """不循环的倒数日过了到期日第二天就不再展示；循环的永远等下一次。"""
+    if item.cycle in db.REPEAT_CYCLES and item.cycle != db.DEFAULT_CYCLE:
+        return True
+    return ((today or date.today()) - item.due_date).days < EXPIRED_HIDE_AFTER_DAYS
+
+
+def visible_countdowns(
+    items: list[db.Countdown], today: date | None = None
+) -> list[db.Countdown]:
+    """筛掉已经过期的倒数日；页面列表和日历都先用它过一遍。"""
+    today = today or date.today()
+    return [item for item in items if countdown_visible(item, today)]
 
 
 def countdown_date_lunar(item: db.Countdown) -> str:
@@ -93,7 +113,7 @@ def days_block(days: int, color: str) -> ft.Control:
         content=ft.Text(
             "天后" if days >= 0 else "天前",
             size=SUFFIX_SIZE,
-            color="#FFFFFF",
+            color=readable_ink(color),
         ),
     )
     if days == 0:
@@ -107,7 +127,7 @@ def days_block(days: int, color: str) -> ft.Control:
                     content=ft.Text(
                         "就是今天",
                         size=SUFFIX_SIZE + 1,
-                        color="#FFFFFF",
+                        color=readable_ink(color),
                     ),
                 )
             ],

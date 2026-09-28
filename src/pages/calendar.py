@@ -19,6 +19,7 @@ from tools.countdown_card import (
     ACCENT_COLOR as COUNTDOWN_COLOR,
     build_countdown_card,
     countdowns_on,
+    visible_countdowns,
 )
 from tools.countdown_form import open_countdown_form
 from tools.layout import (
@@ -196,7 +197,7 @@ def build_calendar_page(
                     ],
                 )
             )
-        countdowns = countdowns_on(day)
+        countdowns = visible_countdowns(countdowns_on(day))
         if countdowns:
             groups.append(
                 ft.Column(
@@ -318,7 +319,8 @@ def build_calendar_page(
             for todo in todos
         ]
         entries += [
-            (item.content, COUNTDOWN_COLOR, False) for item in countdowns_on(day)
+            (item.content, COUNTDOWN_COLOR, False)
+            for item in visible_countdowns(countdowns_on(day))
         ]
         if not entries:
             return []

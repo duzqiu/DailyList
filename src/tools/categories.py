@@ -11,7 +11,8 @@ PICKER_STAR_SIZE = 12
 PICKER_STAR_GAP = 6
 PICKER_TEXT_SIZE = 12
 
-# One star marks a category, in the category's own colour.
+# One star marks a category, in the category's own colour. 三个类别一共三色：重要红、
+# 一般黄、可选绿 —— 越重要颜色越扎眼。全 App 的分类色都从这里取，别再手写十六进制。
 CATEGORIES = (
     ("重要", "#DC2626"),
     ("一般", "#EAB308"),

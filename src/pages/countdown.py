@@ -17,6 +17,7 @@ from tools.countdown_card import (
     TITLE_COLOR,
     build_countdown_card,
     countdown_days,
+    visible_countdowns,
 )
 from tools.countdown_form import open_countdown_form
 from tools.layout import BOTTOM_MENU_INSET, SKY_BLUE, page_gradient
@@ -82,8 +83,10 @@ def build_countdown_page(
         )
 
     def render() -> None:
+        # 已经过期的不循环倒数日不再出现在列表里（tools/countdown_card.py）。
         rows = sorted(
-            db.list_countdowns(), key=lambda item: countdown_days(item, today)
+            visible_countdowns(db.list_countdowns(), today),
+            key=lambda item: countdown_days(item, today),
         )
         if not rows:
             items.controls = [empty_hint()]
