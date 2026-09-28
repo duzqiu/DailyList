@@ -1,7 +1,8 @@
 """The 倒数日 card, shared by the 倒数日 page and the 日历 day dialog.
 
 一张卡片分上中下三段：上段是图标 + 倒数日事项，底色就是这张卡自己选的颜色；
-中段是放大后的天数，「天后」贴在数字右上角；一条「--」虚线把中段和下段隔开，
+中段是放大后的天数，「天后」贴在数字右上角；中段高度钉死成「有数字那一行」的高度，
+到期当天改成一块「就是今天」，所以卡片张张等高。一条「--」虚线把中段和下段隔开，
 下段写倒数日的日期 · 农历 · 周几。天数徽标按剩余天数分三档上色，用的就是类别三色，
 天数越近越像「重要」那一档：七天及以上绿、三到六天黄、不到三天（含已过）红；不循环
 的那种过了到期日第二天就整张收起。
@@ -104,9 +105,9 @@ def countdown_weekday(item: db.Countdown) -> str:
     return f"-{WEEKDAYS[item.due_date.weekday()]}-"
 
 
-def days_block(days: int, color: str) -> ft.Control:
-    """中段居中：天数放大用黑字，「天后」带状态色的底贴在数字右上角。"""
-    badge = ft.Container(
+def _suffix_badge(days: int, color: str) -> ft.Control:
+    """「天后 / 天前」：状态色的小底块，贴在数字右上角。"""
+    return ft.Container(
         padding=SUFFIX_PADDING,
         border_radius=ft.BorderRadius.all(SUFFIX_RADIUS),
         bgcolor=color,
@@ -116,21 +117,40 @@ def days_block(days: int, color: str) -> ft.Control:
             color=readable_ink(color),
         ),
     )
+
+
+def _today_badge(color: str) -> ft.Control:
+    """到期当天不写 0，改成这块「就是今天」。"""
+    return ft.Container(
+        padding=SUFFIX_PADDING,
+        border_radius=ft.BorderRadius.all(SUFFIX_RADIUS),
+        bgcolor=color,
+        content=ft.Text(
+            "就是今天",
+            size=SUFFIX_SIZE + 1,
+            color=readable_ink(color),
+        ),
+    )
+
+
+def _days_line_spacer() -> ft.Control:
+    """一个空格：只占「有数字那一行」的高度，本身什么都不画。
+
+    和数字同字号、同字重，行高也就一样，所以「就是今天」那张卡的中段和别的卡一样高。
+    """
+    return ft.Text(" ", size=DAYS_SIZE, weight=ft.FontWeight.BOLD, color=DAYS_COLOR)
+
+
+def days_block(days: int, color: str) -> ft.Control:
+    """中段居中：天数放大用黑字，「天后」带状态色的底贴在数字右上角。
+
+    `days == 0` 不写 0，只放一块「就是今天」，底下垫一行空格（`_days_line_spacer`）——
+    中段因此和有数字时一样高，每张倒数日卡片也就一样高。
+    """
     if days == 0:
-        return ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
-            controls=[
-                ft.Container(
-                    padding=SUFFIX_PADDING,
-                    border_radius=ft.BorderRadius.all(SUFFIX_RADIUS),
-                    bgcolor=color,
-                    content=ft.Text(
-                        "就是今天",
-                        size=SUFFIX_SIZE + 1,
-                        color=readable_ink(color),
-                    ),
-                )
-            ],
+        return ft.Stack(
+            alignment=ft.Alignment.CENTER,
+            controls=[_days_line_spacer(), _today_badge(color)],
         )
     return ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
@@ -145,7 +165,7 @@ def days_block(days: int, color: str) -> ft.Control:
             ),
             ft.Container(
                 padding=ft.Padding.only(top=SUFFIX_TOP_PAD),
-                content=badge,
+                content=_suffix_badge(days, color),
             ),
         ],
     )

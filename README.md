@@ -11,16 +11,16 @@
 - 列表标题「9月26日待办」，每行是时间轴样式：左边时间 + 点线轴，右边类别标签 + 待办文字；卡片内正文**上方**还有一行灰字起止时间（「14:00 - 15:30」），时间轴那列仍然只报**开始时间**
 - 点一行切换完成（完成变灰加删除线，卡片最后收一枚绿色对勾）；左滑一行露出「编辑 / 删除」
 - 空态显示「今天没有待办事项哦」
-- 右下角毛玻璃圆形按钮（天蓝 `#B2E0F4` 60% 透明 + Blur 20，图标是「笔在纸上写字」`EDIT_NOTE`）：点一下先**从按钮那一角弹出一块毛玻璃小面板**（奶白 `#B3FFFFFF` 70% 透明 + Blur 20，缩放 + 淡入 200ms），面板里两条入口「新增待办 / 新增倒数日」，选完才开对应的新增弹窗；再点一次「+」或点面板外的空白处收起
+- 右下角毛玻璃圆形按钮（天蓝 `#B2E0F4` 60% 透明 + Blur 20，图标就是一个「+」`ADD`）：点一下先**从按钮那一角弹出一块毛玻璃小面板**（奶白 `#B3FFFFFF` 70% 透明 + Blur 20，缩放 + 淡入 200ms），面板里两条入口「新增待办 / 新增倒数日」，选完才开对应的新增弹窗；再点一次「+」或点面板外的空白处收起
 - 新增待办弹窗只弹出，**不自动聚焦输入框**
 - 右上角柱状图图标（`BAR_CHART`）→ 数据二级页
 
 ### 新增 / 编辑待办弹窗（`tools/todo_form.py`）
+- 分类：**三个胶囊并排（复用 `tools/segmented.py`），单选** —— 选中项填自己的分类色（红 / 黄 / 绿），字色跟着底色挑深浅（黄底深蓝、红 / 绿底白）；点另一档就切过去，点当前这一档不会松开，永远留一个选中
+- 内容：多行输入，2–5 行
 - 日期：系统日期选择器（新增时最早只能选今天，编辑可移到过去）
 - 时间：**两个**系统时间选择器并成一行「开始 ~ 结束」；开始默认当前时刻向下取整到 5 分钟，结束默认「开始 + 1 小时」，两个选择器的标题分别是「选择开始时间 / 选择结束时间」
-- 分类：**三个勾选框并排，单选** —— 勾上另一个自动取消前一个，点已经勾上的那个会弹回去（永远留一个选中）；勾本身是分类色（红 / 黄 / 绿），黄底的对号自动转深蓝
 - 循环：不循环 / 每天 / 三天 / 一周 / **工作日（周一–周五）** / **非工作日（周六周日）** / 一月 / 三月 / 六月 / 一年
-- 内容：多行输入，2–5 行
 - 输入框获得焦点时，底部菜单栏和「+」一起隐藏，弹窗贴到键盘上方（不会被键盘顶飞，也不会有中间那条灰带）
 
 ### 倒数日
@@ -66,13 +66,13 @@
 | `src/tools/db.py` | 610 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings |
 | `src/tools/layout.py` | 227 | 全局配色与尺寸常量、页面渐变、二级页顶栏（返回 + 居中标题）、弹窗键盘定位、文字宽度估算、可读字色、时间文案 |
 | `src/tools/categories.py` | 62 | 三个类别及其颜色（红 / 黄 / 绿）、星标控件 |
-| `src/tools/todo_timeline.py` | 274 | 待办时间轴行（首页与日历弹窗共用） |
-| `src/tools/todo_form.py` | 298 | 新增 / 编辑待办弹窗（起止时间 + 三个分类勾选框） |
+| `src/tools/todo_timeline.py` | 303 | 待办时间轴行（首页与日历弹窗共用，点线随卡片拉伸不断开） |
+| `src/tools/todo_form.py` | 273 | 新增 / 编辑待办弹窗（分类胶囊 + 内容 + 日期 + 时间 + 周期） |
 | `src/tools/swipe_delete.py` | 124 | 左滑露出操作按钮的行容器 |
 | `src/tools/popup_select.py` | 219 | 统一的下拉选择器（待办/倒数日的日期、类别、循环、通知渠道都用它） |
-| `src/tools/segmented.py` | 102 | 「数据」页 年/月/周 的横向胶囊分段开关 |
+| `src/tools/segmented.py` | 117 | 横向胶囊分段开关（「数据」页 年/月/周、待办弹窗的三个分类；可一项一色） |
 | `src/tools/pickers.py` | 129 | 系统日期 / 时间选择器封装（含 UTC 时区修正、可选标题） |
-| `src/tools/countdown_card.py` | 267 | 倒数日卡片（三档状态色、过期不循环的自动收起） |
+| `src/tools/countdown_card.py` | 287 | 倒数日卡片（三档状态色、中段钉高所以张张等高、过期不循环的自动收起） |
 | `src/tools/countdown_form.py` | 237 | 新增 / 编辑倒数日弹窗（含卡片底色选择） |
 | `src/tools/line_chart.py` | 365 | 待办趋势折线图（`flet-charts` 多系列 LineChart + 毛玻璃自绘浮框） |
 | `src/tools/pie_chart.py` | 82 | 分类占比饼图（`flet-charts` PieChart + 悬停凸出） |
@@ -126,7 +126,7 @@ main.py
 改代码前值得知道的几条（都是踩过坑留下来的）：
 
 1. **颜色 / 尺寸集中在 `tools/layout.py` 和 `tools/categories.py`**：卡片色、选中蓝、完成灰、弹窗圆角（`DIALOG_RADIUS = 12`，Material 默认 28）、弹窗表面色（`DIALOG_SURFACE`）等都在这里，页面里不要再手写十六进制。
-2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。例外是「数据」页的 年/月/周：三档直接摊在卡片标题行里，用 `tools/segmented.py` 的横向胶囊开关，点一下就切，不必先点开面板。
+2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。例外是「数据」页的 年/月/周 和新增待办弹窗的分类：选项直接摊在卡片标题行 / 弹窗行里，用 `tools/segmented.py` 的横向胶囊开关，点一下就切，不必先点开面板。
 3. **弹窗**统一 `shape=RoundedRectangleBorder(radius=DIALOG_RADIUS)` + `bgcolor=DIALOG_SURFACE` + `elevation=0`。
 4. **键盘处理**：输入框 `on_focus` 里调 `anchor_dialog_above_keyboard(dialog, True)`（弹窗贴键盘上方）并用 `set_menu_visible(False)` 收起底部菜单和浮动按钮；`on_blur` 复原。
 5. **列表底部留白**用 `BOTTOM_MENU_INSET`，否则最后一行会被浮动菜单栏压住。

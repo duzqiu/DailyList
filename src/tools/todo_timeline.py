@@ -4,6 +4,10 @@
 是等级标签（分类色底 + 分类名）和待办文字。行之间只留一点缝，点线上下相接看起
 来就是一条轴；最上面那行从空心圆开始，上面不再补小圆点。
 
+轴的高度是钉在整行上的（`build_todo_row` 里那个 `top`/`bottom` 都为 0 的定位子）：
+卡片被长文字撑高时轴跟着一起长，多出来的高度平分给上下那几颗点、各自拉长成一
+小段竖线，所以轴不会在卡片中间断开。
+
 左滑只带走右边的待办（露出编辑 / 删除），时间和点线留在原地，而且待办裁在自己
 那一格里，不会滑到轴上去。
 """
@@ -40,6 +44,19 @@ NODE_SIZE = 9
 NODE_BORDER = 1.5
 DOTS_ABOVE = 3
 DOTS_BELOW = 3
+# 轴在这一行里的横向位置（时间那一格的右边、宽就是那颗空心圆的直径），以及卡片
+# 左边要空出的位置 —— 卡片是整行的定位基准，得自己把「时间 + 轴」那一截让出来。
+AXIS_LEFT = TIME_SLOT_WIDTH + TIME_TO_DOT_GAP
+LEFT_GUTTER = AXIS_LEFT + NODE_SIZE
+# 轴的最矮高度：上下各 3 颗 2px 的点、中间那颗 9px 的空心圆，再加 6 道 3px 的缝，
+# 合计 39px —— 就是「点 2px + 缝 3px」原来的样子（一行文字加留白的卡片大约 32px，
+# 靠 `build_todo_row` 里那条占位把行垫到这个高度）。卡片被文字撑高时多出来的高度
+# 平分给那 6 颗点（见 `_timeline_dot`），轴始终首尾相接。
+SPINE_MIN_HEIGHT = (
+    (DOTS_ABOVE + DOTS_BELOW) * DOT_SIZE
+    + NODE_SIZE
+    + (DOTS_ABOVE + DOTS_BELOW) * DOT_GAP
+)
 # 轴到待办之间的空当，以及待办前面那枚等级标签。
 DOT_TO_TEXT_GAP = 10
 CATEGORY_TAG_SIZE = 9
@@ -64,12 +81,24 @@ def sorted_todos(todos: list[db.Todo]) -> list[db.Todo]:
 
 
 def _timeline_dot(color: str) -> ft.Control:
+    """轴上一小段点线，高度交给轴去拉伸（`expand`）。
+
+    一行文字时它就是那颗 2px 的小圆点；卡片被文字撑高时这一段跟着变长，轴上下仍旧
+    相接，不会在卡片中间断开。
+    """
     return ft.Container(
         width=DOT_SIZE,
-        height=DOT_SIZE,
+        expand=True,
         border_radius=ft.BorderRadius.all(DOT_SIZE / 2),
         bgcolor=color,
     )
+
+
+def _timeline_spacer() -> ft.Control:
+    """首行上方 / 末行下方那段看不见的占位，占掉和别行的点一样高的位置。
+
+    也是 `expand` 的，空心圆才一直停在行的中间。"""
+    return ft.Container(width=DOT_SIZE, expand=True)
 
 
 def _timeline_node(color: str) -> ft.Control:
@@ -82,62 +111,51 @@ def _timeline_node(color: str) -> ft.Control:
     )
 
 
-def _time_column(
-    todo: db.Todo, first: bool, last: bool, axis_color: str
-) -> ft.Control:
-    """左边不跟着滑动的一块：时间 + 细圆点连成的轴。
+def _timeline_axis(first: bool, last: bool, axis_color: str) -> ft.Column:
+    """细圆点连成的轴：高度由外面那行给（定位子，`top`/`bottom` 都为 0）。
 
-    第一行不往上补点、最后一行不往下补点，但仍然留出同样高的一段空位，
-    空心圆才和别行一样高。
+    首行不往上补点、末行不往下补点，但仍然占掉同样的一段高度，空心圆才和别行一样
+    高、停在行的中间。
     """
-    dot_step = DOT_SIZE + DOT_GAP
-    return ft.Row(
-        spacing=TIME_TO_DOT_GAP,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            ft.Container(
-                width=TIME_SLOT_WIDTH,
-                alignment=ft.Alignment.CENTER_RIGHT,
-                content=ft.Text(
-                    (
-                        todo_time_label(todo.due_time)
-                        if todo.due_time
-                        else ALL_DAY_LABEL
-                    ),
-                    size=TODO_TIME_SIZE,
-                    weight=ft.FontWeight.BOLD,
-                    color=TODO_TIME_COLOR,
-                ),
+    above = (
+        [_timeline_spacer() for _ in range(DOTS_ABOVE)]
+        if first
+        else [_timeline_dot(axis_color) for _ in range(DOTS_ABOVE)]
+    )
+    below = (
+        [_timeline_spacer() for _ in range(DOTS_BELOW)]
+        if last
+        else [_timeline_dot(axis_color) for _ in range(DOTS_BELOW)]
+    )
+    # 不写死高度：轴上每一段都是 `expand` 的，卡片撑高多少，它们就平摊多少。
+    return ft.Column(
+        spacing=DOT_GAP,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[*above, _timeline_node(axis_color), *below],
+    )
+
+
+def _time_label(todo: db.Todo) -> ft.Control:
+    """左边的时间「09:30」（没写时间的是「全天」）。
+
+    和轴一样是定位子、`top`/`bottom` 都为 0，所以它垂直居中，跟着行高走。
+    """
+    return ft.Container(
+        left=0,
+        top=0,
+        bottom=0,
+        width=TIME_SLOT_WIDTH,
+        alignment=ft.Alignment.CENTER_RIGHT,
+        content=ft.Text(
+            (
+                todo_time_label(todo.due_time)
+                if todo.due_time
+                else ALL_DAY_LABEL
             ),
-            ft.Column(
-                tight=True,
-                spacing=DOT_GAP,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    *(
-                        [
-                            ft.Container(
-                                width=DOT_SIZE,
-                                height=DOTS_ABOVE * dot_step - DOT_GAP,
-                            )
-                        ]
-                        if first
-                        else [_timeline_dot(axis_color) for _ in range(DOTS_ABOVE)]
-                    ),
-                    _timeline_node(axis_color),
-                    *(
-                        [
-                            ft.Container(
-                                width=DOT_SIZE,
-                                height=DOTS_BELOW * dot_step - DOT_GAP,
-                            )
-                        ]
-                        if last
-                        else [_timeline_dot(axis_color) for _ in range(DOTS_BELOW)]
-                    ),
-                ],
-            ),
-        ],
+            size=TODO_TIME_SIZE,
+            weight=ft.FontWeight.BOLD,
+            color=TODO_TIME_COLOR,
+        ),
     )
 
 
@@ -220,26 +238,37 @@ def build_todo_row(
     )
     if on_click is not None:
         card.on_click = lambda _: on_click(todo)
-    if on_delete is None and on_edit is None:
-        return ft.Row(
-            spacing=0,
-            controls=[
-                _time_column(todo, first, last, axis_color),
-                ft.Container(expand=True, content=card),
-            ],
+    body = (
+        card
+        if on_delete is None and on_edit is None
+        else ft.Container(
+            # 左滑只带走右边的待办，时间和点线留在原地，所以待办裁在自己那一格里，
+            # 不会滑到轴上去（见 tools/swipe_delete.py）。
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            content=build_swipe_delete_row(
+                card,
+                lambda _: on_delete(todo),
+                (lambda _: on_edit(todo)) if on_edit is not None else None,
+            ),
         )
-    return ft.Row(
-        spacing=0,
+    )
+    # 整行是一个 `Stack`：卡片（左滑时就是整条能滑的行）是唯一的**非定位**子控件，
+    # 这一行多高、多宽都由它说了算；时间和轴是定位子、`top`/`bottom` 都是 0，高度
+    # 于是跟着卡片走 —— 卡片被长文字撑高，轴就跟着一起长，不会在中间断开。
+    return ft.Stack(
+        alignment=ft.Alignment.CENTER,
         controls=[
-            _time_column(todo, first, last, axis_color),
             ft.Container(
-                expand=True,
-                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                content=build_swipe_delete_row(
-                    card,
-                    lambda _: on_delete(todo),
-                    (lambda _: on_edit(todo)) if on_edit is not None else None,
-                ),
+                margin=ft.Margin.only(left=LEFT_GUTTER), content=body
+            ),
+            # 轴的「最矮身高」：宽 0 的一条占位，一行文字的卡片也保持原来的点距。
+            ft.Container(width=0, height=SPINE_MIN_HEIGHT),
+            _time_label(todo),
+            ft.Container(
+                left=AXIS_LEFT,
+                top=0,
+                bottom=0,
+                content=_timeline_axis(first, last, axis_color),
             ),
         ],
     )

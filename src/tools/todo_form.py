@@ -22,7 +22,6 @@ from tools.layout import (
     anchor_dialog_above_keyboard,
     date_label,
     dialog_button_style,
-    readable_ink,
 )
 from tools.pickers import (
     build_date_picker,
@@ -36,13 +35,12 @@ from tools.popup_select import (
     build_option_selector,
     build_option_text,
 )
+from tools.segmented import build_segmented
 
 MUTED_COLOR = "#94A3B8"
 FIELD_COLOR = "#334155"
 # 没填过结束时间时的默认时长：开始时间往后一个小时。
 DEFAULT_DURATION_MINUTES = 60
-# 三个分类勾选框之间的间距。
-CATEGORY_CHECK_GAP = 14
 
 
 def default_time() -> str:
@@ -134,18 +132,9 @@ def open_todo_form(
         end_text, lambda _: page.show_dialog(end_picker)
     )
 
-    def pick_category(name: str, checked: bool) -> None:
-        """勾选框做成单选：勾上另一个就松开前一个，而且永远留一个勾着。"""
-        if not checked and selection["category"] == name:
-            # 想把当前这项取消 → 把这一勾弹回去，不留「一个都没选」的状态。
-            category_checks[name].value = True
-            category_checks[name].update()
-            return
-        if checked:
-            selection["category"] = name
-        for other, box in category_checks.items():
-            box.value = other == selection["category"]
-            box.update()
+    def pick_category(name: str) -> None:
+        """胶囊自己做单选，这里只记住选中的分类。"""
+        selection["category"] = name
 
     def pick_cycle(name: str) -> None:
         selection["cycle"] = name
@@ -174,28 +163,14 @@ def open_todo_form(
         max_lines=5,
     )
 
-    # 分类：三个勾选框并排，勾上另一个自动取消前一个（单选）。勾是分类自己的
-    # 颜色，勾里的对号用 `readable_ink` 选深浅，黄底配深蓝、红 / 绿底配白。
-    category_checks = {
-        name: ft.Checkbox(
-            label=name,
-            value=name == start_category,
-            active_color=color,
-            check_color=readable_ink(color),
-            label_style=ft.TextStyle(size=OPTION_TEXT_SIZE, color=FIELD_COLOR),
-            visual_density=ft.VisualDensity.COMPACT,
-            splash_radius=12,
-            on_change=lambda event, name=name: pick_category(
-                name, bool(event.control.value)
-            ),
-        )
-        for name, color in CATEGORIES
-    }
-    category_row = ft.Row(
-        tight=True,
-        spacing=CATEGORY_CHECK_GAP,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=list(category_checks.values()),
+    # 分类：三个胶囊并排，选中项填自己的分类色（红 / 黄 / 绿），字色跟着底色挑
+    # 深浅（黄底配深蓝、红 / 绿底配白，由 `build_segmented` 决定）。胶囊自己做单选：
+    # 点另一档就切过去，点当前这一档不会松开，永远留一个选中。
+    category_row = build_segmented(
+        [(name, name) for name, _ in CATEGORIES],
+        start_category,
+        pick_category,
+        color_of=category_color,
     )
     cycle_selector = build_option_selector(
         cycle_text,
@@ -264,6 +239,8 @@ def open_todo_form(
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
+                build_option_row(category_row),
+                todo_field,
                 build_option_row(date_selector),
                 # 起止时间并成一行：开始 ~ 结束，两个都是系统的时钟刻度盘。
                 build_option_row(
@@ -285,9 +262,7 @@ def open_todo_form(
                         ],
                     )
                 ),
-                build_option_row(category_row),
                 build_option_row(cycle_selector),
-                todo_field,
             ],
         ),
         actions=[

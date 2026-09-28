@@ -319,8 +319,8 @@ def build_home_page(
         bgcolor=ADD_BUTTON_BG,
         blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
         content=ft.IconButton(
-            # 笔在纸上写字：这个按钮是「写一条新的」，不是单纯的加号。
-            icon=ft.Icons.EDIT_NOTE,
+            # 就是一个「+」：新增入口本身不用再解释，面板里那两条才分工。
+            icon=ft.Icons.ADD,
             icon_color="#172554",
             icon_size=24,
             tooltip="新增待办 / 倒数日",

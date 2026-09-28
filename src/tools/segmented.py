@@ -7,13 +7,16 @@
 选中项用和首页日期卡片一样的「选中蓝」（`DATE_SELECTED_BG`），其余两档只是卡片上的灰色
 文字，所以一眼能看出当前是哪一档。选中态由控件自己维护，调用方不必像下拉触发器那样另外
 准备一个 `Text` 来显示当前值。
+
+新增待办弹窗的三个分类也用它：那里传 `color_of`，选中项就填自己的分类色（红 / 黄 / 绿），
+而不是统一的「选中蓝」；字色由 `readable_ink` 跟着底色挑深浅。
 """
 
 from collections.abc import Callable
 
 import flet as ft
 
-from tools.layout import DATE_SELECTED_BG
+from tools.layout import DATE_SELECTED_BG, readable_ink
 
 # 单个选项的高度。整条胶囊 = 这个高度 + 内边距 + 边框，30px 出头，和卡片标题
 # （15pt 粗体）同高，不会把标题行撑起来。
@@ -44,23 +47,35 @@ def build_segmented(
     options: list[tuple[str, str]],
     value: str,
     on_pick: Callable[[str], None],
+    color_of: Callable[[str], str] | None = None,
 ) -> ft.Container:
     """横向胶囊开关：`options` 是 `[(key, 标签)]`，`value` 是当前选中项的 key。
 
     点击先把胶囊切过去再回调 `on_pick`，所以切换是立刻可见的；把选中态画在这里，
-    调用方就只需要关心数据本身。
+    调用方就只需要关心数据本身。点当前这一档什么也不做，选中项永远留一个。
+
+    `color_of` 给某一档单独指定选中底色（弹窗里的分类用它填红 / 黄 / 绿）；不传就
+    统一用「选中蓝」。
     """
     labels: dict[str, ft.Text] = {}
     tiles: dict[str, ft.Container] = {}
     current = {"key": value}
 
+    def active_bg(key: str) -> str:
+        """选中项的底色：默认「选中蓝」，也可以一项一色。"""
+        return SEGMENT_ACTIVE_BG if color_of is None else color_of(key)
+
     def paint(active: str) -> None:
         for key, tile in tiles.items():
             chosen = key == active
-            tile.bgcolor = SEGMENT_ACTIVE_BG if chosen else SEGMENT_TILE_BG
-            labels[key].color = (
-                SEGMENT_ACTIVE_TEXT_COLOR if chosen else SEGMENT_TEXT_COLOR
+            bg = active_bg(key)
+            tile.bgcolor = bg if chosen else SEGMENT_TILE_BG
+            ink = (
+                SEGMENT_ACTIVE_TEXT_COLOR
+                if color_of is None
+                else readable_ink(bg)
             )
+            labels[key].color = ink if chosen else SEGMENT_TEXT_COLOR
             labels[key].weight = (
                 ft.FontWeight.BOLD if chosen else ft.FontWeight.NORMAL
             )
