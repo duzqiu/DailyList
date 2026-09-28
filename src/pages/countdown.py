@@ -20,12 +20,8 @@ from tools.countdown_card import (
     visible_countdowns,
 )
 from tools.countdown_form import open_countdown_form
-from tools.layout import BOTTOM_MENU_INSET, SKY_BLUE, page_gradient
+from tools.layout import BOTTOM_MENU_INSET, page_gradient
 
-# Same floating tile as the home page's 新增待办 button, and the same dialogs.
-ADD_BUTTON_BG = "#99" + SKY_BLUE[1:]
-ADD_BUTTON_SIZE = 52
-ADD_BUTTON_LIFT = 10
 PAGE_SIDE_PADDING = 24
 # 双列卡片：两张之间的缝，以及再窄也要保住的卡片宽度。
 COUNTDOWN_GAP = 10
@@ -74,7 +70,7 @@ def build_countdown_page(
                         color=MUTED_COLOR,
                     ),
                     ft.Text(
-                        "还没有倒数日，点右下角 + 添加",
+                        "还没有倒数日，去待办页点右下角 + 添加",
                         size=13,
                         color="#64748B",
                     ),
@@ -115,9 +111,8 @@ def build_countdown_page(
     def open_form(item: db.Countdown | None = None) -> None:
         open_countdown_form(
             page,
-            # Same callback the 待办 dialog gets: hiding the menu takes the
-            # floating + tile with it while the keyboard is up.
-            set_menu_visible=set_bottom_controls_visible,
+            # 输入框弹键盘时收起底部菜单（和待办弹窗用的是同一套回调）。
+            set_menu_visible=set_menu_visible,
             on_saved=refresh,
             item=item,
         )
@@ -126,73 +121,43 @@ def build_countdown_page(
         render()
         items.update()
 
-    def open_add(_: ft.Event[ft.Container]) -> None:
-        open_form()
-
     def edit(item: db.Countdown) -> None:
         open_form(item)
 
-    add_button = ft.Container(
-        right=24,
-        bottom=BOTTOM_MENU_INSET + ADD_BUTTON_LIFT,
-        width=ADD_BUTTON_SIZE,
-        height=ADD_BUTTON_SIZE,
-        shape=ft.BoxShape.CIRCLE,
-        bgcolor=ADD_BUTTON_BG,
-        blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
-        content=ft.IconButton(
-            icon=ft.Icons.ADD,
-            icon_color=TITLE_COLOR,
-            icon_size=24,
-            tooltip="添加倒数日",
-            style=ft.ButtonStyle(shape=ft.CircleBorder()),
-            on_click=open_add,
-        ),
-    )
-
-    def set_bottom_controls_visible(visible: bool) -> None:
-        set_menu_visible(visible)
-        add_button.visible = visible
-        add_button.update()
-
     render()
 
-    return ft.Stack(
+    # 倒数日页不再有自己的「+」：新增入口统一在待办页右下角那个按钮上（那里可以
+    # 选「新增待办 / 新增倒数日」），所以这一页只剩一张列表。
+    return ft.Container(
         expand=True,
-        controls=[
-            ft.Container(
+        gradient=page_gradient(),
+        content=ft.SafeArea(
+            expand=True,
+            content=ft.Container(
                 expand=True,
-                gradient=page_gradient(),
-                content=ft.SafeArea(
+                padding=ft.Padding.only(
+                    left=PAGE_SIDE_PADDING,
+                    top=PAGE_SIDE_PADDING,
+                    right=PAGE_SIDE_PADDING,
+                    bottom=PAGE_SIDE_PADDING,
+                ),
+                content=ft.Column(
                     expand=True,
-                    content=ft.Container(
-                        expand=True,
-                        padding=ft.Padding.only(
-                            left=PAGE_SIDE_PADDING,
-                            top=PAGE_SIDE_PADDING,
-                            right=PAGE_SIDE_PADDING,
-                            bottom=PAGE_SIDE_PADDING,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        ft.Text(
+                            "倒数日",
+                            size=18,
+                            weight=ft.FontWeight.BOLD,
+                            color=TITLE_COLOR,
                         ),
-                        content=ft.Column(
+                        ft.Container(
                             expand=True,
-                            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                            controls=[
-                                ft.Text(
-                                    "倒数日",
-                                    size=18,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=TITLE_COLOR,
-                                ),
-                                ft.Container(
-                                    expand=True,
-                                    margin=ft.Margin.only(top=12),
-                                    content=items,
-                                ),
-                            ],
+                            margin=ft.Margin.only(top=12),
+                            content=items,
                         ),
-                    ),
+                    ],
                 ),
             ),
-            add_button,
-        ],
+        ),
     )
