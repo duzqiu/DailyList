@@ -20,6 +20,8 @@ from tools.layout import (
     TODO_TEXT_SIZE,
     TODO_TIME_COLOR,
     TODO_TIME_SIZE,
+    UNSELECTED_CARD_BG,
+    build_todo_mark,
     readable_ink,
     todo_text_style,
     todo_time_label,
@@ -44,8 +46,10 @@ CATEGORY_TAG_PADDING = ft.Padding.symmetric(horizontal=4, vertical=1)
 CATEGORY_TAG_RADIUS = 4
 CATEGORY_TAG_GAP = 6
 ALL_DAY_LABEL = "全天"
-# 每条待办自己的白底（等级标签也在这一块里）。
-CARD_BG = "#FFFFFF"
+# 每条待办自己的一块底色（等级标签也在这一块里）。纯白在首页渐变上太亮、在日历
+# 弹窗的灰底上又太跳，统一用全局那张「未选中的卡片」灰：和我的页卡片、分类 tile
+# 是同一档（tools/layout.py 的 UNSELECTED_CARD_BG）。
+CARD_BG = UNSELECTED_CARD_BG
 CARD_RADIUS = 8
 
 
@@ -137,7 +141,7 @@ def _time_column(
 
 
 def _card_content(todo: db.Todo, color: str) -> ft.Control:
-    """待办那一行：等级标签 + 文字。"""
+    """待办那一行：等级标签 + 文字，完成的在末尾补一枚绿色对勾。"""
     return ft.Row(
         spacing=CATEGORY_TAG_GAP,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -160,6 +164,8 @@ def _card_content(todo: db.Todo, color: str) -> ft.Control:
                 style=todo_text_style(todo.done),
                 expand=True,
             ),
+            # 完成的在卡片最后收一枚绿勾，和 layout 里那枚完成态图标是同一枚。
+            *([build_todo_mark(todo.done)] if todo.done else []),
         ],
     )
 

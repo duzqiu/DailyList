@@ -14,7 +14,7 @@ from datetime import date
 import flet as ft
 
 from tools import db
-from tools.categories import CATEGORY_COLORS, category_color
+from tools.categories import category_color
 from tools.countdown_card import (
     ACCENT_COLOR as COUNTDOWN_COLOR,
     build_countdown_card,
@@ -32,7 +32,7 @@ from tools.layout import (
 )
 from tools.lunar import lunar_label
 from tools.pickers import build_date_picker
-from tools.todo_timeline import build_todo_timeline
+from tools.todo_timeline import build_todo_timeline, sorted_todos
 from tools.todo_form import open_todo_form
 
 TITLE_COLOR = "#172554"
@@ -58,8 +58,6 @@ DIALOG_AXIS_COLOR = "#CBD5E1"
 CELL_BORDER = "#E2E8F0"
 MAX_ITEMS = 4
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
-# 卡片里待办按等级排：重要 → 一般 → 可选（未知分类排在最后）。
-CATEGORY_ORDER = list(CATEGORY_COLORS)
 
 
 def lunar_short(day: date) -> str:
@@ -340,15 +338,9 @@ def build_calendar_page(
 
         day = date(visible_month.year, visible_month.month, day_number)
         is_selected = day == selected_day
-        # 重要 → 一般 → 可选：同一天里等级高的排在上面。
-        todos = sorted(
-            day_todos.get(day, []),
-            key=lambda todo: (
-                CATEGORY_ORDER.index(todo.category)
-                if todo.category in CATEGORY_ORDER
-                else len(CATEGORY_ORDER)
-            ),
-        )
+        # 卡片里的先后只看时间：全天的排最前，其余按时间早晚，同一时间按录入
+        # 顺序 —— 和首页时间轴、当天弹窗共用同一套排序（tools/todo_timeline.py）。
+        todos = sorted_todos(day_todos.get(day, []))
         lines = item_lines(day, todos)
         return ft.Container(
             expand=True,
