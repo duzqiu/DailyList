@@ -9,7 +9,7 @@
 import calendar
 import math
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 
 import flet as ft
 
@@ -33,11 +33,12 @@ from tools.layout import (
     TODO_MARK_DONE_BG,
     TODO_TEXT_SIZE,
     TODO_TIME_SIZE,
+    dialog_button_style,
     page_gradient,
     text_width,
 )
 from tools.lunar import lunar_label
-from tools.pickers import build_date_picker
+from tools.pickers import local_day
 from tools.todo_timeline import (
     SPINE_MIN_HEIGHT,
     TIME_ALIGN_DIALOG,
@@ -63,6 +64,11 @@ DOT_GAP = 2
 # （见 item_lines）。对勾比一颗点大，格子的高度也按它留（见 cell_height）。
 DONE_MARK_SIZE = 14
 DONE_MARK_COLOR = TODO_MARK_DONE_BG
+# 点月份标题弹出的日期滚轮：能滚到所选年份往前 / 往后多少年，以及滚轮自己多高
+# （Cupertino 滚轮是 LayoutControl，自己不定高度；216 是这一款在 Flutter 里的
+# 常用高度，正好 6 行 × item_extent 32 多一点）。
+YEAR_SPAN = 10
+DATE_WHEEL_HEIGHT = 216
 # 格子正文里控件之间的行距：日期和圆点几行挨紧，格子的高度才压得住。
 CELL_SPACING = 1
 # 格子自己的留白：左右/上下各 2 的内边距 + 各 1 的描边，横竖都占掉 6。
@@ -779,17 +785,91 @@ def build_calendar_page(
         open_day_dialog(day)
 
     def jump_to_day(day: date) -> None:
-        """Follow a date picked in the system picker: month and selection."""
+        """Follow a day picked in the wheel: show its month, select that day."""
         nonlocal visible_month
         visible_month = date(day.year, day.month, 1)
         select_day(day)
         update_calendar()
 
-    date_picker = build_date_picker(selected_day, jump_to_day)
-
     def open_date_picker(_: ft.Event[ft.Control]) -> None:
-        date_picker.value = selected_day
-        page.show_dialog(date_picker)
+        """点月份标题：系统级的日期滚轮（年 / 月 / 日），从底部升起。
+
+        Material 那款 `ft.DatePicker` 也能选到日，但它是居中弹窗，还得在里头的
+        日历上找日子；这里用 iOS 风格的 `ft.CupertinoDatePicker`（`DATE` 模式）
+        直接从底部滚出年、月、日三列，一次滚完就跳过去。
+        """
+        # 滚轮每停一格就回一次 on_change，所以值先落在草稿里，等「确定」再跳 ——
+        # 不然滚的过程中日历会被一格一格地重建。
+        draft = {"day": selected_day}
+
+        def on_scroll(e: ft.Event[ft.CupertinoDatePicker]) -> None:
+            # 旧坑备查：tools/pickers.py 记过早先试 Cupertino 滚轮时「滚动不触发
+            # on_change」。若这一款也收不到事件，draft 会一直停在打开时那一天
+            # （滚了不生效）—— 改这块前先确认滚轮能回事件。
+            draft["day"] = local_day(e.control.value)
+
+        wheel = ft.CupertinoDatePicker(
+            value=datetime(
+                selected_day.year, selected_day.month, selected_day.day
+            ),
+            date_picker_mode=ft.CupertinoDatePickerMode.DATE,
+            # 三列排成「年 | 月 | 日」，跟月份标题「2026年9月」同一个顺序。
+            date_order=ft.CupertinoDatePickerDateOrder.YEAR_MONTH_DAY,
+            locale=ft.Locale("zh", "CN"),
+            minimum_year=selected_day.year - YEAR_SPAN,
+            maximum_year=selected_day.year + YEAR_SPAN,
+            on_change=on_scroll,
+        )
+
+        def confirm(_: ft.Event[ft.Control]) -> None:
+            page.pop_dialog()
+            jump_to_day(draft["day"])
+
+        page.show_dialog(
+            ft.BottomSheet(
+                # 从底部升上来的一条面板，不是居中弹窗：顶上留一枚拖拽手柄，
+                # 往下拉（或点面板外）就关掉，跟系统选择器一个来路。
+                show_drag_handle=True,
+                shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
+                bgcolor=DIALOG_SURFACE,
+                elevation=0,
+                content=ft.Column(
+                    tight=True,
+                    spacing=0,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        # Flet 的 `Row` 没有 padding（内边距只 Container 这类有），
+                        # 所以标题行的留白由外面这层 Container 出。
+                        ft.Container(
+                            padding=ft.Padding.only(left=16, right=8, top=4),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        "选择日期",
+                                        size=16,
+                                        weight=ft.FontWeight.BOLD,
+                                        color=TITLE_COLOR,
+                                    ),
+                                    ft.TextButton(
+                                        "确定",
+                                        style=dialog_button_style(),
+                                        on_click=confirm,
+                                    ),
+                                ],
+                            ),
+                        ),
+                        # 滚轮自己是 LayoutControl，不定高度 —— 外面给它一个定高
+                        # 的框，否则它在 BottomSheet 里撑不开。
+                        ft.Container(
+                            height=DATE_WHEEL_HEIGHT,
+                            content=wheel,
+                        ),
+                    ],
+                ),
+            )
+        )
 
     month_view.content = build_month_view()
 
