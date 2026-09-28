@@ -48,7 +48,7 @@ CATEGORY_TAG_RADIUS = 4
 CATEGORY_TAG_GAP = 6
 ALL_DAY_LABEL = "全天"
 # 每条待办自己的一块底色（等级标签也在这一块里）。纯白在首页渐变上太亮、在日历
-# 弹窗的灰底上又太跳，统一用全局那张「未选中的卡片」灰：和我的页卡片、分类 tile
+# 弹窗的灰底上又太跳，统一用全局那张「未选中的卡片」灰：和数据页卡片、分类 tile
 # 是同一档（tools/layout.py 的 UNSELECTED_CARD_BG）。
 CARD_BG = UNSELECTED_CARD_BG
 CARD_RADIUS = 8

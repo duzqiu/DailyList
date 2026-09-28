@@ -24,7 +24,7 @@ from tools.countdown_card import (
 from tools.countdown_form import open_countdown_form
 from tools.layout import (
     BOTTOM_MENU_INSET,
-    # 选中日期的那圈圆形底色：和首页日期条、我的页日期选择器同一个蓝。
+    # 选中日期的那圈圆形底色：和首页日期条、数据页日期选择器同一个蓝。
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
@@ -78,6 +78,7 @@ def build_calendar_page(
     page: ft.Page,
     set_menu_visible: Callable[[bool], None],
     state: dict[str, object],
+    open_settings: Callable[[], None],
 ) -> ft.Control:
     """日历页。`state` 由调用方保管（见 pages/navigation.py）：翻到哪个月、
     选中了哪一天要能跨 Tab 留住，切走再回来不会被拉回今天。控件本身照旧每次
@@ -511,12 +512,32 @@ def build_calendar_page(
                     spacing=4,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        ft.Text(
-                            "日历",
-                            # Same face as the home page's「待办」heading.
-                            size=18,
-                            weight=ft.FontWeight.BOLD,
-                            color=TITLE_COLOR,
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Text(
+                                    "日历",
+                                    # Same face as the home page's
+                                    # 「待办」heading.
+                                    size=18,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=TITLE_COLOR,
+                                ),
+                                # 右上角进设置页（底部菜单已经不放「我的」入口了）。
+                                ft.Container(
+                                    ink=True,
+                                    tooltip="设置",
+                                    # 22px 的图标太难点，四周补一圈让手指够得着。
+                                    padding=ft.Padding.all(6),
+                                    on_click=lambda _: open_settings(),
+                                    content=ft.Icon(
+                                        ft.Icons.SETTINGS_OUTLINED,
+                                        size=22,
+                                        color=TITLE_COLOR,
+                                    ),
+                                ),
+                            ],
                         ),
                         ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

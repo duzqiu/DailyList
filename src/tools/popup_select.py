@@ -1,4 +1,4 @@
-"""Option selector shared by the 我的 pickers and the add-todo dialog.
+"""Option selector shared by the 数据 pickers and the add-todo dialog.
 
 The 年/月/周 selector and the dialog's 日期/类别 pickers must look and behave the
 same, so they are built here once instead of being styled twice.

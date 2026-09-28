@@ -102,7 +102,9 @@ def group_todos_by_day(
 
 
 def build_home_page(
-    page: ft.Page, set_menu_visible: Callable[[bool], None]
+    page: ft.Page,
+    set_menu_visible: Callable[[bool], None],
+    open_data: Callable[[], None],
 ) -> ft.Control:
     # Today sits in the middle of the strip so both neighbours stay visible, and
     # its badge reads 「今」 instead of the day of the month.
@@ -269,7 +271,8 @@ def build_home_page(
         bgcolor=ADD_BUTTON_BG,
         blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
         content=ft.IconButton(
-            icon=ft.Icons.ADD,
+            # 笔在纸上写字：这个按钮是「写一条新待办」，不是单纯的加号。
+            icon=ft.Icons.EDIT_NOTE,
             icon_color="#172554",
             icon_size=24,
             tooltip="新增待办",
@@ -305,11 +308,36 @@ def build_home_page(
                                 expand=True,
                                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                                 controls=[
-                                    ft.Text(
-                                        "待办",
-                                        size=18,
-                                        weight=ft.FontWeight.BOLD,
-                                        color="#172554",
+                                    ft.Row(
+                                        alignment=(
+                                            ft.MainAxisAlignment.SPACE_BETWEEN
+                                        ),
+                                        vertical_alignment=(
+                                            ft.CrossAxisAlignment.CENTER
+                                        ),
+                                        controls=[
+                                            ft.Text(
+                                                "待办",
+                                                size=18,
+                                                weight=ft.FontWeight.BOLD,
+                                                color="#172554",
+                                            ),
+                                            # 右上角进「数据」页：数据统计 / 分类占比 /
+                                            # 待办趋势都在那一页上。
+                                            ft.Container(
+                                                ink=True,
+                                                tooltip="数据",
+                                                # 22px 的图标太难点，四周补一圈让
+                                                # 手指够得着。
+                                                padding=ft.Padding.all(6),
+                                                on_click=lambda _: open_data(),
+                                                content=ft.Icon(
+                                                    ft.Icons.BAR_CHART,
+                                                    size=22,
+                                                    color="#172554",
+                                                ),
+                                            ),
+                                        ],
                                     ),
                                     date_selector,
                                     todo_title,

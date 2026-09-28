@@ -11,7 +11,8 @@
 - 列表标题「9月26日待办」，每行是时间轴样式：左边时间 + 点线轴，右边类别标签 + 待办文字；卡片内正文**上方**还有一行灰字起止时间（「14:00 - 15:30」），时间轴那列仍然只报**开始时间**
 - 点一行切换完成（完成变灰加删除线，卡片最后收一枚绿色对勾）；左滑一行露出「编辑 / 删除」
 - 空态显示「今天没有待办事项哦」
-- 右下角毛玻璃圆形「+」（天蓝 `#B2E0F4` 60% 透明 + Blur 20），点开新增弹窗；弹窗只弹出，**不自动聚焦输入框**
+- 右下角毛玻璃圆形按钮（天蓝 `#B2E0F4` 60% 透明 + Blur 20，图标是「笔在纸上写字」`EDIT_NOTE`），点开新增弹窗；弹窗只弹出，**不自动聚焦输入框**
+- 右上角柱状图图标（`BAR_CHART`）→ 数据二级页
 
 ### 新增 / 编辑待办弹窗（`tools/todo_form.py`）
 - 日期：系统日期选择器（新增时最早只能选今天，编辑可移到过去）
@@ -33,15 +34,16 @@
 - 小条的先后**按时间排**：全天（没填时间）的排最前，其余按时间早晚，同一时间按录入顺序 —— 和首页时间轴、当天弹窗共用 `tools/todo_timeline.py` 的 `sorted_todos`
 - 顶部「‹ 年月 ›」翻月；点月份标题打开系统日期选择器直接跳到某天
 - 点任意日期 → 弹窗列出当天全部内容：待办（时间轴，可左滑编辑 / 删除）+ 倒数日（卡片）；空态「这天没有待办事项」
+- 右上角齿轮 → 设置二级页
 
-### 我的
+### 数据（二级页，从待办页右上角进入）
+- 顶部左边「‹ 返回」回到待办页，标题「数据」居中
 - **数据统计**：三张分类卡（重要 / 一般 / 可选），每张显示「全部 / 已完成 / 未完成 / 完成率」，完成率低于 50% 标红，无数据显示「—」
 - **分类占比**：饼图（`flet-charts`），悬停 / 点按扇区凸出，圆心显示总数，右侧图例
 - **待办趋势**：多系列折线图（`flet-charts`），三条线 = 三个类别，点按数据点弹出数值；X 轴随周期变化（年 = 12 个月，月 = 当月每天，周 = 周一至周日），左侧有 Y 轴线
-- 三张卡各自独立切换 **年 / 月 / 周**，默认「周」
-- 右上角齿轮 → 设置二级页
+- 三张卡各自独立切换 **年 / 月 / 周**，默认「周」；退出去再进来仍是原来那一档
 
-### 设置（二级页，`pages/preferences.py`）
+### 设置（二级页，从日历页右上角进入，`pages/preferences.py`）
 - 通知渠道：Bark / Pushdeer / Server酱 / 企业微信 / 钉钉 / 飞书 / Telegram / Discord / Slack + 通知地址（存 `settings` 表）
 - 清除缓存：二次确认后清空所有待办，并提示清除了多少条
 - 云端数据：开关（**占位功能，不落库、不发请求**）
@@ -53,21 +55,20 @@
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
 | `src/main.py` | 13 | 入口：`db.init_db()` 建库 → `build_navigation(page)` |
-| `src/pages/navigation.py` | 191 | 底部毛玻璃菜单 + 4 个 Tab 切换 + 二级页（设置）跳转；跨 Tab 保管各页状态 |
-| `src/pages/home.py` | 325 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」 |
+| `src/pages/navigation.py` | 198 | 底部毛玻璃菜单 + 3 个 Tab 切换 + 二级页（数据 / 设置）跳转；按页面名保管选择状态 |
+| `src/pages/home.py` | 353 | 待办页：日期条、按天列表、完成切换、毛玻璃「写待办」、右上角「数据」入口 |
 | `src/pages/countdown.py` | 198 | 倒数日页：通栏 + 两列卡片列表 |
-| `src/pages/calendar.py` | 556 | 日历页：月历卡片网格、当天详情弹窗（月份与选中日期跨 Tab 保留） |
-| `src/pages/settings.py` | 612 | 「我的」页：数据统计 / 分类占比 / 待办趋势三张卡（年/月/周 跨 Tab 保留） |
-| `src/pages/preferences.py` | 413 | 设置二级页：通知渠道、清除缓存、云端开关 |
+| `src/pages/calendar.py` | 577 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（月份与选中日期跨 Tab 保留） |
+| `src/pages/data.py` | 596 | 「数据」二级页：数据统计 / 分类占比 / 待办趋势三张卡（年/月/周 保留） |
+| `src/pages/preferences.py` | 372 | 设置二级页：通知渠道、清除缓存、云端开关 |
 | `src/tools/db.py` | 610 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings |
-| `src/tools/layout.py` | 172 | 全局配色与尺寸常量、页面渐变、弹窗键盘定位、文字宽度估算、可读字色、时间文案 |
+| `src/tools/layout.py` | 227 | 全局配色与尺寸常量、页面渐变、二级页顶栏（返回 + 居中标题）、弹窗键盘定位、文字宽度估算、可读字色、时间文案 |
 | `src/tools/categories.py` | 62 | 三个类别及其颜色（红 / 黄 / 绿）、星标控件 |
 | `src/tools/todo_timeline.py` | 274 | 待办时间轴行（首页与日历弹窗共用） |
 | `src/tools/todo_form.py` | 298 | 新增 / 编辑待办弹窗（起止时间 + 三个分类勾选框） |
 | `src/tools/swipe_delete.py` | 124 | 左滑露出操作按钮的行容器 |
 | `src/tools/popup_select.py` | 219 | 统一的下拉选择器（待办/倒数日的日期、类别、循环、通知渠道都用它） |
-| `src/tools/segmented.py` | 102 | 「我的」页 年/月/周 的横向胶囊分段开关 |
-
+| `src/tools/segmented.py` | 102 | 「数据」页 年/月/周 的横向胶囊分段开关 |
 | `src/tools/pickers.py` | 129 | 系统日期 / 时间选择器封装（含 UTC 时区修正、可选标题） |
 | `src/tools/countdown_card.py` | 267 | 倒数日卡片（三档状态色、过期不循环的自动收起） |
 | `src/tools/countdown_form.py` | 237 | 新增 / 编辑倒数日弹窗（含卡片底色选择） |
@@ -88,7 +89,7 @@ main.py
         ├── pages/home.py           ──┐
         ├── pages/countdown.py        │  页面只管「编排 + 状态」，
         ├── pages/calendar.py         │  控件画法全部委托给 tools/
-        ├── pages/settings.py         │
+        ├── pages/data.py             │
         └── pages/preferences.py    ──┘
               ↓
         tools/*.py                  共享控件与数据层
@@ -123,13 +124,13 @@ main.py
 改代码前值得知道的几条（都是踩过坑留下来的）：
 
 1. **颜色 / 尺寸集中在 `tools/layout.py` 和 `tools/categories.py`**：卡片色、选中蓝、完成灰、弹窗圆角（`DIALOG_RADIUS = 12`，Material 默认 28）、弹窗表面色（`DIALOG_SURFACE`）等都在这里，页面里不要再手写十六进制。
-2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。例外是「我的」页的 年/月/周：三档直接摊在卡片标题行里，用 `tools/segmented.py` 的横向胶囊开关，点一下就切，不必先点开面板。
+2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。例外是「数据」页的 年/月/周：三档直接摊在卡片标题行里，用 `tools/segmented.py` 的横向胶囊开关，点一下就切，不必先点开面板。
 3. **弹窗**统一 `shape=RoundedRectangleBorder(radius=DIALOG_RADIUS)` + `bgcolor=DIALOG_SURFACE` + `elevation=0`。
 4. **键盘处理**：输入框 `on_focus` 里调 `anchor_dialog_above_keyboard(dialog, True)`（弹窗贴键盘上方）并用 `set_menu_visible(False)` 收起底部菜单和浮动按钮；`on_blur` 复原。
 5. **列表底部留白**用 `BOTTOM_MENU_INSET`，否则最后一行会被浮动菜单栏压住。
 6. 页面内容滚动一律 `scroll=ft.ScrollMode.HIDDEN` 隐藏滚动条。
 7. **折线图的浮框是自绘的**（`tools/line_chart.py`）：fl_chart 的浮框是一个系列一行、每行只能一种颜色（`text_spans` 在 flet-charts 1.0.1 里传不到 Dart 侧，一用整个浮框都画不出来），做不出「灰色日期 + 彩点 + 黑色数值」。所以控件自带的浮框只留一个透明的壳，内容换成挂在 `ft.Stack` 上的 `ft.Container`，由 `LineChart.on_event` 的悬停事件摆位置、换内容。浮框贴在锚点左右：`TIP_OFFSET` 比 fl_chart 10px 的 x 命中半径大，光标压不到它，否则会出现「浮框盖住光标 → 图表 pointerExit → 浮框消失 → 又冒出来」的抖动。浮框是毛玻璃：半透明灰白底（`#CCF1F5F9`，`#AARRGGBB`）+ `blur=ft.Blur(12, 12, ft.BlurTileMode.CLAMP)`，与「+」按钮、底部菜单栏同一套写法。
-8. **Tab 状态存在 `pages/navigation.py`**：切 Tab 时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份 `tab_state`（一个 Tab 一份 `dict`），由 `show_page` 传给 `build_calendar_page` / `build_settings_page`，页面只读写这份 `dict`。热重载会重新跑 `main()`，状态自然回到初始值。
+8. **页面选择状态存在 `pages/navigation.py`**：切页时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份按页面名索引的 `state_store`，由 `page_state(
 
 ---
 
@@ -144,7 +145,7 @@ python src/main.py       # 直接用解释器跑（src 已在 sys.path 上，DB 
 ```
 
 > 本机依赖现状：conda 环境 `D:\ProgramData\miniconda3\envs\flet` 里是 `flet 1.0.1` + `flet-charts 1.0.1`。`flet-charts` 由
-> `pages/settings.py`、`tools/line_chart.py`、`tools/pie_chart.py` 使用，缺了启动就报 `ModuleNotFoundError: No module named 'flet_charts'`：
+> `pages/data.py`、`tools/line_chart.py`、`tools/pie_chart.py` 使用，缺了启动就报 `ModuleNotFoundError: No module named 'flet_charts'`：
 >
 > ```bash
 > pip install "flet-charts>=1.0.1"
@@ -173,7 +174,7 @@ iOS 用 `scripts/build_ios.sh`（**在已登录的桌面终端里跑，不要加
 pytest
 ```
 
-现状：本机没有安装 dev 依赖（`flet[test]` → pytest / numpy 都缺），跑不起来；而且该测试的断言还停留在旧文案（找「日历页面」「设置页面」），与现在的「日历」「我的 / 设置」不一致，重新启用前需要同步。
+现状：本机没有安装 dev 依赖（`flet[test]` → pytest / numpy 都缺），跑不起来；而且该测试的断言还停留在旧文案（找「日历页面」「设置页面」），与现在的「日历」「数据 / 设置」不一致，还点了已经不存在的 `settings-tab`，重新启用前需要同步。
 
 ## 九、已知问题 / 待办
 

@@ -1,3 +1,10 @@
+"""「数据」页：从待办页右上角的柱状图图标进来，底部菜单收起。
+
+数据统计 / 分类占比 / 待办趋势三张卡都在这一个二级页上，顶栏是「返回 + 居中标题」
+（和设置页共用 tools/layout.py 的 build_subpage_header）。卡里的 年/月/周 由调用方
+保管，退出去再进来还是原来那一档。
+"""
+
 import calendar
 from bisect import bisect_right
 from collections.abc import Callable
@@ -14,6 +21,7 @@ from tools.categories import (
 from tools.layout import (
     BOTTOM_MENU_INSET,
     UNSELECTED_CARD_BG,
+    build_subpage_header,
     page_gradient,
 )
 from tools.line_chart import build_interactive_line_chart
@@ -45,7 +53,7 @@ DIMENSIONS = ("年", "月", "周")
 # 数据统计 and 待办趋势 both open on 周; the picker still offers 年/月/周.
 DEFAULT_DIMENSION = "周"
 # 三张卡各有一份 年/月/周 选择，key 也是保管它们的那份 state 的键名
-# （见 build_settings_page 的 `state` 参数）。
+# （见 build_data_page 的 `state` 参数）。
 DIMENSION_STATE_KEYS = ("dimension", "trend", "pie")
 # 年 and 周 plot one point per month/day and stay few enough to name every point
 # on the x axis; 月's 28-31 points keep the sparse first/middle/last labels.
@@ -176,13 +184,13 @@ def summarize(rows: list[tuple[str, bool, int]]) -> dict[str, dict[str, int]]:
     return per_category
 
 
-def build_settings_page(
+def build_data_page(
     page: ft.Page,
-    open_preferences: Callable[[], None],
+    go_back: Callable[[], None],
     state: dict[str, object],
 ) -> ft.Control:
-    """「我的」页。`state` 由调用方保管（见 pages/navigation.py）：三张卡各自的
-    年/月/周 要能跨 Tab 留住，切走再回来还是原来那一档。
+    """「数据」页。`state` 由调用方保管（见 pages/navigation.py）：三张卡各自的
+    年/月/周 要能留住，退出去再进来还是原来那一档。
     """
     today = date.today()
     category_names = [name for name, _ in CATEGORIES]
@@ -548,32 +556,8 @@ def build_settings_page(
                     spacing=12,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Text(
-                                    "我的",
-                                    # Same face as the home page's「待办」heading.
-                                    size=18,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=TITLE_COLOR,
-                                ),
-                                # 右上角的设置入口，点开的是二级页「设置」。
-                                ft.Container(
-                                    ink=True,
-                                    tooltip="设置",
-                                    # 22px 的图标太难点，四周补一圈让手指够得着。
-                                    padding=ft.Padding.all(6),
-                                    on_click=lambda _: open_preferences(),
-                                    content=ft.Icon(
-                                        ft.Icons.SETTINGS_OUTLINED,
-                                        size=22,
-                                        color=TITLE_COLOR,
-                                    ),
-                                ),
-                            ],
-                        ),
+                        # 返回按钮在左、标题居中，和设置页同一个顶栏。
+                        build_subpage_header("数据", go_back),
                         ft.ListView(
                             expand=True,
                             spacing=12,

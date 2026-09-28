@@ -1,5 +1,6 @@
 """Shared layout metrics and page background of the app."""
 
+from collections.abc import Callable
 from datetime import date
 
 import flet as ft
@@ -90,11 +91,65 @@ def anchor_dialog_above_keyboard(dialog: ft.AlertDialog, above: bool) -> None:
 
 
 def page_gradient() -> ft.LinearGradient:
-    """White to indigo wash shared by the home, calendar and settings pages."""
+    """White to indigo wash shared by every page."""
     return ft.LinearGradient(
         colors=list(BACKGROUND_COLORS),
         begin=ft.Alignment.TOP_LEFT,
         end=ft.Alignment.BOTTOM_RIGHT,
+    )
+
+
+# 二级页（设置 / 数据）的顶栏：左边一个返回按钮，标题落在正中。标题居中靠右侧
+# 补一个和返回按钮等宽的占位，而不是 Row 的 spaceBetween —— 那样标题会偏。
+BACK_WIDTH = 40
+# 点击范围比图标高一点，手指好按；图标本身 22px。
+BACK_HEIGHT = 34
+BACK_ICON_SIZE = 22
+# Material 的箭头图标左右各留了约 8px 空白，直接摆上去会比下面的卡片缩进一截。
+# `offset` 是按自身尺寸换算的平移（40px 宽 × -0.2 = 往左 8px），把这段空白抵掉，
+# 箭头的笔画就落在内容左边缘上，和下方卡片的左边框对齐。
+BACK_OFFSET = -0.2
+SUBPAGE_TITLE_SIZE = 18
+SUBPAGE_TITLE_COLOR = "#172554"
+
+
+def build_back_button(go_back: Callable[[], None]) -> ft.Control:
+    """二级页左上角的返回按钮。"""
+    return ft.Container(
+        width=BACK_WIDTH,
+        height=BACK_HEIGHT,
+        alignment=ft.Alignment.CENTER_LEFT,
+        offset=ft.Offset(BACK_OFFSET, 0),
+        ink=True,
+        tooltip="返回",
+        on_click=lambda _: go_back(),
+        content=ft.Icon(
+            ft.Icons.CHEVRON_LEFT,
+            size=BACK_ICON_SIZE,
+            color=SUBPAGE_TITLE_COLOR,
+        ),
+    )
+
+
+def build_subpage_header(title: str, go_back: Callable[[], None]) -> ft.Row:
+    """二级页顶栏：返回按钮在左，`title` 居中（右侧补等宽占位）。"""
+    return ft.Row(
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            build_back_button(go_back),
+            ft.Container(
+                expand=True,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Text(
+                    title,
+                    size=SUBPAGE_TITLE_SIZE,
+                    weight=ft.FontWeight.BOLD,
+                    color=SUBPAGE_TITLE_COLOR,
+                ),
+            ),
+            # 和返回按钮等宽的占位，标题才落在正中。
+            ft.Container(width=BACK_WIDTH),
+        ],
     )
 
 

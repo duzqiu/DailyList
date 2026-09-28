@@ -2,9 +2,9 @@ import flet as ft
 
 from pages.calendar import build_calendar_page
 from pages.countdown import build_countdown_page
+from pages.data import build_data_page
 from pages.home import build_home_page
 from pages.preferences import build_preferences_page
-from pages.settings import build_settings_page
 from tools.layout import (
     MENU_BAR_BOTTOM,
     MENU_BAR_HEIGHT,
@@ -43,13 +43,13 @@ def build_navigation(page: ft.Page) -> None:
     )
     content = ft.Container(expand=True)
     selected_index = 0
-    # 每个 Tab 一份页面状态。切页时页面控件是重建的（待办数据要现从 db 读），
-    # 但「在看哪个月 / 选了哪一档」这类选择不该跟着回到默认值，所以由这里保管：
-    # 切走再切回来还停在原处，只有热重载重新跑 main() 才回到初始值。
-    tab_state: dict[int, dict[str, object]] = {}
+    # 各页的「选择状态」，按页面名保管。切页时页面控件是重建的（待办数据要现从
+    # db 读），但「在看哪个月 / 选了哪一档」这类选择不该跟着回到默认值：切走再
+    # 切回来还停在原处，只有热重载重新跑 main() 才回到初始值。
+    state_store: dict[str, dict[str, object]] = {}
 
-    def state_of(index: int) -> dict[str, object]:
-        return tab_state.setdefault(index, {})
+    def page_state(name: str) -> dict[str, object]:
+        return state_store.setdefault(name, {})
 
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -87,15 +87,17 @@ def build_navigation(page: ft.Page) -> None:
     def show_page(index: int, update: bool = True) -> None:
         nonlocal selected_index
         selected_index = index
-        page_state = state_of(index)
         content.content = (
-            build_home_page(page, set_menu_visible)
+            build_home_page(page, set_menu_visible, show_data)
             if index == 0
             else             build_countdown_page(page, set_menu_visible)
             if index == 1
-            else             build_calendar_page(page, set_menu_visible, page_state)
-            if index == 2
-            else build_settings_page(page, show_preferences, page_state)
+            else build_calendar_page(
+                page,
+                set_menu_visible,
+                page_state("calendar"),
+                show_preferences,
+            )
         )
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = True
@@ -103,13 +105,25 @@ def build_navigation(page: ft.Page) -> None:
         if update:
             page.update()
 
+    def show_data(update: bool = True) -> None:
+        """待办页右上角柱状图进来的「数据」页：二级页，进来后底部菜单收起。"""
+        content.content = build_data_page(
+            page,
+            go_back=lambda: show_page(0),
+            state=page_state("data"),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
     def show_preferences(update: bool = True) -> None:
-        """「我的」右上角齿轮进来的设置页：二级页，进来后底部菜单收起。"""
+        """日历页右上角齿轮进来的设置页：二级页，进来后底部菜单收起。"""
         content.content = build_preferences_page(
             page,
             # 二级页没有底部菜单：输入框弹键盘、弹窗收起时都不要把它叫回来。
             set_menu_visible=lambda _visible: None,
-            go_back=lambda: show_page(3),
+            go_back=lambda: show_page(2),
         )
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = False
@@ -166,13 +180,6 @@ def build_navigation(page: ft.Page) -> None:
                 ft.Icons.CALENDAR_MONTH,
                 "日历",
                 "calendar-tab",
-            ),
-            menu_item(
-                3,
-                ft.Icons.PERSON_OUTLINED,
-                ft.Icons.PERSON,
-                "我的",
-                "settings-tab",
             ),
         ]
 

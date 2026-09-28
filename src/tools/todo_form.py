@@ -240,7 +240,7 @@ def open_todo_form(
 
     dialog = ft.AlertDialog(
         modal=True,
-        # Same 12px radius as the 我的 page's 清除 dialog (Material would round it
+        # Same 12px radius as the 设置 page's 清除 dialog (Material would round it
         # to 28px by default).
         shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
         # Pinned to the shared dialog surface so the option panels opening inside

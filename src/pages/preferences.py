@@ -1,7 +1,8 @@
-"""设置页：「我的」右上角齿轮进来的二级页。
+"""设置页：日历页右上角齿轮进来的二级页。
 
-从「我的」搬过来的两项：通知渠道、清除缓存。页面顶部左边是「‹ 返回」，标题
-「设置」落在页面正中（左边返回按钮有多宽，右边就留多宽的空位撑着）。
+两项设置：通知渠道、清除缓存。顶栏用 tools/layout.py 的 build_subpage_header：
+左边是「‹ 返回」，标题「设置」落在页面正中（左边返回按钮有多宽，右边就留多宽
+的空位撑着）。
 """
 
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from tools.layout import (
     SKY_BLUE,
     UNSELECTED_CARD_BG,
     anchor_dialog_above_keyboard,
+    build_subpage_header,
     dialog_button_style,
     page_gradient,
     text_width,
@@ -33,16 +35,6 @@ TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
 PENDING_COLOR = "#DC2626"
 PAGE_SIDE_PADDING = 24
-# 返回按钮占的宽度，右边照抄一份空位，标题才是真正的居中。
-BACK_WIDTH = 40
-# 点击范围高一点，手指好按；图标本身 22px。
-BACK_HEIGHT = 34
-BACK_ICON_SIZE = 22
-# Material 的箭头图标左右各留了约 8px 空白，直接摆上去会比下面的卡片缩进一截。
-# `offset` 是按自身尺寸换算的平移（40px 宽 × -0.2 = 往左 8px），把这段空白抵掉，
-# 箭头的笔画就落在内容左边缘上，和下方卡片的左边框对齐。
-BACK_OFFSET = -0.2
-TITLE_SIZE = 18
 
 
 def build_preferences_page(
@@ -346,22 +338,6 @@ def build_preferences_page(
             ),
         )
 
-    def back_button() -> ft.Control:
-        return ft.Container(
-            width=BACK_WIDTH,
-            height=BACK_HEIGHT,
-            alignment=ft.Alignment.CENTER_LEFT,
-            offset=ft.Offset(BACK_OFFSET, 0),
-            ink=True,
-            tooltip="返回",
-            on_click=lambda _: go_back(),
-            content=ft.Icon(
-                ft.Icons.CHEVRON_LEFT,
-                size=BACK_ICON_SIZE,
-                color=TITLE_COLOR,
-            ),
-        )
-
     refresh_notify_summary()
 
     return ft.Container(
@@ -381,24 +357,7 @@ def build_preferences_page(
                     spacing=12,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        ft.Row(
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                back_button(),
-                                ft.Container(
-                                    expand=True,
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Text(
-                                        "设置",
-                                        size=TITLE_SIZE,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=TITLE_COLOR,
-                                    ),
-                                ),
-                                # 和返回按钮等宽的占位，标题才落在正中。
-                                ft.Container(width=BACK_WIDTH),
-                            ],
-                        ),
+                        build_subpage_header("设置", go_back),
                         ft.ListView(
                             expand=True,
                             spacing=12,
