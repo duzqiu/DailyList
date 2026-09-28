@@ -136,9 +136,15 @@ uv run flet run --web    # 浏览器
 python src/main.py       # 直接用解释器跑（src 已在 sys.path 上，DB 始终落在项目根）
 ```
 
-> ⚠️ 本机实测：conda 环境 `D:\ProgramData\miniconda3\envs\flet` 里 flet 是 1.0.1，但**没装 `flet-charts`**（其它 conda 环境也没有），直接运行会报
-> `ModuleNotFoundError: No module named 'flet_charts'`（`pages/settings.py`、`tools/line_chart.py`、`tools/pie_chart.py` 需要它）。
-> 先补依赖：`pip install "flet-charts>=1.0.1"`（或 `uv sync`）。
+> 本机依赖现状：conda 环境 `D:\ProgramData\miniconda3\envs\flet` 里是 `flet 1.0.1` + `flet-charts 1.0.1`。`flet-charts` 由
+> `pages/settings.py`、`tools/line_chart.py`、`tools/pie_chart.py` 使用，缺了启动就报 `ModuleNotFoundError: No module named 'flet_charts'`：
+>
+> ```bash
+> pip install "flet-charts>=1.0.1"
+> ```
+>
+> 注意：本机直连 pypi.org 时 pip 会拿到**被截断的 JSON 索引**（`JSONDecodeError: Unterminated string at char 21277`），
+> 换国内镜像即可：`pip install -i https://pypi.tuna.tsinghua.edu.cn/simple "flet-charts>=1.0.1"`。
 
 ## 七、打包
 
@@ -164,7 +170,7 @@ pytest
 
 ## 九、已知问题 / 待办
 
-- **依赖缺失**：`flet-charts` 未安装，App 目前无法启动（见「运行」）。
+- **装依赖要用镜像**：从 pypi.org 直装会被截断（见「运行」），本机目前是照镜像那条命令装上的。
 - **测试过期**：`tests/test_main.py` 断言与当前 UI 文案不符。
 - **通知渠道只有配置**：`tools/notifications.py` 只存渠道名和地址，没有真正发送推送的逻辑。
 - **云端数据是占位**：开关不落库、不请求（代码注释里写明「先只做样子」）。
