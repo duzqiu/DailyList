@@ -5,8 +5,8 @@
 来就是一条轴；最上面那行从空心圆开始，上面不再补小圆点。
 
 轴的高度是钉在整行上的（`build_todo_row` 里那个 `top`/`bottom` 都为 0 的定位子）：
-卡片被长文字撑高时轴跟着一起长，多出来的高度平分给上下那几颗点、各自拉长成一
-小段竖线，所以轴不会在卡片中间断开。
+卡片被长文字撑高时轴跟着一起长，多出来的高度平分给上下那几颗点当**间距**，点本身
+仍旧是一颗圆的「.」—— 轴既不会在卡片中间断开，也不会被拉成一条竖杠。
 
 左滑只带走右边的待办（露出编辑 / 删除），时间和点线留在原地，而且待办裁在自己
 那一格里，不会滑到轴上去。
@@ -33,9 +33,22 @@ from tools.layout import (
 )
 from tools.swipe_delete import build_swipe_delete_row
 
-# 时间列 + 点线：最左边时间，紧跟一条细圆点连成的轴。
+# 时间列 + 点线：最左边时间，紧跟一条细圆点连成的轴。时间的摆法有两档（见下面的
+# TIME_ALIGN_*），两档字后面剩的空差很多，所以格子宽和轴的位置也各给一套尺寸：
+#   首页：时间在 40px 的格子里**居中**（对住日期条的「周一」），字后本来就空着半格，
+#         轴直接压进那段空里，空心圆就紧跟着时间；
+#   弹窗：时间**靠左**（对住分组小标题的图标），字后空得更多，格子于是收到刚够最宽的
+#         时间（「00:00」约 30px），轴贴着格子右边，圆两头都挨得近。
 TIME_SLOT_WIDTH = 40
-TIME_TO_DOT_GAP = 6
+AXIS_INTO_SLOT_GAP = 2
+TIME_SLOT_WIDTH_DIALOG = 32
+# 空心圆右边离待办卡片留一点缝，卡片不会被轴贴住。
+AXIS_TO_CARD_GAP = 4
+# 时间在那一格（0..TIME_SLOT_WIDTH）里靠哪边摆。首页日期条头一格的「周一」和日期
+# 徽标共用一条中线，所以首页的时间也摆在格子正中，正好落在「周一」底下；当天弹窗
+# 里时间上方是分组小标题的图标，图标贴着最左边，时间就跟着靠左，两者的左沿对齐。
+TIME_ALIGN_STRIP = ft.Alignment.CENTER
+TIME_ALIGN_DIALOG = ft.Alignment.CENTER_LEFT
 TIMELINE_COLOR = "#E2E8F0"
 DOT_SIZE = 2
 DOT_GAP = 3
@@ -44,14 +57,17 @@ NODE_SIZE = 9
 NODE_BORDER = 1.5
 DOTS_ABOVE = 3
 DOTS_BELOW = 3
-# 轴在这一行里的横向位置（时间那一格的右边、宽就是那颗空心圆的直径），以及卡片
-# 左边要空出的位置 —— 卡片是整行的定位基准，得自己把「时间 + 轴」那一截让出来。
-AXIS_LEFT = TIME_SLOT_WIDTH + TIME_TO_DOT_GAP
-LEFT_GUTTER = AXIS_LEFT + NODE_SIZE
+# 一行时间轴的横向尺寸：时间那一格多宽、轴摆在哪（宽就是那颗空心圆的直径）、卡片左边
+# 让出多少 —— 卡片是整行的定位基准，得自己把「时间 + 轴 + 右空当」那一截让出来。
+AXIS_LEFT = TIME_SLOT_WIDTH - AXIS_INTO_SLOT_GAP
+LEFT_GUTTER = AXIS_LEFT + NODE_SIZE + AXIS_TO_CARD_GAP
+# 弹窗那档：格子收窄了，轴就贴着格子右边，卡片也跟着往前挪。
+AXIS_LEFT_DIALOG = TIME_SLOT_WIDTH_DIALOG
+LEFT_GUTTER_DIALOG = AXIS_LEFT_DIALOG + NODE_SIZE + AXIS_TO_CARD_GAP
 # 轴的最矮高度：上下各 3 颗 2px 的点、中间那颗 9px 的空心圆，再加 6 道 3px 的缝，
 # 合计 39px —— 就是「点 2px + 缝 3px」原来的样子（一行文字加留白的卡片大约 32px，
 # 靠 `build_todo_row` 里那条占位把行垫到这个高度）。卡片被文字撑高时多出来的高度
-# 平分给那 6 颗点（见 `_timeline_dot`），轴始终首尾相接。
+# 平分给那 6 颗点当间距（见 `_timeline_dot`），点本身不跟着变长。
 SPINE_MIN_HEIGHT = (
     (DOTS_ABOVE + DOTS_BELOW) * DOT_SIZE
     + NODE_SIZE
@@ -71,6 +87,18 @@ CARD_BG = UNSELECTED_CARD_BG
 CARD_RADIUS = 8
 
 
+def timeline_metrics(
+    time_align: ft.Alignment = TIME_ALIGN_STRIP,
+) -> tuple[float, float, float]:
+    """一行时间轴的横向尺寸：(时间格宽, 轴左沿, 卡片左边让出多少)。
+
+    时间的摆法决定用哪一套 —— 首页居中、弹窗靠左，见文件开头那两档。
+    """
+    if time_align == TIME_ALIGN_DIALOG:
+        return TIME_SLOT_WIDTH_DIALOG, AXIS_LEFT_DIALOG, LEFT_GUTTER_DIALOG
+    return TIME_SLOT_WIDTH, AXIS_LEFT, LEFT_GUTTER
+
+
 def sort_key(todo: db.Todo) -> tuple[bool, str, int]:
     """全天（没有时间）的排最前，其余按时间先后，同一时间按录入顺序。"""
     return (todo.due_time != "", todo.due_time, todo.id)
@@ -80,17 +108,23 @@ def sorted_todos(todos: list[db.Todo]) -> list[db.Todo]:
     return sorted(todos, key=sort_key)
 
 
-def _timeline_dot(color: str) -> ft.Control:
-    """轴上一小段点线，高度交给轴去拉伸（`expand`）。
+def _timeline_dot(color: str) -> ft.Container:
+    """轴上一格：整格拉满当间距，画出来的永远是一颗小圆点。
 
-    一行文字时它就是那颗 2px 的小圆点；卡片被文字撑高时这一段跟着变长，轴上下仍旧
-    相接，不会在卡片中间断开。
+    一行文字时这一格就是 2px，看起来就是原来那颗点；卡片被文字撑高时格子跟着变长，
+    但点本身还是 `DOT_SIZE` 见方的一颗圆点（`.`），不会被拉成一条竖杠 —— 被拉开的
+    只是点与点之间的距离，轴照样从卡片顶上贯到卡片底下。
     """
     return ft.Container(
         width=DOT_SIZE,
         expand=True,
-        border_radius=ft.BorderRadius.all(DOT_SIZE / 2),
-        bgcolor=color,
+        alignment=ft.Alignment.CENTER,
+        content=ft.Container(
+            width=DOT_SIZE,
+            height=DOT_SIZE,
+            border_radius=ft.BorderRadius.all(DOT_SIZE / 2),
+            bgcolor=color,
+        ),
     )
 
 
@@ -135,17 +169,21 @@ def _timeline_axis(first: bool, last: bool, axis_color: str) -> ft.Column:
     )
 
 
-def _time_label(todo: db.Todo) -> ft.Control:
-    """左边的时间「09:30」（没写时间的是「全天」）。
+def _time_label(
+    todo: db.Todo, align: ft.Alignment, slot_width: float
+) -> ft.Control:
+    """左边的时间「09:30」（没写时间的是「全天」），灰字、不加粗。
 
-    和轴一样是定位子、`top`/`bottom` 都为 0，所以它垂直居中，跟着行高走。
+    和轴一样是定位子、`top`/`bottom` 都为 0，所以它垂直居中，跟着行高走；`align`
+    决定它在那一格里靠哪边 —— 首页居中（对住日期条的「周一」），弹窗靠左（对住分组
+    小标题的图标）；`slot_width` 是那一格的宽，见 timeline_metrics。
     """
     return ft.Container(
         left=0,
         top=0,
         bottom=0,
-        width=TIME_SLOT_WIDTH,
-        alignment=ft.Alignment.CENTER_RIGHT,
+        width=slot_width,
+        alignment=align,
         content=ft.Text(
             (
                 todo_time_label(todo.due_time)
@@ -153,7 +191,7 @@ def _time_label(todo: db.Todo) -> ft.Control:
                 else ALL_DAY_LABEL
             ),
             size=TODO_TIME_SIZE,
-            weight=ft.FontWeight.BOLD,
+            # 轴旁边只是一格灰色小字，不加粗 —— 加粗会和右边的正文抢眼。
             color=TODO_TIME_COLOR,
         ),
     )
@@ -217,14 +255,17 @@ def build_todo_row(
     first: bool = False,
     last: bool = False,
     axis_color: str = TIMELINE_COLOR,
+    time_align: ft.Alignment = TIME_ALIGN_STRIP,
     on_click: Callable[[db.Todo], Any] | None = None,
     on_delete: Callable[[db.Todo], Any] | None = None,
     on_edit: Callable[[db.Todo], Any] | None = None,
 ) -> ft.Control:
     """时间轴的一行；`on_delete`/`on_edit` 给了就能左滑出那两个按钮。
 
-    `axis_color` 用来让点线适应底色（首页在渐变上偏浅，弹窗里要深一些才看得见）。
+    `axis_color` 用来让点线适应底色（首页在渐变上偏浅，弹窗里要深一些才看得见）；
+    `time_align` 决定左边那格时间靠哪边摆，见 TIME_ALIGN_STRIP / TIME_ALIGN_DIALOG。
     """
+    slot_width, axis_left, left_gutter = timeline_metrics(time_align)
     color = category_color(todo.category)
     card = ft.Container(
         key=f"todo-{todo.id}",
@@ -259,13 +300,13 @@ def build_todo_row(
         alignment=ft.Alignment.CENTER,
         controls=[
             ft.Container(
-                margin=ft.Margin.only(left=LEFT_GUTTER), content=body
+                margin=ft.Margin.only(left=left_gutter), content=body
             ),
             # 轴的「最矮身高」：宽 0 的一条占位，一行文字的卡片也保持原来的点距。
             ft.Container(width=0, height=SPINE_MIN_HEIGHT),
-            _time_label(todo),
+            _time_label(todo, time_align, slot_width),
             ft.Container(
-                left=AXIS_LEFT,
+                left=axis_left,
                 top=0,
                 bottom=0,
                 content=_timeline_axis(first, last, axis_color),
@@ -278,6 +319,7 @@ def build_todo_timeline(
     todos: list[db.Todo],
     *,
     axis_color: str = TIMELINE_COLOR,
+    time_align: ft.Alignment = TIME_ALIGN_STRIP,
     on_click: Callable[[db.Todo], Any] | None = None,
     on_delete: Callable[[db.Todo], Any] | None = None,
     on_edit: Callable[[db.Todo], Any] | None = None,
@@ -294,6 +336,7 @@ def build_todo_timeline(
                 first=index == 0,
                 last=index == len(ordered) - 1,
                 axis_color=axis_color,
+                time_align=time_align,
                 on_click=on_click,
                 on_delete=on_delete,
                 on_edit=on_edit,

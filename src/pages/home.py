@@ -59,11 +59,11 @@ CHOOSE_START_SCALE = 0
 CHOOSE_ANCHOR = ft.Alignment.BOTTOM_RIGHT
 # 顶部日期条：今天排第一个，往后连着 7 天（过去的日子不再列出来）。
 DATE_STRIP_DAYS = 7
-# The day badges stay round: a single glyph (「今」) keeps the plain circle while
-# a whole date (「09.28」) widens it into a short pill. The picked day - today
-# when the app opens - takes DATE_SELECTED_BG (shared with the 日历 grid and the
-# dialog calendars, see tools/layout.py); every other day, today included, stays
-# on the neutral card colour. Clicking never repaints the weekday or the date.
+# The day badges are circles, so the selected day always highlights as a proper
+# round dot however long its label is. The picked day - today when the app opens
+# - takes DATE_SELECTED_BG (shared with the 日历 grid and the dialog calendars,
+# see tools/layout.py); every other day, today included, stays on the neutral
+# card colour. Clicking never repaints the weekday or the date.
 DATE_TEXT_COLOR = "#172554"
 DATE_WEEKDAY_COLOR = "#64748B"
 # The seven day columns share the strip's width: every column is an expanding
@@ -75,11 +75,10 @@ DATE_CARD_TOP_PADDING = 2
 # Weekday and date are stacked: the weekday is a plain grey label, the date
 # (「今」today, 「09.28」otherwise) sits inside its own round badge.
 DATE_WEEKDAY_SIZE = 11
-DATE_DAY_SIZE = 12
+# 徽标是 34 的正圆：选中态永远是完完整整一个圆，不会因为日期长就拉成胶囊。
+# 整串「09.28」比原来的单个日号长得多，字号跟着收小才不至于顶到圆的边上。
+DATE_DAY_SIZE = 10
 DATE_BADGE_SIZE = 34
-# 徽标左右各留一点空隙，「09.28」才不会顶到胶囊边。「今」只有一个字，宽度取
-# 不满，徽标就还是一个正圆。
-DATE_BADGE_PAD_X = 3
 DATE_COLUMN_SPACING = 4
 PAGE_SIDE_PADDING = 24
 # 日期条和下面待办列表之间那条灰线：1px，比卡片描边更淡一档的浅灰。
@@ -90,17 +89,6 @@ STRIP_DIVIDER_THICKNESS = 1
 def date_card_label(day: date, today: date) -> str:
     """「今」for today, otherwise the date as 「09.28」 (month.day, padded)."""
     return "今" if day == today else f"{day.month:02d}.{day.day:02d}"
-
-
-def date_badge_width(label: str) -> float:
-    """Width of a day badge: a circle for one glyph, a short pill for a date.
-
-    Every column of the strip gets the same room, so 「09.28」 is measured
-    instead of guessed: `text_width` is the project's own estimate, and a
-    single glyph such as 「今」 still comes out at DATE_BADGE_SIZE - a circle.
-    """
-    text = text_width(label, DATE_DAY_SIZE) + DATE_BADGE_PAD_X * 2
-    return max(DATE_BADGE_SIZE, text)
 
 
 def date_badge_bg(is_picked: bool) -> str:
@@ -115,24 +103,23 @@ def date_badge_bg(is_picked: bool) -> str:
 def build_date_badge(
     label: str, bgcolor: str, extra: ft.Control | None = None
 ) -> ft.Control:
-    """The round day badge: same height, colours and face on both pages.
+    """The round day badge: same size, face and colours on both pages.
 
     The home strip passes nothing extra; a caller may hand over an `extra`
-    control, which is drawn under the date inside the same badge.
+    control, which is drawn under the date inside the same circle.
     """
     number = ft.Text(
         label,
         size=DATE_DAY_SIZE,
         weight=ft.FontWeight.BOLD,
         color=DATE_TEXT_COLOR,
-        # 宽度已经按 `date_badge_width` 算好，日期再折成两行就难看了。
+        # 圆里只排得下一行，日期折成两行就难看了。
         no_wrap=True,
     )
     return ft.Container(
-        width=date_badge_width(label),
+        width=DATE_BADGE_SIZE,
         height=DATE_BADGE_SIZE,
-        # 半径取半个高度：宽度撑开是胶囊，只剩一个「今」时还是正圆。
-        border_radius=ft.BorderRadius.all(DATE_BADGE_SIZE / 2),
+        shape=ft.BoxShape.CIRCLE,
         bgcolor=bgcolor,
         alignment=ft.Alignment.CENTER,
         content=(

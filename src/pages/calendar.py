@@ -38,6 +38,7 @@ from tools.lunar import lunar_label
 from tools.pickers import build_date_picker
 from tools.todo_timeline import (
     SPINE_MIN_HEIGHT,
+    TIME_ALIGN_DIALOG,
     build_todo_timeline,
     sorted_todos,
 )
@@ -355,6 +356,8 @@ def build_calendar_page(
                         build_todo_timeline(
                             todos,
                             axis_color=DIALOG_AXIS_COLOR,
+                            # 时间靠左摆，和「待办」小标题的图标一个左沿。
+                            time_align=TIME_ALIGN_DIALOG,
                             on_delete=lambda todo: remove_todo(todo, refresh),
                             on_edit=lambda todo: edit_todo(todo, refresh),
                         ),
