@@ -1,10 +1,9 @@
 """日历页：月历本身就是内容，不再在下面另开一张待办列表。
 
-日期格子没有底色，颜色全在「条目」上：当天每条待办都是一小块自己的颜色
-（分类色的浅底 + 分类色文字，重要红 / 一般黄 / 可选绿），已完成的那条沿用
-全局约定变灰并加删除线，同一天的倒数日用倒数日的天蓝色。选中的日期只在日期
-数字外面套一个统一的圆形底色，格子本身不变色。一天最多列 5 条，多出来的
-折成「+N」。
+日期格子没有底色，颜色全在「条目」上：当天每条待办都是一颗属于自己颜色的小圆点
+（重要红 / 一般黄 / 可选绿），已完成的那颗同色淡一半，同一天的倒数日用倒数日的
+天蓝色、过期的那颗用灰。选中的日期只在日期数字外面套一个统一的圆形底色，格子
+本身不变色。一天有几条待办就画几个点，从左往右排，格子放不下时圆点自己换行。
 """
 
 import calendar
@@ -33,7 +32,6 @@ from tools.layout import (
     TODO_TEXT_SIZE,
     TODO_TIME_SIZE,
     page_gradient,
-    readable_ink,
     text_width,
 )
 from tools.lunar import lunar_label
@@ -47,8 +45,6 @@ from tools.todo_form import open_todo_form
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
-# 每格的高度：一行日期 + 最多 4 条待办（条目本身带底色）。
-DAY_CELL_HEIGHT = 96
 # 卡片之间的左右间隔（卡片平分行宽，间隔越小卡片越宽）。
 DAY_CELL_SPACING = 4
 # 日期数字外面的圆：只有选中的那天填色。
@@ -56,7 +52,79 @@ DAY_BADGE_SIZE = 22
 DAY_NUMBER_SIZE = 12
 # 日期右边那行农历：比日期小一号、灰色，只放日子（「廿三」）放得下。
 LUNAR_SIZE = 7
-ITEM_SIZE = 9
+# 格子里的待办不再写字：一个实心小圆点代替，颜色就是它自己的颜色。一天有几条就
+# 画几个点，从左往右排；一格横里摆不下时点自己换到下一行，不硬凑也不省略。
+DOT_SIZE = 6
+DOT_GAP = 2
+# 格子正文里控件之间的行距：日期和圆点几行挨紧，格子的高度才压得住。
+CELL_SPACING = 1
+# 格子自己的留白：左右/上下各 2 的内边距 + 各 1 的描边，横竖都占掉 6。
+CELL_HORIZONTAL_CHROME = 6
+CELL_VERTICAL_CHROME = 6
+# 日历一行 7 天；页面左右各留 24 的边。
+CALENDAR_COLUMNS = 7
+PAGE_HORIZONTAL_INSETS = 48
+# 宽度还没量到时先按手机竖屏估一个（和 data.py 里 trend_width 的兜底一个来路）。
+ESTIMATED_PAGE_WIDTH = 400
+# 高度再松两像素：行数算得刚好时，最后一行点也不会顶到描边上。
+CELL_HEIGHT_SLACK = 2
+
+
+def estimated_grid_width() -> float:
+    """量不到宽度时的兜底：按估的页宽算一行 7 格有多宽。"""
+    return ESTIMATED_PAGE_WIDTH - PAGE_HORIZONTAL_INSETS
+
+
+def cell_width(row_width: float) -> float:
+    """一格的宽度：整行（或整页减掉左右留白）等分 7 格。"""
+    return max(
+        0.0,
+        (row_width - DAY_CELL_SPACING * (CALENDAR_COLUMNS - 1))
+        / CALENDAR_COLUMNS,
+    )
+
+
+def cell_inner_width(row_width: float) -> float:
+    """一格真正能摆点的净宽度：格子宽再减掉自己的留白。"""
+    return max(0.0, cell_width(row_width) - CELL_HORIZONTAL_CHROME)
+
+
+def dots_per_run(inner_width: float) -> int:
+    """一行摆得下几个点（点之间还要留 DOT_GAP）—— 至少一个。"""
+    return max(1, int((inner_width + DOT_GAP) // (DOT_SIZE + DOT_GAP)))
+
+
+def dot_row_count(count: int, per_run: int) -> int:
+    """这么多个点要摆几行：`Row` 按宽度自己折行，行数这里先算出来。"""
+    return max(1, math.ceil(count / per_run))
+
+
+def cell_height(rows: int) -> float:
+    """一个日期格子的高度：日期行 + rows 行圆点（含行距）+ 上下留白。
+
+    一个月里所有格子都用同一个高度，取当月最忙那天要的行数（见 build_month_view）：
+    点少的格子空一点不要紧，点多的那天绝不会被格子切掉半截。
+    """
+    dots = rows * DOT_SIZE + (rows - 1) * DOT_GAP
+    return (
+        CELL_VERTICAL_CHROME
+        + DAY_BADGE_SIZE
+        + CELL_SPACING
+        + dots
+        + CELL_HEIGHT_SLACK
+    )
+
+
+def cell_min_height(row_width: float) -> float:
+    """一格最矮能矮到哪：至少摆得下一行点，而且至少是个正方形（高 = 宽）。"""
+    return max(cell_width(row_width), cell_height(1))
+
+
+# 宽度还没量到时（按估的页宽）一格的最矮高度：正方形，比一行点的高度还高一点。
+# 真高度按当月最忙那天要的行数往上长（见 build_month_view）。
+DAY_CELL_HEIGHT = cell_min_height(estimated_grid_width())
+
+
 # 弹窗标题和分组名比正文小一档（弹窗比卡片宽松，但内容多）。
 DIALOG_TITLE_SIZE = 15
 DIALOG_GROUP_SIZE = 12
@@ -92,7 +160,6 @@ COUNTDOWN_EST = 114
 EMPTY_HINT_EST = 44
 # 日期格子的描边：比卡片边框 #E2E8F0 再淡一点点，只要把格子界限画出来。
 CELL_BORDER = "#E2E8F0"
-MAX_ITEMS = 4
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 
 
@@ -426,65 +493,71 @@ def build_calendar_page(
             )
         )
 
-    def item_line(text: str, color: str, done: bool = False) -> ft.Control:
-        """卡片里的一条：底色就是待办对应的颜色，字色跟着底色选深浅。"""
-        ink = readable_ink(color)
+    def faded(color: str) -> str:
+        """同色淡一半（加一个 alpha 前缀）—— 完成的那条用它。"""
+        return f"66{color[1:]}" if len(color) == 7 else color
+
+    def item_dot(color: str, done: bool = False) -> ft.Container:
+        """卡片里的一条：一个实心小圆点，颜色就是待办自己的颜色。
+
+        宽高都写死（不带 content），跟图例上的圆点一个做法；完成的淡一半，颜色仍是
+        那一档，扫一眼就知道是哪条打了勾。
+        """
         return ft.Container(
-            bgcolor=color,
-            border_radius=ft.BorderRadius.all(4),
-            padding=ft.Padding.symmetric(horizontal=3, vertical=1),
-            content=ft.Text(
-                text,
-                size=ITEM_SIZE,
-                color=ink,
-                # 完成的画删除线；线跟着字色走，压在深底色上也看得见。
-                style=(
-                    ft.TextStyle(
-                        decoration=ft.TextDecoration.LINE_THROUGH,
-                        decoration_thickness=1.5,
-                        decoration_color=ink,
-                    )
-                    if done
-                    else None
-                ),
-                max_lines=1,
-                overflow=ft.TextOverflow.ELLIPSIS,
-            ),
+            width=DOT_SIZE,
+            height=DOT_SIZE,
+            shape=ft.BoxShape.CIRCLE,
+            bgcolor=faded(color) if done else color,
         )
 
-    def item_lines(day: date, todos: list[db.Todo]) -> list[ft.Control]:
-        """当天的待办 + 倒数日，按分类上色，最多 MAX_ITEMS 行。"""
-        entries: list[tuple[str, str, bool]] = [
-            # 完成的待办底色照旧用分类色，靠删除线表示已完成。
-            (todo.content, category_color(todo.category), todo.done)
-            for todo in todos
+    def entries_of(day: date, todos: list[db.Todo]) -> list[tuple[str, bool]]:
+        """当天要在格子上画的点：每条待办一个（分类色，完成的淡一半），倒数日一个。"""
+        entries: list[tuple[str, bool]] = [
+            (category_color(todo.category), todo.done) for todo in todos
         ]
         # 过期的倒数日也在格子里，换成同一档灰 —— 和倒数日页、当天弹窗一个样。
         entries += [
             (
-                item.content,
                 EXPIRED_CHIP_BG if countdown_expired(item) else COUNTDOWN_COLOR,
                 False,
             )
             for item in countdowns_on(day)
         ]
+        return entries
+
+    def item_lines(day: date, todos: list[db.Todo]) -> list[ft.Control]:
+        """当天的待办 + 倒数日：有几个画几个实心小圆点，从左往右排。"""
+        entries = entries_of(day, todos)
         if not entries:
             return []
-        if len(entries) > MAX_ITEMS:
-            # 多出来的不硬挤：少列一条，末尾用「+N」交代。
-            shown = entries[: MAX_ITEMS - 1]
-            lines = [item_line(*entry) for entry in shown]
-            lines.append(item_line(f"+{len(entries) - len(shown)}", MUTED_COLOR))
-            return lines
-        return [item_line(*entry) for entry in entries]
+        # 点从左往右排（Row 吃满整格宽，点从左边开始）；一天有几条就画几个，格子
+        # 横里放不下时圆点自己换到下一行（`wrap` 配 `run_spacing`，见 Flet 文档的
+        # Row.wrap / Row.run_spacing）。要摆几行由 build_month_view 事先算好、格子
+        # 高度照它定，所以折行不会被切掉。
+        return [
+            ft.Row(
+                wrap=True,
+                spacing=DOT_GAP,
+                run_spacing=DOT_GAP,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[item_dot(color, done) for color, done in entries],
+            )
+        ]
+
+    def day_of(number: int) -> date:
+        """当月第 number 天（格子上的日期都按当前显示的月份算）。"""
+        return date(visible_month.year, visible_month.month, number)
+
 
     def day_cell(
-        day_number: int, day_todos: dict[date, list[db.Todo]]
+        day_number: int,
+        day_todos: dict[date, list[db.Todo]],
+        height: float,
     ) -> ft.Control:
         if day_number == 0:
-            return ft.Container(expand=True, height=DAY_CELL_HEIGHT)
+            return ft.Container(expand=True, height=height)
 
-        day = date(visible_month.year, visible_month.month, day_number)
+        day = day_of(day_number)
         is_selected = day == selected_day
         # 卡片里的先后只看时间：全天的排最前，其余按时间早晚，同一时间按录入
         # 顺序 —— 和首页时间轴、当天弹窗共用同一套排序（tools/todo_timeline.py）。
@@ -492,7 +565,7 @@ def build_calendar_page(
         lines = item_lines(day, todos)
         return ft.Container(
             expand=True,
-            height=DAY_CELL_HEIGHT,
+            height=height,
             padding=ft.Padding.symmetric(horizontal=2, vertical=2),
             border_radius=ft.BorderRadius.all(8),
             # 浅灰描边，把每格的边界画出来（格子本身还是透明底）。
@@ -500,7 +573,7 @@ def build_calendar_page(
             on_click=lambda _: click_day(day),
             content=ft.Column(
                 tight=True,
-                spacing=2,
+                spacing=CELL_SPACING,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
                     # 日期靠左（选中的那天只有数字外面套一圈圆形底色），
@@ -540,11 +613,52 @@ def build_calendar_page(
             ),
         )
 
+    def learn_row_width(e: ft.LayoutSizeChangeEvent) -> None:
+        """量到一周那行的真实宽度：一格能摆几个点由它说了算，行数变了就重排。
+
+        宽度要等布局完才量得到，所以第一帧先按估的宽度排版；量到的值记在 `state`
+        里，切走再回来、翻月、选日期都直接用它，只有热重载才会退回估的值。
+        """
+        width = e.width
+        if not width or width <= 0:
+            return
+        known = state.get("calendar_row_width")
+        if isinstance(known, (int, float)) and abs(float(known) - width) < 1:
+            return
+        state["calendar_row_width"] = float(width)
+        try:
+            month_view.content = build_month_view()
+            month_view.update()
+        except RuntimeError:
+            # 页面已经切走：这层不在树上了，下次重建自然会用上量到的宽度。
+            pass
+
     def build_month_view() -> ft.Control:
         month_days = calendar.monthcalendar(
             visible_month.year, visible_month.month
         )
         day_todos = month_todos()
+        # 一个月里所有格子同高：先按「最忙那天要摆几行点」算内容高度，再跟
+        # 「正方形底线」（高 = 宽）取大者 —— 点少的格子至少是个方的，点多的那天
+        # 也不会被格子切掉半截（量到的宽度比估的准）。
+        known_width = state.get("calendar_row_width")
+        grid_width = (
+            float(known_width)
+            if isinstance(known_width, (int, float)) and known_width
+            else estimated_grid_width()
+        )
+        per_run = dots_per_run(cell_inner_width(grid_width))
+        # 每天要几个点：键是日期（month_todos 按 date 分组），别拿日号去取。
+        dots_per_day = [
+            len(entries_of(day_of(number), day_todos.get(day_of(number), [])))
+            for week in month_days
+            for number in week
+            if number
+        ]
+        rows = max(
+            dot_row_count(count, per_run) for count in dots_per_day
+        )
+        cell_px = max(cell_min_height(grid_width), cell_height(rows))
         return ft.Column(
             tight=True,
             # Row-to-row (and header-to-first-row) gap between the day cards.
@@ -567,9 +681,14 @@ def build_calendar_page(
                         # The cells share the row width, so this left-right gap
                         # sets how wide each day card gets.
                         spacing=DAY_CELL_SPACING,
-                        controls=[day_cell(day, day_todos) for day in week],
+                        controls=[
+                            day_cell(day, day_todos, cell_px) for day in week
+                        ],
+                        # 第一周那行顺手量一下自己有多宽：一格能摆几个点由它说了算
+                        # （见 learn_row_width），量出来跟估的不一样就重排一次。
+                        on_size_change=learn_row_width if index == 0 else None,
                     )
-                    for week in month_days
+                    for index, week in enumerate(month_days)
                 ],
             ],
         )
