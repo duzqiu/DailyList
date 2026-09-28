@@ -8,6 +8,7 @@
 """
 
 import calendar
+import math
 from collections.abc import Callable
 from datetime import date
 
@@ -17,9 +18,10 @@ from tools import db
 from tools.categories import category_color
 from tools.countdown_card import (
     ACCENT_COLOR as COUNTDOWN_COLOR,
+    EXPIRED_CHIP_BG,
     build_countdown_card,
+    countdown_expired,
     countdowns_on,
-    visible_countdowns,
 )
 from tools.countdown_form import open_countdown_form
 from tools.layout import (
@@ -28,12 +30,19 @@ from tools.layout import (
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
+    TODO_TEXT_SIZE,
+    TODO_TIME_SIZE,
     page_gradient,
     readable_ink,
+    text_width,
 )
 from tools.lunar import lunar_label
 from tools.pickers import build_date_picker
-from tools.todo_timeline import build_todo_timeline, sorted_todos
+from tools.todo_timeline import (
+    SPINE_MIN_HEIGHT,
+    build_todo_timeline,
+    sorted_todos,
+)
 from tools.todo_form import open_todo_form
 
 TITLE_COLOR = "#172554"
@@ -55,6 +64,32 @@ DIALOG_GROUP_SIZE = 12
 DIALOG_SECTION_COLOR = TITLE_COLOR
 # 弹窗表面（#E4E9EF）比首页底色深，点线要跟着深一点才看得见。
 DIALOG_AXIS_COLOR = "#CBD5E1"
+# 当天弹窗正文的最高高度：内容比这矮时弹窗贴着内容收缩，超过就钉在这个高度上滚
+# （正文的高度是量出来的 —— 见 open_day_dialog 里的 `content`）。
+DIALOG_BODY_MAX_HEIGHT = 330
+# 下面的估高只服务于第一帧：量高度（见 open_day_dialog 里那层探针）得等一帧，
+# 所以弹窗第一帧先按估的高度把正文撑起来。估得准，开出来第一帧就是最终高度；
+# 估低了，内容超过上限的那些天会先按全部内容撑高一下再收回去（点日期时看到的那
+# 一闪）。所以下面每一项都往大了估：宁可先高一点、下一帧收回，也别先矮了再撑开。
+# 分组小标题：图标 13 + 名称 12（section_header）。
+GROUP_EST = 18
+# 分组里标题和条目之间、条目之间的行距（day_groups 里的 spacing）。
+GROUP_GAP = 6
+# 正文里「待办」「倒数日」两组之间的间距（body 的 spacing）。
+BODY_GAP = 8
+# 时间轴的行距（build_todo_timeline 的 spacing），以及卡片上下各 6 的留白。
+TODO_ROW_GAP = 2
+TODO_CARD_PADDING = 12
+# 卡片里每行文字的高度：字号 × 1.35（Flutter 的默认行高）。
+TODO_LINE_EST = TODO_TEXT_SIZE * 1.35
+TODO_TIME_EST = TODO_TIME_SIZE * 1.35
+# 弹窗里待办文字那一列大约多宽（手机竖屏量出来的数），用来估长文字会折几行。
+TODO_TEXT_SLOT = 180
+# 倒数日卡片是定高的（见 tools/countdown_card.py）：上段 30 + 中段 42 + 虚线 1
+# + 下段 39 + 边框 2。
+COUNTDOWN_EST = 114
+# 「这天没有待办事项」那块（empty_hint）：上下 10 的留白 + 20 的图标 + 边框。
+EMPTY_HINT_EST = 44
 # 日期格子的描边：比卡片边框 #E2E8F0 再淡一点点，只要把格子界限画出来。
 CELL_BORDER = "#E2E8F0"
 MAX_ITEMS = 4
@@ -72,6 +107,49 @@ def lunar_short(day: date) -> str:
     if separator and rest in ("", "初一"):
         return f"{month}月"
     return rest or label
+
+
+def estimate_day_height(day: date) -> float:
+    """当天弹窗正文大概有多高（第一帧先拿它撑起来，见 open_day_dialog）。
+
+    只按布局粗算：一条待办取「时间轴最矮身高」和「卡片留白 + 折行数」的大者，
+    倒数日卡片是定高的，分组标题和间距都照实加起来。宁可多算一点 —— 估高了下一
+    帧就收回去，估低了才会出现「先按全部内容撑高一下」的那一闪。
+    """
+    todos = db.list_range(day, day)
+    countdowns = countdowns_on(day)
+    if not todos and not countdowns:
+        return EMPTY_HINT_EST
+    groups: list[float] = []
+    if todos:
+        rows: list[float] = []
+        for todo in todos:
+            lines = max(
+                1,
+                math.ceil(
+                    text_width(todo.content, TODO_TEXT_SIZE)
+                    / TODO_TEXT_SLOT
+                ),
+            )
+            card = TODO_CARD_PADDING + lines * TODO_LINE_EST
+            if todo.due_time or todo.end_time:
+                card += TODO_TIME_EST
+            rows.append(max(SPINE_MIN_HEIGHT, card))
+        groups.append(
+            GROUP_EST
+            + GROUP_GAP
+            + sum(rows)
+            + TODO_ROW_GAP * (len(rows) - 1)
+        )
+    if countdowns:
+        count = len(countdowns)
+        groups.append(
+            GROUP_EST
+            + GROUP_GAP
+            + count * COUNTDOWN_EST
+            + (count - 1) * GROUP_GAP
+        )
+    return sum(groups) + BODY_GAP * (len(groups) - 1)
 
 
 def build_calendar_page(
@@ -216,7 +294,27 @@ def build_calendar_page(
                     ],
                 )
             )
-        countdowns = visible_countdowns(countdowns_on(day))
+        # 已经过期的倒数日也照常列出来：卡片整张置灰（见 countdown_card.py）。
+        countdowns = countdowns_on(day)
+
+        def countdown_card(item: db.Countdown) -> ft.Control:
+            """当天这一条倒数日的卡片。
+
+            过期的按「今天」算 —— 卡片上要写「已过期 N 天」，不能按所看的那天算成
+            「就是今天」；没过期的按所看的那天算（那天就是它的日子）。灰的是哪几张
+            由 tools/countdown_card.py 的 `countdown_expired` 说了算。
+            """
+            overdue = countdown_expired(item)
+            return clip_in_dialog(
+                build_countdown_card(
+                    item,
+                    today=None if overdue else day,
+                    expired=overdue,
+                    on_delete=lambda _, i=item: remove_countdown(i, refresh),
+                    on_edit=lambda _, i=item: edit_countdown(i, refresh),
+                )
+            )
+
         if countdowns:
             groups.append(
                 ft.Column(
@@ -227,21 +325,7 @@ def build_calendar_page(
                         section_header(
                             "倒数日", ft.Icons.EVENT, DIALOG_SECTION_COLOR
                         ),
-                        *[
-                            clip_in_dialog(
-                                build_countdown_card(
-                                    item,
-                                    today=day,
-                                    on_delete=lambda _, i=item: remove_countdown(
-                                        i, refresh
-                                    ),
-                                    on_edit=lambda _, i=item: edit_countdown(
-                                        i, refresh
-                                    ),
-                                )
-                            )
-                            for item in countdowns
-                        ],
+                        *[countdown_card(item) for item in countdowns],
                     ],
                 )
             )
@@ -251,24 +335,62 @@ def build_calendar_page(
 
     def open_day_dialog(day: date) -> None:
         """点日期卡片：弹窗列出当天全部待办（左滑可编辑、删除）。"""
+        # 正文的高度按内容来：里面那层 `content`（探针）量出来的自然高度够矮，弹窗就
+        # 贴着内容收缩；超过 DIALOG_BODY_MAX_HEIGHT 才把正文钉在最高值上、打开滚动
+        # （`ScrollMode.HIDDEN` = 能滚但不画滚动条，和 App 里其它滚动区一致）。日期行
+        # +「×」不在这一层里：它们放在 `AlertDialog` 的 `title` 槽里（`scrollable=False`
+        # 时 Material 只把 `content` 放进可伸缩的那一半），列表再长，顶上那行也不动。
         body = ft.Column(
             tight=True,
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
+        # 量高度得等一帧，弹窗第一帧只能先按估的高度把正文撑起来：不预先定高的话，
+        # 内容比上限高的那些天会先按全部内容撑高一下、下一帧才收回去 —— 点日期时
+        # 看到的那一闪就是它（估高见上面的 estimate_day_height，宁可估高别估矮）。
+        body.height = min(estimate_day_height(day), DIALOG_BODY_MAX_HEIGHT)
+        # 高度先给了就先开滚动（不画滚动条）：万一估矮，第一帧顶多底下少露一点，
+        # 内容也不会溢出到弹窗外面；量到真高度后 fit_body 再定最终高度。
+        body.scroll = ft.ScrollMode.HIDDEN
+
+        def fit_body(natural: float) -> None:
+            """按量出来的自然高度定正文：够矮就贴着内容，超过上限才钉住、开滚动。"""
+            over = natural > DIALOG_BODY_MAX_HEIGHT
+            height = DIALOG_BODY_MAX_HEIGHT if over else None
+            scroll = ft.ScrollMode.HIDDEN if over else None
+            if body.height == height and body.scroll == scroll:
+                return
+            body.height = height
+            body.scroll = scroll
+            try:
+                body.update()
+            except RuntimeError:
+                # 弹窗已经关掉：这一层不在树上了，没什么可更。
+                pass
+
+        # 量高度的探针：正文有多高由它说了算（它自己不被拉伸，量到的就是内容的自然
+        # 高度）；删掉 / 改完一条它会变矮，正文跟着收回去。
+        content = ft.Column(
+            tight=True,
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            on_size_change=lambda e: fit_body(e.height),
+        )
 
         def refresh() -> None:
             # 删掉/改完一条，弹窗和月历一起刷新。
-            body.controls = day_groups(day, refresh)
-            body.update()
+            content.controls = day_groups(day, refresh)
+            content.update()
             update_calendar()
 
-        body.controls = day_groups(day, refresh)
+        content.controls = day_groups(day, refresh)
+        body.controls = [content]
         page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                # 一天里条目多时整个弹窗内容可滚。
-                scrollable=True,
+                # 关掉 Material 的「标题跟着一起滚」：标题槽（日期 +「×」）
+                # 留在不滚动的那一半，只有 content（`body`）滚。
+                scrollable=False,
                 shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
                 bgcolor=DIALOG_SURFACE,
                 elevation=0,
@@ -337,9 +459,14 @@ def build_calendar_page(
             (todo.content, category_color(todo.category), todo.done)
             for todo in todos
         ]
+        # 过期的倒数日也在格子里，换成同一档灰 —— 和倒数日页、当天弹窗一个样。
         entries += [
-            (item.content, COUNTDOWN_COLOR, False)
-            for item in visible_countdowns(countdowns_on(day))
+            (
+                item.content,
+                EXPIRED_CHIP_BG if countdown_expired(item) else COUNTDOWN_COLOR,
+                False,
+            )
+            for item in countdowns_on(day)
         ]
         if not entries:
             return []

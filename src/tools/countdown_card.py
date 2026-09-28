@@ -6,6 +6,11 @@
 下段写倒数日的日期 · 农历 · 周几。天数徽标按剩余天数分三档上色，用的就是类别三色，
 天数越近越像「重要」那一档：七天及以上绿、三到六天黄、不到三天（含已过）红；不循环
 的那种过了到期日第二天就整张收起。
+
+收起来的那些没有消失：倒数日页把它们收进列表底部的开关里，展开时用 `expired=True` 再
+渲染同一张卡；日历页也照常在当天格子里把它们列出来。`expired=True` 的卡片整张置灰 ——
+上段丢掉自选色、中下段丢掉白底，图标和「天前」那块小底也不留状态色，只有天数本身
+照旧，下段的日期那行换成「已过期 N 天」。
 """
 
 from collections.abc import Callable
@@ -24,6 +29,13 @@ MUTED_COLOR = "#64748B"
 # 没挑背景色时上段用的灰，以及卡片中下段的白底和描边。
 CARD_BG = "#F1F5F9"
 CARD_BODY_BG = "#FFFFFF"
+# 过期卡片整张置灰：上段不再用这张卡自选的颜色，中下段也不再是白底，两段各降一档
+# 灰（上段比卡片底深一点，三段的分界还看得出来）；图标、「天前」那块小底、以及
+# 日历页当天格里那条小标签，统统用下面这档灰，不留一点状态色。
+EXPIRED_HEADER_BG = "#E2E8F0"
+EXPIRED_BODY_BG = "#F1F5F9"
+EXPIRED_ICON_COLOR = "#94A3B8"
+EXPIRED_CHIP_BG = "#CBD5E1"
 CARD_BORDER = "#E2E8F0"
 ACCENT_COLOR = "#0EA5E9"
 CARD_RADIUS = 12
@@ -88,6 +100,19 @@ def visible_countdowns(
     return [item for item in items if countdown_visible(item, today)]
 
 
+def countdown_expired(item: db.Countdown, today: date | None = None) -> bool:
+    """这张卡是不是已经过期了（不循环的那种过了到期日第二天起）。"""
+    return not countdown_visible(item, today)
+
+
+def expired_countdowns(
+    items: list[db.Countdown], today: date | None = None
+) -> list[db.Countdown]:
+    """`visible_countdowns` 筛掉的那一半：倒数日页底部「已过期的倒数日」用它们。"""
+    today = today or date.today()
+    return [item for item in items if countdown_expired(item, today)]
+
+
 def countdown_date_lunar(item: db.Countdown) -> str:
     """「2026年10月1日 · 八月廿一」- anchor date with its lunar day."""
     return " · ".join(
@@ -98,6 +123,11 @@ def countdown_date_lunar(item: db.Countdown) -> str:
         )
         if part
     )
+
+
+def countdown_expired_label(item: db.Countdown, today: date | None = None) -> str:
+    """「已过期 3 天」- 过期卡片下段的日期那一行。"""
+    return f"已过期 {-countdown_days(item, today)} 天"
 
 
 def countdown_weekday(item: db.Countdown) -> str:
@@ -186,26 +216,38 @@ def build_countdown_card(
     item: db.Countdown,
     *,
     today: date | None = None,
+    expired: bool = False,
     on_delete: Callable[[ft.Event[ft.Container]], Any] | None = None,
     on_edit: Callable[[ft.Event[ft.Container]], Any] | None = None,
 ) -> ft.Control:
-    """One 倒数日 card; wrapped in the swipe row when callbacks are given."""
+    """One 倒数日 card; wrapped in the swipe row when callbacks are given.
+
+    `expired=True`（倒数日页底部展开的那些、日历页当天格里的过期项）只动外观：
+    整张卡片连同图标、「天前」那块小底一并置灰，下段的日期换成「已过期 N 天」，
+    卡片本身还是同一张。
+    """
     days = countdown_days(item, today)
+    # 过期卡片整张置灰：上段丢掉自选色，中下段丢掉白底，图标和「天前」那块小底
+    # 也跟着灰下去。
+    header_bg = EXPIRED_HEADER_BG if expired else (item.bgcolor or CARD_BG)
+    body_bg = EXPIRED_BODY_BG if expired else CARD_BODY_BG
+    icon_color = EXPIRED_ICON_COLOR if expired else ACCENT_COLOR
+    badge_bg = EXPIRED_CHIP_BG if expired else countdown_color(days)
     card = ft.Container(
         key=f"countdown-{item.id}",
         border_radius=ft.BorderRadius.all(CARD_RADIUS),
         border=ft.Border.all(1, CARD_BORDER),
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-        bgcolor=CARD_BODY_BG,
+        bgcolor=body_bg,
         content=ft.Column(
             tight=True,
             spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
-                # 上：图标 + 倒数日事项，底色用这张卡自己的背景色
+                # 上：图标 + 倒数日事项，一般用这张卡自己的背景色（过期卡片用灰）
                 ft.Container(
                     padding=HEADER_PADDING,
-                    bgcolor=item.bgcolor or CARD_BG,
+                    bgcolor=header_bg,
                     content=ft.Row(
                         spacing=6,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -213,7 +255,7 @@ def build_countdown_card(
                             ft.Icon(
                                 ft.Icons.EVENT,
                                 size=ICON_SIZE,
-                                color=ACCENT_COLOR,
+                                color=icon_color,
                             ),
                             ft.Text(
                                 item.content,
@@ -229,14 +271,15 @@ def build_countdown_card(
                 # 中：天数 + 右上角的「天后」
                 ft.Container(
                     padding=MID_PADDING,
-                    content=days_block(days, countdown_color(days)),
+                    content=days_block(days, badge_bg),
                 ),
                 # 「--」
                 ft.Container(
                     padding=ft.Padding.symmetric(horizontal=8),
                     content=dashed_rule(),
                 ),
-                # 下：周几一行、日期 · 农历一行，都居中
+                # 下：周几一行、日期 · 农历一行，都居中；过期卡片把日期那行换成
+                # 「已过期 N 天」，字色照旧是灰色。
                 ft.Container(
                     padding=SUB_PADDING,
                     content=ft.Column(
@@ -251,7 +294,9 @@ def build_countdown_card(
                                 text_align=ft.TextAlign.CENTER,
                             ),
                             ft.Text(
-                                countdown_date_lunar(item),
+                                countdown_expired_label(item, today)
+                                if expired
+                                else countdown_date_lunar(item),
                                 size=SUB_SIZE,
                                 color=MUTED_COLOR,
                                 text_align=ft.TextAlign.CENTER,
