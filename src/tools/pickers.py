@@ -105,8 +105,8 @@ def build_time_picker(
 ) -> ft.TimePicker:
     """Flet's system time picker. 点选 only - the dial, no typed input.
 
-    `help_text` is the dial's own headline, which is how the 开始时间 and 结束时间
-    pickers of one dialog tell themselves apart.
+    `help_text` is the dial's own headline: it is how the two dials the 待办 dialog
+    chains (先开始、后结束) tell themselves apart.
     """
     picker = ft.TimePicker(
         value=value,

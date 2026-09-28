@@ -55,6 +55,12 @@ def shift_time(value: str, minutes: int) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
+def parse_time(value: str) -> time:
+    """「09:30」→ `time(9, 30)`，给时钟刻度盘当初始值。"""
+    hour, _, minute = value.partition(":")
+    return time(int(hour), int(minute))
+
+
 def open_todo_form(
     page: ft.Page,
     *,
@@ -75,19 +81,21 @@ def open_todo_form(
     )
     start_category = todo.category if editing else DEFAULT_CATEGORY
     start_cycle = todo.repeat_cycle if editing else db.DEFAULT_CYCLE
-    start_hour, _, start_minute = start_time.partition(":")
-    end_hour, _, end_minute = end_time.partition(":")
 
     selection = {
         "date": start_day.isoformat(),
-        "time": f"{start_hour}:{start_minute}",
-        "end": f"{end_hour}:{end_minute}",
+        "time": start_time,
+        "end": end_time,
         "category": start_category,
         "cycle": start_cycle,
     }
+
+    def range_label() -> str:
+        """时间那一格的字：起止一起选，所以在同一个格里写「09:30 - 10:30」。"""
+        return f"{selection['time']} - {selection['end']}"
+
     date_text = build_option_text(date_label(start_day))
-    time_text = build_option_text(selection["time"])
-    end_text = build_option_text(selection["end"])
+    time_text = build_option_text(range_label())
     cycle_text = build_option_text(start_cycle)
 
     def apply_date(chosen: date) -> None:
@@ -95,15 +103,10 @@ def open_todo_form(
         date_text.value = date_label(chosen)
         date_text.update()
 
-    def apply_time(chosen: time) -> None:
-        selection["time"] = f"{chosen.hour:02d}:{chosen.minute:02d}"
-        time_text.value = selection["time"]
+    def refresh_time() -> None:
+        """把选好的起止时间写回时间那一格。"""
+        time_text.value = range_label()
         time_text.update()
-
-    def apply_end(chosen: time) -> None:
-        selection["end"] = f"{chosen.hour:02d}:{chosen.minute:02d}"
-        end_text.value = selection["end"]
-        end_text.update()
 
     # 新增 only looks forward (today is the earliest day); editing an old row has
     # to be able to keep - or move to - a day in the past.
@@ -112,25 +115,46 @@ def open_todo_form(
         apply_date,
         first_date=None if editing else midnight(date.today()),
     )
-    time_picker = build_time_picker(
-        time(int(start_hour), int(start_minute)),
-        apply_time,
-        help_text="选择开始时间",
-    )
-    end_picker = build_time_picker(
-        time(int(end_hour), int(end_minute)),
-        apply_end,
-        help_text="选择结束时间",
-    )
     date_selector = build_value_trigger(
         date_text, lambda _: page.show_dialog(date_picker)
     )
-    time_selector = build_value_trigger(
-        time_text, lambda _: page.show_dialog(time_picker)
-    )
-    end_selector = build_value_trigger(
-        end_text, lambda _: page.show_dialog(end_picker)
-    )
+
+    def pick_time_range(_: ft.Event[ft.Control]) -> None:
+        """点时间那一格：连着弹两个刻度盘，一次把开始、结束都选完。
+
+        先弹开始时间，选完接着弹结束时间，不用回头再点第二个框。结束时间不能早于
+        开始 —— 开始往后挪过了结束（或者正好压上），就把时长补回 1 小时。
+        """
+
+        def pick_end(chosen: time) -> None:
+            selection["end"] = f"{chosen.hour:02d}:{chosen.minute:02d}"
+            refresh_time()
+
+        def pick_start(chosen: time) -> None:
+            selection["time"] = f"{chosen.hour:02d}:{chosen.minute:02d}"
+            if selection["end"] <= selection["time"]:
+                selection["end"] = shift_time(
+                    selection["time"], DEFAULT_DURATION_MINUTES
+                )
+            refresh_time()
+            page.show_dialog(
+                build_time_picker(
+                    parse_time(selection["end"]),
+                    pick_end,
+                    help_text="选择结束时间",
+                )
+            )
+
+        page.show_dialog(
+            build_time_picker(
+                parse_time(selection["time"]),
+                pick_start,
+                help_text="选择开始时间",
+            )
+        )
+
+    # 起止时间是一个格：点一下连着把开始、结束都选了（见 pick_time_range）。
+    time_selector = build_value_trigger(time_text, pick_time_range)
 
     def pick_category(name: str) -> None:
         """胶囊自己做单选，这里只记住选中的分类。"""
@@ -156,11 +180,8 @@ def open_todo_form(
         content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
         text_style=ft.TextStyle(size=13, color=FIELD_COLOR),
         dense=True,
-        # A todo can be a word or a few lines, so the field shows two lines and
-        # wraps up to five before it scrolls.
-        multiline=True,
-        min_lines=2,
-        max_lines=5,
+        # A todo is one short line (a word or a phrase), so this is a plain
+        # single-line field: no multiline, no height it could grow into.
     )
 
     # 分类：三个胶囊并排，选中项填自己的分类色（红 / 黄 / 绿），字色跟着底色挑
@@ -171,6 +192,7 @@ def open_todo_form(
         start_category,
         pick_category,
         color_of=category_color,
+        square=True,
     )
     cycle_selector = build_option_selector(
         cycle_text,
@@ -242,26 +264,9 @@ def open_todo_form(
                 build_option_row(category_row),
                 todo_field,
                 build_option_row(date_selector),
-                # 起止时间并成一行：开始 ~ 结束，两个都是系统的时钟刻度盘。
-                build_option_row(
-                    ft.Row(
-                        tight=True,
-                        spacing=0,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            time_selector,
-                            ft.Container(
-                                padding=ft.Padding.symmetric(
-                                    horizontal=2, vertical=4
-                                ),
-                                content=ft.Text(
-                                    "~", size=12, color=MUTED_COLOR
-                                ),
-                            ),
-                            end_selector,
-                        ],
-                    )
-                ),
+                # 起止时间是一个格「09:30 - 10:30」：点一下连着弹开始、结束两个
+                # 刻度盘（见 pick_time_range）。
+                build_option_row(time_selector),
                 build_option_row(cycle_selector),
             ],
         ),
