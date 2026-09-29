@@ -8,9 +8,7 @@ from tools.categories import CATEGORIES
 from tools.countdown_form import open_countdown_form
 from tools.layout import (
     BOTTOM_MENU_INSET,
-    DATE_SELECTED_BG,
     SKY_BLUE,
-    UNSELECTED_CARD_BG,
     page_gradient,
     text_width,
 )
@@ -59,80 +57,81 @@ CHOOSE_START_SCALE = 0
 CHOOSE_ANCHOR = ft.Alignment.BOTTOM_RIGHT
 # 顶部日期条：今天排第一个，往后连着 7 天（过去的日子不再列出来）。
 DATE_STRIP_DAYS = 7
-# The day badges are circles, so the selected day always highlights as a proper
-# round dot however long its label is. The picked day - today when the app opens
-# - takes DATE_SELECTED_BG (shared with the 日历 grid and the dialog calendars,
-# see tools/layout.py); every other day, today included, stays on the neutral
-# card colour. Clicking never repaints the weekday or the date.
+# 日期一格不带底色：选中的那天只是把日期**加粗**，选中标记交给日期底下那条黑
+# 横条（见 DATE_BAR_*），所以日期怎么写都不会被一个色块框住。周几是灰的、日期是
+# 深的，点哪一天都不重画这两个字，只有加粗和横条跟着走。
 DATE_TEXT_COLOR = "#172554"
 DATE_WEEKDAY_COLOR = "#64748B"
 # The seven day columns share the strip's width: every column is an expanding
 # child of a `Row`, so the free space is split evenly and the strip fills the
 # screen on any phone width instead of leaving a gap after the last column.
 DATE_CARD_SPACING = 8
-DATE_CARD_HEIGHT = 56
-DATE_CARD_TOP_PADDING = 2
-# Weekday and date are stacked: the weekday is a plain grey label, the date
-# (「今」today, 「09.28」otherwise) sits inside its own round badge.
+# 主 Column 里各块之间的缝（标题 / 日期条 / 灰线 / 列表）。日期条和灰线之间那一档
+# 收成 0：日期卡片顺着这条缝往下长，选中横条就落在卡片底边上、正好贴着灰线；原来
+# 的 10px 挪进卡片自己的顶内边距里补回来，所以日期条的内容和灰线以下一个像素没动。
+BLOCK_GAP = 10
+# 卡片 = 56 的内容（周几 + 日期）+ BLOCK_GAP 那么高的一条底，横条就钉在那条底上。
+DATE_CARD_HEIGHT = 56 + BLOCK_GAP
+DATE_CARD_TOP_PADDING = BLOCK_GAP - 2  # 比原来那档（+2）再往上提 4px
+# 周几在上、日期在下（一律写成「09.28」这样的月.日，今天也不写「今」）；两行之间
+# 那点空当由 DATE_COLUMN_SPACING 管，收得很紧 —— 周几几乎贴着日期。
 DATE_WEEKDAY_SIZE = 11
-# 徽标是 34 的正圆：选中态永远是完完整整一个圆，不会因为日期长就拉成胶囊。
-# 整串「09.28」比原来的单个日号长得多，字号跟着收小才不至于顶到圆的边上。
+# 日期那一行固定占这么高：整串「09.28」比单个日号长得多，字号收小、宽度也框住，
+# 相邻两格的日期不会互相顶到，整条日期条的高度还跟原来一样。
 DATE_DAY_SIZE = 10
-DATE_BADGE_SIZE = 34
-DATE_COLUMN_SPACING = 4
+DATE_DAY_BOX_HEIGHT = 34
+DATE_COLUMN_SPACING = 2
+# 选中标记：日期正下方一条黑横条，钉在日期卡片底边上（也就是贴住下面那条
+# 灰间隔线）。整条日期条只画这一条，选中哪一格它就滑到那一格下面（见
+# date_bar_offset）。
+DATE_BAR_WIDTH = 16
+DATE_BAR_HEIGHT = 3
+DATE_BAR_COLOR = "#0F172A"
+# 滑到新格子用的时间与曲线：慢一点（半秒），看得出来是「挪」过去的，不是「跳」过去的。
+DATE_BAR_SLIDE_MS = 500
+DATE_BAR_SLIDE_CURVE = ft.AnimationCurve.EASE_IN_OUT
+# 下方那叠页跟着滑一格，和横条同一条时间：切一次是一整套动作（条在挪、
+# 页在滑）。
+DATE_PAGE_SLIDE_MS = DATE_BAR_SLIDE_MS
+DATE_PAGE_SLIDE_CURVE = DATE_BAR_SLIDE_CURVE
+# 在下方那块（待办列表）上左右滑，切前一天 / 后一天：横向走满这么多像素，
+# 或者甩得够快，都算一次切换；两样都没到就什么都不做。
+DATE_SWIPE_DISTANCE = 24.0
+DATE_SWIPE_VELOCITY = 300.0
 PAGE_SIDE_PADDING = 24
+# 日期条的真实宽度要等布局完才量得到，横条滑动的换算（见 date_bar_offset）先按
+# 手机竖屏估一个兜底；和 calendar.py / data.py 一个来路：页宽 400 减掉左右各 24。
+ESTIMATED_PAGE_WIDTH = 400
+DATE_STRIP_ESTIMATED_WIDTH = ESTIMATED_PAGE_WIDTH - 2 * PAGE_SIDE_PADDING
+# 日期条的 key：页面上找「日期条」就认它。
+DATE_STRIP_KEY = "date-strip"
+# 下方那叠页的 key：页面上找「一天一页的那一叠」就认它。
+PAGE_SLIDE_KEY = "date-pages"
 # 日期条和下面待办列表之间那条灰线：1px，比卡片描边更淡一档的浅灰。
 STRIP_DIVIDER_COLOR = "#F1F5F9"
 STRIP_DIVIDER_THICKNESS = 1
 
 
-def date_card_label(day: date, today: date) -> str:
-    """「今」for today, otherwise the date as 「09.28」 (month.day, padded)."""
-    return "今" if day == today else f"{day.month:02d}.{day.day:02d}"
+def date_card_label(day: date) -> str:
+    """日期条上一格怎么写：「09.28」（月.日，补零）—— 今天也写日期，不写「今」。"""
+    return f"{day.month:02d}.{day.day:02d}"
 
 
-def date_badge_bg(is_picked: bool) -> str:
-    """Background of a day badge - the one rule the strip and the month share.
+def date_bar_offset(index: int, strip_width: float) -> float:
+    """黑横条滑到第 `index` 格下面所需的 `offset.x`。
 
-    The picked day takes the blue; every other day - today included - stays on
-    the neutral card colour.
+    `offset` 是按控件自身尺寸换算的平移（见 tools/layout.py 的 `BACK_OFFSET`：
+    40px 宽 × -0.2 就是往左 8px）。横条外面那层容器铺满整条日期条，宽正好是
+    `strip_width`，于是平移量 = 选中格的中线到日期条中线的距离 ÷ 日期条宽。
+
+    每格宽 = （日期条宽 − 7 格之间那几条空隙）÷ 7，选中格中线 = `index` ×
+    （格宽 + 空隙）+ 格宽 ÷ 2；正中间那格（今起第 4 天）平移量正好是 0。
     """
-    return DATE_SELECTED_BG if is_picked else UNSELECTED_CARD_BG
-
-
-def build_date_badge(
-    label: str, bgcolor: str, extra: ft.Control | None = None
-) -> ft.Control:
-    """The round day badge: same size, face and colours on both pages.
-
-    The home strip passes nothing extra; a caller may hand over an `extra`
-    control, which is drawn under the date inside the same circle.
-    """
-    number = ft.Text(
-        label,
-        size=DATE_DAY_SIZE,
-        weight=ft.FontWeight.BOLD,
-        color=DATE_TEXT_COLOR,
-        # 圆里只排得下一行，日期折成两行就难看了。
-        no_wrap=True,
-    )
-    return ft.Container(
-        width=DATE_BADGE_SIZE,
-        height=DATE_BADGE_SIZE,
-        shape=ft.BoxShape.CIRCLE,
-        bgcolor=bgcolor,
-        alignment=ft.Alignment.CENTER,
-        content=(
-            number
-            if extra is None
-            else ft.Column(
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=1,
-                controls=[number, extra],
-            )
-        )
-    )
+    if strip_width <= 0:
+        return 0.0
+    cell = (strip_width - DATE_CARD_SPACING * (DATE_STRIP_DAYS - 1)) / DATE_STRIP_DAYS
+    center = index * (cell + DATE_CARD_SPACING) + cell / 2
+    return (center - strip_width / 2) / strip_width
 
 
 def group_todos_by_day(
@@ -150,26 +149,40 @@ def build_home_page(
     set_menu_visible: Callable[[bool], None],
     open_data: Callable[[], None],
 ) -> ft.Control:
-    # 今天排在日期条的第一个（徽标写「今」），往后连着 DATE_STRIP_DAYS 天 ——
-    # 待办页只看今天和接下来的这几天，过去的日子不再列。
+    # 今天排在日期条的第一个，往后连着 DATE_STRIP_DAYS 天 —— 待办页只看今天和
+    # 接下来的这几天，过去的日子不再列。
     today = date.today()
     dates = [today + timedelta(days=offset) for offset in range(DATE_STRIP_DAYS)]
     today_index = 0
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     todos_by_day = group_todos_by_day(db.list_todos(dates))
     selected_index = today_index
+    # 日期条的真实宽度（量到之前是 0，按估的值算）。
+    state: dict[str, float] = {"strip_width": 0.0}
     date_selector = ft.Row(spacing=DATE_CARD_SPACING)
-    todo_content = ft.ListView(
-        expand=True,
-        # 行之间几乎不留缝，短竖线上下相接才像一条轴。
-        spacing=2,
-        scroll=ft.ScrollMode.HIDDEN,
-        padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
+    # 整条日期条只画这一条黑横条：铺满日期条的宽、钉在底边上，靠 `offset`
+    # （按自身宽度换算的平移，见 date_bar_offset）滑到选中那一格下面。
+    date_bar = ft.Container(
+        left=0,
+        right=0,
+        bottom=0,
+        alignment=ft.Alignment.CENTER,
+        offset=ft.Offset(
+            date_bar_offset(selected_index, DATE_STRIP_ESTIMATED_WIDTH), 0
+        ),
+        animate_offset=ft.Animation(DATE_BAR_SLIDE_MS, DATE_BAR_SLIDE_CURVE),
+        content=ft.Container(
+            width=DATE_BAR_WIDTH,
+            height=DATE_BAR_HEIGHT,
+            border_radius=ft.BorderRadius.all(DATE_BAR_HEIGHT / 2),
+            bgcolor=DATE_BAR_COLOR,
+        ),
     )
 
     def reload_todos() -> None:
         nonlocal todos_by_day
         todos_by_day = group_todos_by_day(db.list_todos(dates))
+        fill_pages()
 
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
@@ -187,9 +200,8 @@ def build_home_page(
 
         def toggle_todo(item: db.Todo) -> None:
             db.set_done(item.id, not item.done)
+            # reload_todos 顺带把七页都重铺、整叠更新一次。
             reload_todos()
-            render_todos(selected_index)
-            todo_content.update()
 
         return build_todo_row(
             todo,
@@ -219,27 +231,86 @@ def build_home_page(
             ),
         )
 
-    def render_todos(index: int) -> None:
-        selected_date = dates[index]
-        day_items = todos_by_day.get(selected_date, {})
+    def day_rows(index: int) -> list[ft.Control]:
+        """第 `index` 天要摆的那些行（那天没待办就是那条空态提示）。"""
+        day_items = todos_by_day.get(dates[index], {})
         # 时间轴：没有时间的（全天）排最前，其余按时间先后（同一时间按录入顺序）。
         todos = [
             todo for name, _ in CATEGORIES for todo in day_items.get(name, [])
         ]
         todos = sorted_todos(todos)
-        todo_content.controls = [
+        return [
             build_todo_item(
                 todo,
-                first=index == 0,
+                first=order == 0,
                 # 最后一条下面不再补点：轴到它为止，跟日历弹窗里那条轴一致。
-                last=index == len(todos) - 1,
+                last=order == len(todos) - 1,
             )
-            for index, todo in enumerate(todos)
+            for order, todo in enumerate(todos)
         ] or [build_empty_hint()]
 
+    def build_day_page(index: int) -> ft.ListView:
+        """一天一页：整页可以左右滑出去、新的一页滑进来（见 DATE_PAGE_SLIDE_MS）。
+
+        页的 `offset` 是按自身宽度换算的平移，所以「离选中那页 index − 选中
+        个页宽」正好把该看的那一页摆回屏幕里；平移量一改，`animate_offset`
+        就把它从原来那个位置慢慢滑过去。
+        """
+        return ft.ListView(
+            # 行之间几乎不留缝，短竖线上下相接才像一条轴。
+            spacing=2,
+            scroll=ft.ScrollMode.HIDDEN,
+            # 上面那 BLOCK_GAP 是原来主 Column 给日期条与列表之间留的缝（现在日期条那段
+            # 收成 0 了，缝归列表自己，列表内容的位置一点没动）；左右那 24px 也从整页
+            # 上挪到了这里（见 build_home_page）—— 这一叠要铺满整个屏宽，页往左右滑
+            # 出去时才正好滑出屏幕，边上不会剩一条邻居的影。
+            padding=ft.Padding.only(
+                left=PAGE_SIDE_PADDING,
+                top=BLOCK_GAP,
+                right=PAGE_SIDE_PADDING,
+                bottom=BOTTOM_MENU_INSET,
+            ),
+            offset=ft.Offset(index - selected_index, 0),
+            animate_offset=ft.Animation(DATE_PAGE_SLIDE_MS, DATE_PAGE_SLIDE_CURVE),
+            controls=day_rows(index),
+        )
+
+    # 一天一页、一叠摆好：切日期就是整叠页滑一格，所以别的那几天也得先摆在
+    # 树里 —— 不然新的一页是第一次出现，没有上一个位置可以滑过来。
+    todo_pages = [build_day_page(index) for index in range(len(dates))]
+    todo_stack = ft.Stack(
+        key=PAGE_SLIDE_KEY,
+        # 七页都被拉成和这一叠一样大：`offset` 是按控件自身尺寸换算的，页跟叠一样
+        # 宽，「挪一格」才正好挪出一整屏（见 slide_pages）。
+        fit=ft.StackFit.EXPAND,
+        # 选中那页以外的都在栈外，全被裁掉，不会漏到日期条上去。
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        controls=todo_pages,
+    )
+
+    def fill_pages() -> None:
+        """七页的内容都按当前数据重铺一遍，然后整叠更新一次。
+
+        数据一变就得七页全铺 —— 别的日子那几页也摆在树里，只铺当前这页会留下一页旧的。
+        """
+        for index, page in enumerate(todo_pages):
+            page.controls = day_rows(index)
+        todo_stack.update()
+
+    def slide_pages() -> None:
+        """把整叠页推到选中那天：每页离它正好 i − 选中 个页宽。"""
+        for index, page in enumerate(todo_pages):
+            page.offset = ft.Offset(index - selected_index, 0)
+        todo_stack.update()
+
     def build_date_item(index: int) -> ft.Control:
+        """日期条的一格：周几 + 日期，选中的那天只是把日期加粗。
+
+        选中标记（黑横条）不画在格子里 —— 整条日期条只画一条，由外面那条
+        `date_bar` 滑到选中的那一格下面（见 date_bar_offset）。
+        """
         selected_date = dates[index]
-        badge_bg = date_badge_bg(index == selected_index)
+        picked = index == selected_index
         return ft.Container(
             key=f"date-{selected_date.isoformat()}",
             expand=1,
@@ -257,8 +328,21 @@ def build_home_page(
                         size=DATE_WEEKDAY_SIZE,
                         color=DATE_WEEKDAY_COLOR,
                     ),
-                    build_date_badge(
-                        date_card_label(selected_date, today), badge_bg
+                    # 日期不再有底色：格子只负责占位和居中，选中靠加粗。
+                    ft.Container(
+                        height=DATE_DAY_BOX_HEIGHT,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Text(
+                            date_card_label(selected_date),
+                            size=DATE_DAY_SIZE,
+                            weight=(
+                                ft.FontWeight.BOLD
+                                if picked
+                                else ft.FontWeight.NORMAL
+                            ),
+                            color=DATE_TEXT_COLOR,
+                            no_wrap=True,
+                        ),
                     ),
                 ],
             ),
@@ -270,9 +354,66 @@ def build_home_page(
         date_selector.controls = [
             build_date_item(date_index) for date_index in range(len(dates))
         ]
-        render_todos(index)
+        # 横条滑到新格子下面，下面那叠页跟着滑一格（动效都交给 `animate_offset`）。
+        place_date_bar()
+        slide_pages()
         date_selector.update()
-        todo_content.update()
+
+    def strip_width() -> float:
+        """日期条的真实宽度；还没量到时先用估的那个兜底。"""
+        return state["strip_width"] or DATE_STRIP_ESTIMATED_WIDTH
+
+    def place_date_bar() -> None:
+        """横条摆到选中那一格下面 —— 只改 `offset`，滑动的动效由 `animate_offset` 管。"""
+        date_bar.offset = ft.Offset(
+            date_bar_offset(selected_index, strip_width()), 0
+        )
+        date_bar.update()
+
+    def learn_strip_width(e: ft.LayoutSizeChangeEvent) -> None:
+        """量一次日期条的真实宽度：横条滑动的换算要它（见 date_bar_offset）。
+
+        宽度要等布局完才量得到，所以第一帧先按估的宽度摆；量到之后重摆一次 ——
+        这一次先把动效摘掉，免得一启动就看到横条自己挪一小下。
+        """
+        width = e.width
+        if not width or width <= 0 or abs(width - state["strip_width"]) < 1:
+            return
+        state["strip_width"] = float(width)
+        date_bar.animate_offset = None
+        place_date_bar()
+        date_bar.animate_offset = ft.Animation(
+            DATE_BAR_SLIDE_MS, DATE_BAR_SLIDE_CURVE
+        )
+
+    def step_day(delta: int) -> None:
+        """横滑一格：走到头就停住（不绕回来）。"""
+        target = min(len(dates) - 1, max(0, selected_index + delta))
+        if target != selected_index:
+            select_date(target)
+
+    # 这一趟横滑走了多少像素，松手时按它（或者甩的速度）决定算不算一次切换。
+    swipe: dict[str, float] = {"dx": 0.0}
+
+    def on_page_pan_start(_: ft.DragStartEvent) -> None:
+        swipe["dx"] = 0.0
+
+    def on_page_pan_update(e: ft.DragUpdateEvent) -> None:
+        if e.local_delta:
+            swipe["dx"] += e.local_delta.x
+
+    def on_page_pan_end(e: ft.DragEndEvent) -> None:
+        travelled = swipe["dx"]
+        swipe["dx"] = 0.0
+        fling = e.velocity.x if e.velocity else 0.0
+        # 左滑看后一天、右滑看前一天；走够距离或者甩得够快都算一次切换。
+        if travelled <= -DATE_SWIPE_DISTANCE or fling <= -DATE_SWIPE_VELOCITY:
+            step_day(1)
+        elif travelled >= DATE_SWIPE_DISTANCE or fling >= DATE_SWIPE_VELOCITY:
+            step_day(-1)
+
+    def on_page_pan_cancel(_: ft.Event[ft.GestureDetector]) -> None:
+        swipe["dx"] = 0.0
 
     def refresh_after_save(saved_day: date) -> None:
         """Re-read the list and follow a todo that landed on the shown week."""
@@ -315,7 +456,25 @@ def build_home_page(
     date_selector.controls = [
         build_date_item(index) for index in range(len(dates))
     ]
-    render_todos(selected_index)
+    # 量一次日期条多宽：横条滑动按它换算（见 learn_strip_width）。
+    date_selector.on_size_change = learn_strip_width
+    # 日期条 = 那排日期格子 + 压在上面的一条黑横条（日期自己不接横滑）。
+    date_strip = ft.Stack(
+        key=DATE_STRIP_KEY,
+        clip_behavior=ft.ClipBehavior.NONE,
+        controls=[date_selector, date_bar],
+    )
+    # 切日期的横滑挂在**下方那块**：竖着动归列表自己滚（竖滑阈值比 pan 小，
+    # 它先抢到），只有横着才轮到这层；起点落在某条待办上时，那一条自己的左滑（露出
+    # 编辑 / 删除）在更里面，先进手势竞技场，所以优先。
+    todo_pager = ft.GestureDetector(
+        expand=True,
+        content=todo_stack,
+        on_pan_start=on_page_pan_start,
+        on_pan_update=on_page_pan_update,
+        on_pan_end=on_page_pan_end,
+        on_pan_cancel=on_page_pan_cancel,
+    )
 
     add_button = ft.Container(
         right=24,
@@ -450,55 +609,72 @@ def build_home_page(
                         content=ft.Container(
                             expand=True,
                             alignment=ft.Alignment.TOP_LEFT,
-                            padding=ft.Padding.only(
-                                left=PAGE_SIDE_PADDING,
-                                top=PAGE_SIDE_PADDING,
-                                right=PAGE_SIDE_PADDING,
-                            ),
+                            # 左右那 24px 不再留在整页上：挪进了每一页自己（见
+                            # build_day_page）。下面那一叠页因此铺满整个屏宽 —— 页往左右
+                            # 滑出去时正好滑出屏幕，边上不会剩下邻居那一页的影子。
+                            padding=ft.Padding.only(top=PAGE_SIDE_PADDING),
                             content=ft.Column(
                                 expand=True,
+                                # 块与块之间不留缝：日期条下面那条要收成 0，横条
+                                # 才贴得住灰线（见 BLOCK_GAP）。
+                                spacing=0,
                                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                                 controls=[
-                                    ft.Row(
-                                        alignment=(
-                                            ft.MainAxisAlignment.SPACE_BETWEEN
+                                    ft.Container(
+                                        padding=ft.Padding.only(
+                                            left=PAGE_SIDE_PADDING,
+                                            right=PAGE_SIDE_PADDING,
                                         ),
-                                        vertical_alignment=(
-                                            ft.CrossAxisAlignment.CENTER
-                                        ),
-                                        controls=[
-                                            ft.Text(
-                                                "待办",
-                                                size=18,
-                                                weight=ft.FontWeight.BOLD,
-                                                color="#172554",
+                                        content=ft.Column(
+                                            tight=True,
+                                            spacing=0,
+                                            horizontal_alignment=(
+                                                ft.CrossAxisAlignment.STRETCH
                                             ),
-                                            # 右上角进「数据」页：数据统计 / 分类占比 /
-                                            # 待办趋势都在那一页上。
-                                            ft.Container(
-                                                ink=True,
-                                                tooltip="数据",
-                                                # 22px 的图标太难点，四周补一圈让
-                                                # 手指够得着。
-                                                padding=ft.Padding.all(6),
-                                                on_click=lambda _: open_data(),
-                                                content=ft.Icon(
-                                                    ft.Icons.BAR_CHART,
-                                                    size=22,
-                                                    color="#172554",
+                                            controls=[
+                                                ft.Row(
+                                                    alignment=(
+                                                        ft.MainAxisAlignment.SPACE_BETWEEN
+                                                    ),
+                                                    vertical_alignment=(
+                                                        ft.CrossAxisAlignment.CENTER
+                                                    ),
+                                                    controls=[
+                                                        ft.Text(
+                                                            "待办",
+                                                            size=18,
+                                                            weight=ft.FontWeight.BOLD,
+                                                            color="#172554",
+                                                        ),
+                                                        # 右上角进「数据」页：数据统计 / 分类占比 /
+                                                        # 待办趋势都在那一页上。
+                                                        ft.Container(
+                                                            ink=True,
+                                                            tooltip="数据",
+                                                            # 22px 的图标太难点，四周补一圈让
+                                                            # 手指够得着。
+                                                            padding=ft.Padding.all(6),
+                                                            on_click=lambda _: open_data(),
+                                                            content=ft.Icon(
+                                                                ft.Icons.BAR_CHART,
+                                                                size=22,
+                                                                color="#172554",
+                                                            ),
+                                                        ),
+                                                    ],
                                                 ),
-                                            ),
-                                        ],
+                                                date_strip,
+                                                # 日期条和下面列表之间拉一条灰线（上下由
+                                                # 列自己的间距隔开）。
+                                                ft.Divider(
+                                                    height=STRIP_DIVIDER_THICKNESS,
+                                                    thickness=STRIP_DIVIDER_THICKNESS,
+                                                    color=STRIP_DIVIDER_COLOR,
+                                                ),
+                                            ],
+                                        ),
                                     ),
-                                    date_selector,
-                                    # 日期条和下面列表之间拉一条灰线（上下由
-                                    # 列自己的间距隔开）。
-                                    ft.Divider(
-                                        height=STRIP_DIVIDER_THICKNESS,
-                                        thickness=STRIP_DIVIDER_THICKNESS,
-                                        color=STRIP_DIVIDER_COLOR,
-                                    ),
-                                    todo_content,
+                                    todo_pager,
                                 ],
                             ),
                         ),

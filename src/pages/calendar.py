@@ -41,7 +41,6 @@ from tools.lunar import lunar_label
 from tools.pickers import local_day
 from tools.todo_timeline import (
     SPINE_MIN_HEIGHT,
-    TIME_ALIGN_DIALOG,
     build_todo_timeline,
     sorted_todos,
 )
@@ -150,8 +149,6 @@ DIALOG_TITLE_SIZE = 15
 DIALOG_GROUP_SIZE = 12
 # 弹窗里的分组小标题（待办 / 倒数日）：图标 + 名称，统一用正文的深色。
 DIALOG_SECTION_COLOR = TITLE_COLOR
-# 弹窗表面（#E4E9EF）比首页底色深，点线要跟着深一点才看得见。
-DIALOG_AXIS_COLOR = "#CBD5E1"
 # 当天弹窗正文的最高高度：内容比这矮时弹窗贴着内容收缩，超过就钉在这个高度上滚
 # （正文的高度是量出来的 —— 见 open_day_dialog 里的 `content`）。
 DIALOG_BODY_MAX_HEIGHT = 330
@@ -165,15 +162,17 @@ GROUP_EST = 18
 GROUP_GAP = 6
 # 正文里「待办」「倒数日」两组之间的间距（body 的 spacing）。
 BODY_GAP = 8
-# 时间轴的行距（build_todo_timeline 的 spacing），以及卡片上下各 6 的留白。
+# 卡片之间那一档行距（build_todo_timeline 的 spacing），以及卡片上下各 6 的留白。
 TODO_ROW_GAP = 2
 # 卡片上下各 6 的留白（类别标签已经排进「起止时间」那一排，不再额外占高度）。
 TODO_CARD_PADDING = 12
 # 卡片里每行文字的高度：字号 × 1.35（Flutter 的默认行高）。
 TODO_LINE_EST = TODO_TEXT_SIZE * 1.35
 TODO_TIME_EST = TODO_TIME_SIZE * 1.35
-# 弹窗里待办文字那一列大约多宽（手机竖屏量出来的数），用来估长文字会折几行。
-TODO_TEXT_SLOT = 180
+# 弹窗里待办文字那一列大约多宽（手机竖屏量出来的数），用来估长文字会折几行 ——
+# 卡片现在铺满正文的宽（见 day_groups 的 show_timeline=False），比原来多出左边
+# 那格时间轴 + 圆点 + 空当那一截（LEFT_GUTTER_DIALOG = 36 + 9 + 4 = 49）。
+TODO_TEXT_SLOT = 180 + 49
 # 倒数日卡片是定高的（见 tools/countdown_card.py）：上段 30 + 中段 42 + 虚线 1
 # + 下段 39 + 边框 2。
 COUNTDOWN_EST = 114
@@ -373,7 +372,7 @@ def build_calendar_page(
     def day_groups(
         day: date, refresh: Callable[[], None]
     ) -> list[ft.Control]:
-        """弹窗内容：当天的待办用首页那套时间轴，倒数日接在下面。"""
+        """弹窗内容：当天待办就是一列卡片（不摆时间轴），倒数日接在下面。"""
         groups: list[ft.Control] = []
         todos = db.list_range(day, day)
         if todos:
@@ -386,11 +385,12 @@ def build_calendar_page(
                         section_header(
                             "待办", ft.Icons.CHECKLIST, DIALOG_SECTION_COLOR
                         ),
+                        # 弹窗里不摆轴、也不摆卡片左边那格时间（`show_timeline
+                        # =False`）：起止时间就在卡片自己的第一排上，卡片于是铺满
+                        # 正文的宽。
                         build_todo_timeline(
                             todos,
-                            axis_color=DIALOG_AXIS_COLOR,
-                            # 时间靠左摆，和「待办」小标题的图标一个左沿。
-                            time_align=TIME_ALIGN_DIALOG,
+                            show_timeline=False,
                             on_delete=lambda todo: remove_todo(todo, refresh),
                             on_edit=lambda todo: edit_todo(todo, refresh),
                         ),

@@ -5,7 +5,7 @@
 到期当天改成一块「就是今天」，所以卡片张张等高。一条「--」虚线把中段和下段隔开，
 下段写倒数日的日期 · 农历 · 周几。天数徽标按剩余天数分三档上色，用的就是类别三色，
 天数越近越像「重要」那一档：七天及以上绿、三到六天黄、不到三天（含已过）红；不循环
-的那种过了到期日第二天就整张收起。
+的那种一过到期日就整张收起。
 
 收起来的那些没有消失：倒数日页把它们收进列表底部的开关里，展开时用 `expired=True` 再
 渲染同一张卡；日历页也照常在当天格子里把它们列出来 —— 而且只要所看的那天在今天
@@ -68,8 +68,8 @@ SOON_COLOR = category_color("一般")
 FUTURE_COLOR = category_color("可选")
 SOON_DAYS = 3
 FUTURE_DAYS = 7
-# 不循环的倒数日过期后还挂几天：到期当天算第 0 天，到期后第二天（+2）起不再展示。
-EXPIRED_HIDE_AFTER_DAYS = 2
+# 不循环的倒数日过期后还挂几天：到期当天算第 0 天、还留在正列表里，第二天起收进底部开关。
+EXPIRED_HIDE_AFTER_DAYS = 1
 # 周一..周日, indexed by `date.weekday()`.
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -92,7 +92,7 @@ def countdown_color(days: int) -> str:
 
 
 def countdown_visible(item: db.Countdown, today: date | None = None) -> bool:
-    """不循环的倒数日过了到期日第二天就不再展示；循环的永远等下一次。"""
+    """不循环的倒数日一过到期日就收进「已过期」；循环的永远等下一次。"""
     if item.cycle in db.REPEAT_CYCLES and item.cycle != db.DEFAULT_CYCLE:
         return True
     return ((today or date.today()) - item.due_date).days < EXPIRED_HIDE_AFTER_DAYS
@@ -107,7 +107,7 @@ def visible_countdowns(
 
 
 def countdown_expired(item: db.Countdown, today: date | None = None) -> bool:
-    """这张卡是不是已经过期了（不循环的那种过了到期日第二天起）。"""
+    """这张卡是不是已经过期了（不循环的那种过了到期日就算）。"""
     return not countdown_visible(item, today)
 
 

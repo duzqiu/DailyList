@@ -11,6 +11,9 @@
 
 左滑只带走右边的待办（露出编辑 / 删除），时间和点线留在原地，而且待办裁在自己
 那一格里，不会滑到轴上去。
+
+当天弹窗里不摆这一套：`show_timeline=False` 的一行只有卡片自己，左边那格时间和
+点线都不画，卡片直接铺满正文的宽（见 pages/calendar.py 的 day_groups）。
 """
 
 from collections.abc import Callable
@@ -349,6 +352,7 @@ def build_todo_row(
     last: bool = False,
     axis_color: str = TIMELINE_COLOR,
     time_align: ft.Alignment = TIME_ALIGN_STRIP,
+    show_timeline: bool = True,
     on_click: Callable[[db.Todo], Any] | None = None,
     on_delete: Callable[[db.Todo], Any] | None = None,
     on_edit: Callable[[db.Todo], Any] | None = None,
@@ -359,10 +363,16 @@ def build_todo_row(
     给**：`build_todo_timeline` 会自己算，但像首页那样一行一行搭的，最后一条必须
     显式传 `last=True`，否则它下面会多出一截小圆点。
 
-    `axis_color` 用来让点线适应底色（首页在渐变上偏浅，弹窗里要深一些才看得见）；
+    `axis_color` 用来让点线适应底色（首页在渐变上偏浅，深色底上要深一些才看得见）；
     `time_align` 决定左边那格时间靠哪边摆，见 TIME_ALIGN_STRIP / TIME_ALIGN_DIALOG。
+
+    `show_timeline=False` 的一行只剩卡片自己：左边那格时间、点线、以及卡片左边
+    让给轴的那一截空当都不要（当天弹窗用这一档），卡片于是铺满整行的宽。
     """
     slot_width, axis_left, left_gutter = timeline_metrics(time_align)
+    if not show_timeline:
+        # 不摆轴就没什么要让的了：卡片从这一行的最左边开始。
+        left_gutter = 0
     color = category_color(todo.category)
     card = ft.Container(
         key=f"todo-{todo.id}",
@@ -396,14 +406,13 @@ def build_todo_row(
     # 整行是一个 `Stack`：卡片（左滑时就是整条能滑的行）是唯一的**非定位**子控件，
     # 这一行多高、多宽都由它说了算；时间和轴是定位子、`top`/`bottom` 都是 0，高度
     # 于是跟着卡片走 —— 卡片被长文字撑高，轴就跟着一起长，不会在中间断开。
-    return ft.Stack(
-        alignment=ft.Alignment.CENTER,
-        controls=[
-            ft.Container(
-                margin=ft.Margin.only(left=left_gutter), content=body
-            ),
-            # 轴的「最矮身高」：宽 0 的一条占位，一行文字的卡片也保持原来的点距。
-            ft.Container(width=0, height=SPINE_MIN_HEIGHT),
+    row: list[ft.Control] = [
+        ft.Container(margin=ft.Margin.only(left=left_gutter), content=body),
+        # 轴的「最矮身高」：宽 0 的一条占位，一行文字的卡片也保持原来的点距。
+        ft.Container(width=0, height=SPINE_MIN_HEIGHT),
+    ]
+    if show_timeline:
+        row += [
             _time_label(todo, time_align, slot_width),
             ft.Container(
                 left=axis_left,
@@ -411,8 +420,8 @@ def build_todo_row(
                 bottom=0,
                 content=_timeline_axis(first, last, axis_color),
             ),
-        ],
-    )
+        ]
+    return ft.Stack(alignment=ft.Alignment.CENTER, controls=row)
 
 
 def build_todo_timeline(
@@ -423,8 +432,13 @@ def build_todo_timeline(
     on_click: Callable[[db.Todo], Any] | None = None,
     on_delete: Callable[[db.Todo], Any] | None = None,
     on_edit: Callable[[db.Todo], Any] | None = None,
+    show_timeline: bool = True,
 ) -> ft.Control:
-    """一整列时间轴：自己会按「全天 → 时间」排好序。"""
+    """一整列时间轴：自己会按「全天 → 时间」排好序。
+
+    `show_timeline=False` 就只剩一列卡片（当天弹窗用这一档），排的不再是「轴」而是
+    卡片本身，顺序、行距和别的档一模一样。
+    """
     ordered = sorted_todos(todos)
     return ft.Column(
         tight=True,
@@ -437,6 +451,7 @@ def build_todo_timeline(
                 last=index == len(ordered) - 1,
                 axis_color=axis_color,
                 time_align=time_align,
+                show_timeline=show_timeline,
                 on_click=on_click,
                 on_delete=on_delete,
                 on_edit=on_edit,
