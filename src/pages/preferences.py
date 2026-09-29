@@ -69,6 +69,10 @@ CLOUD_ON_LABEL = "本地数据会同步到云端"
 CLOUD_OFF_LABEL = "数据只保存在本机"
 CLOUD_ON_TOAST = "已开启云端同步"
 CLOUD_OFF_TOAST = "已关闭云端同步"
+# 页面最下方那行署名。App 名和 pyproject.toml 的 `product` 是一对，版本跟着
+# tools/version_check.py 的 `APP_VERSION` 走（不在版本里重复一遍），版权年份发版时改。
+APP_NAME = "每日清单"
+APP_COPYRIGHT = "© 2026 duzqiu"
 
 
 def build_preferences_page(
@@ -737,6 +741,22 @@ def build_preferences_page(
             ),
         )
 
+    def app_info() -> ft.Control:
+        """页面最下方那行署名：App 名 + 版本 + 版权，居中一行灰字。
+
+        它就是「最后一张卡片下面」的一小块，跟着内容一起滚 —— 所以直接塞在 ListView
+        末尾，不占固定高度。字色比卡片里的说明还浅一档，它是落款，不该抢内容；宽度
+        拉满靠 `text_align` 居中（ListView 的子项本来就是满宽的）。
+        """
+        return ft.Text(
+            f"{APP_NAME} {version_check.APP_VERSION} · {APP_COPYRIGHT}",
+            size=11,
+            color="#94A3B8",
+            no_wrap=True,
+            text_align=ft.TextAlign.CENTER,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+
     refresh_notify_summary()
     refresh_cloud_summary()
 
@@ -783,6 +803,8 @@ def build_preferences_page(
                                         clear_row(),
                                     ],
                                 ),
+                                # 落款：三张卡片下面的一小块署名（跟着内容滚）。
+                                app_info(),
                             ],
                         ),
                     ],
