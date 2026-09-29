@@ -14,24 +14,34 @@ from collections.abc import Callable
 
 import flet as ft
 
-from tools import data_export, data_import, db, notifications, version_check
+from tools import (
+    contacts,
+    data_export,
+    data_import,
+    db,
+    notifications,
+    version_check,
+)
+from tools.app_settings import CLOUD_OFF, CLOUD_ON, CLOUD_SETTING
 from tools.layout import (
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
     SKY_BLUE,
     UNSELECTED_CARD_BG,
-    anchor_dialog_above_keyboard,
     build_subpage_header,
     dialog_button_style,
     page_gradient,
     text_width,
+    track_keyboard,
 )
 from tools.popup_select import (
+    MENU_HEIGHT,
     OPTION_TEXT_SIZE,
     build_option_row,
     build_option_selector,
     build_option_text,
+    option_text,
 )
 from tools.services import ensure_service
 from tools.toast import build_toast
@@ -46,11 +56,19 @@ PENDING_COLOR = "#DC2626"
 PAGE_SIDE_PADDING = 24
 # 检查新版本时，右边那枚版本号先换成这句，回来再换回版本号。
 CHECKING_LABEL = "检查中…"
-# 联系方式（摆在「通用设置」那张卡片里，点一下把值复制到剪贴板）。
-CONTACTS = (
-    ("邮箱", "duzqiu@outlook.com"),
-    ("微信", "test001"),
-)
+# 通知渠道下拉里那枚图标：尺寸 16、名字前留 8 的空当；颜色比正文浅一档，让它站在辅助
+# 的位置上，别和渠道名抢眼。宽度会一起算进面板宽度（见 open_notify_settings）。
+CHANNEL_ICON_SIZE = 16
+CHANNEL_ICON_GAP = 8
+CHANNEL_ICON_COLOR = "#475569"
+# 通知地址那一格的高度：输入框和「平时显示的那行文字」共用，点开时高度不跳。
+URL_FIELD_HEIGHT = 40
+# 云端数据的两种状态：一行小字说明 + 开关时的一句提示。文案放一起，免得两边对不上。
+# （开关存哪个键、值是什么，见 tools/app_settings.py。）
+CLOUD_ON_LABEL = "本地数据会同步到云端"
+CLOUD_OFF_LABEL = "数据只保存在本机"
+CLOUD_ON_TOAST = "已开启云端同步"
+CLOUD_OFF_TOAST = "已关闭云端同步"
 
 
 def build_preferences_page(
@@ -266,19 +284,59 @@ def build_preferences_page(
             return
         notify(result.summary())
 
-    def toggle_cloud(_: ft.Event[ft.Switch]) -> None:
-        """云端数据开关：先只做样子，不落库、不发请求。"""
-
     cloud_switch = ft.Switch(
-        value=False,
+        # 状态存在 `settings` 里（键见 tools/app_settings.py）：关掉之后再进来还是
+        # 关着。表里没有这个键时按 `CLOUD_OFF` 算 —— 默认**关着**，云端同步是后加
+        # 的能力，不该在用户还没表态时替他打开。
+        value=db.get_setting(CLOUD_SETTING, CLOUD_OFF) == CLOUD_ON,
         active_color="#FFFFFF",
         active_track_color=SKY_BLUE,
         inactive_thumb_color="#FFFFFF",
         inactive_track_color="#E2E8F0",
-        on_change=toggle_cloud,
     )
 
-    notify_summary = ft.Text("", size=11, color=MUTED_COLOR)
+    cloud_summary = ft.Text(
+        "",
+        size=11,
+        color=MUTED_COLOR,
+        # 和通知渠道那行一个道理：这里只放一句话，放不下就省略，别折行把卡片顶高。
+        no_wrap=True,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+
+    def refresh_cloud_summary() -> None:
+        """小字说明跟着开关走：关着说「只存本机」，开着才提「同步云端」。"""
+        cloud_summary.value = (
+            CLOUD_ON_LABEL if cloud_switch.value else CLOUD_OFF_LABEL
+        )
+
+    def toggle_cloud(_: ft.Event[ft.Switch]) -> None:
+        """云端数据开关：先只做样子，不落库、不发请求。
+
+        但**开、关都要说一声** —— 这个开关管的是「数据出不出本机」，值得让用户知道
+        自己刚做了什么（小字说明同时跟着换）。
+        """
+        db.set_setting(
+            CLOUD_SETTING, CLOUD_ON if cloud_switch.value else CLOUD_OFF
+        )
+        refresh_cloud_summary()
+        cloud_summary.update()
+        notify(CLOUD_ON_TOAST if cloud_switch.value else CLOUD_OFF_TOAST)
+
+    # 处理函数等开关和说明都摆好之后再挂上去：`ft.Switch(on_change=...)` 是**构建时**
+    # 求值（不像函数体那样延迟解析），写在前面会直接 `UnboundLocalError`。
+    cloud_switch.on_change = toggle_cloud
+
+    notify_summary = ft.Text(
+        "",
+        size=11,
+        color=MUTED_COLOR,
+        # 通知地址可以很长（钉钉那种带一串 access_token 的尤其）：这一行**绝不折行**
+        # —— 一折就把上面「通知渠道」那行顶下去、卡片跟着变高，而且断在半截的地址
+        # 也没法看。放不下就省略号收尾。
+        no_wrap=True,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
 
     def refresh_notify_summary() -> None:
         notify_summary.value = notifications.summary(
@@ -293,38 +351,82 @@ def build_preferences_page(
         page.pop_dialog()
         set_menu_visible(True)
 
+    def channel_icon(name: str, size: int = CHANNEL_ICON_SIZE) -> ft.Icon:
+        """渠道图标控件。图标不跟着系统字号缩放 —— 放大了会把面板挤出去。"""
+        return ft.Icon(
+            notifications.channel_icon(name),
+            size=size,
+            color=CHANNEL_ICON_COLOR,
+            apply_text_scaling=False,
+        )
+
+    def channel_label(name: str) -> ft.Control:
+        """下拉里的一项：图标 + 渠道名。"""
+        return ft.Row(
+            tight=True,
+            spacing=CHANNEL_ICON_GAP,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[channel_icon(name), option_text(name)],
+        )
+
     def open_notify_settings(_: ft.Event[ft.Container]) -> None:
         """通知渠道 dialog: the channel picker plus its delivery address."""
-        channel_text = build_option_text(
-            db.get_setting(
-                notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
-            )
+        selected = db.get_setting(
+            notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
         )
-        selection = {"channel": channel_text.value}
+        channel_text = build_option_text(selected)
+        # 触发按钮上也挂一枚图标，选完渠道它跟着换。
+        trigger_icon = channel_icon(selected)
+        selection = {"channel": selected}
 
         def pick_channel(name: str) -> None:
             selection["channel"] = name
             channel_text.value = name
+            trigger_icon.icon = notifications.channel_icon(name)
             channel_text.update()
+            trigger_icon.update()
 
         channel_selector = build_option_selector(
-            channel_text,
+            # 触发按钮就是「图标 + 渠道名」，和面板里的项同一个样子。
+            ft.Row(
+                tight=True,
+                spacing=CHANNEL_ICON_GAP,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[trigger_icon, channel_text],
+            ),
             [(name, name) for name in notifications.CHANNELS],
             pick_channel,
-            content_width=max(
-                text_width(name, OPTION_TEXT_SIZE)
-                for name in notifications.CHANNELS
+            # 九个渠道一屏摆不下：面板钉成固定高度，多出来的在里面上下滚。
+            menu_height=MENU_HEIGHT,
+            # 面板宽度得把图标也一起算进去 —— 否则行宽按纯文字钉死，图标会把名字挤出
+            # 面板（行宽是按 `content_width` 定死的，不会自己撑开）。
+            content_width=(
+                max(
+                    text_width(name, OPTION_TEXT_SIZE)
+                    for name in notifications.CHANNELS
+                )
+                + CHANNEL_ICON_SIZE
+                + CHANNEL_ICON_GAP
             ),
+            label_builder=channel_label,
         )
 
         def url_focus_changed(focused: bool) -> None:
+            """键盘弹起时把底部菜单栏收走。
+
+            **只干这一件** —— 挪弹窗那件事交给下面的 `track_keyboard`：焦点事件比
+            键盘动画早到一步，照焦点挪的话弹窗会先往屏幕底下一沉（键盘还没起来），
+            等键盘真升上来再弹回去，看上去就是「先下拉、再弹起」。
+            """
             set_menu_visible(not focused)
-            anchor_dialog_above_keyboard(dialog, focused)
 
         url_field = ft.TextField(
             value=db.get_setting(notifications.URL_SETTING, ""),
             hint_text="粘贴通知地址",
             hint_style=ft.TextStyle(size=13, color="#94A3B8"),
+            # 地址很长，这一格必须是**单行**：长地址在格子里横向滚，别折成两行
+            # （`multiline` 默认就是 False，这里写出来是防止以后被改成 True）。
+            multiline=False,
             # Same as the 待办内容 field: the keyboard would cover the floating
             # menu bar, so the bar steps out of the way and the dialog parks just
             # above the keyboard while typing.
@@ -335,14 +437,66 @@ def build_preferences_page(
             content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
             text_style=ft.TextStyle(size=13, color="#334155"),
             dense=True,
-            height=40,
+            height=URL_FIELD_HEIGHT,
         )
+
+        # 地址平时是一行**省略号收尾的文字**，点一下才换成上面那格输入框。
+        # Flet 的 `TextField` 没有 `overflow`：长链接塞进去只会被硬裁（右边直接切
+        # 掉，连省略号都不给），而省略号只有 `ft.Text` 上才有。所以「看」和「改」
+        # 分成两层 —— 默认这层专门用来看，点一下才换成能输入的。
+        url_value = db.get_setting(notifications.URL_SETTING, "")
+        url_display = ft.Container(
+            height=URL_FIELD_HEIGHT,
+            alignment=ft.Alignment.CENTER_LEFT,
+            content=ft.Text(
+                url_value or "粘贴通知地址",
+                size=13,
+                color="#334155" if url_value else "#94A3B8",
+                no_wrap=True,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+        )
+
+        url_slot = ft.Container()
+
+        async def focus_url() -> None:
+            """再显式要一次焦点。
+
+            `focus()` 是**方法**（async），不是布尔字段 —— 写成 `url_field.focus =
+            True` 只会把方法覆盖掉，客户端那边一点动静都没有（这正是「点了输入框
+            光标不出来」的原因）。
+            """
+            try:
+                await url_field.focus()
+            except Exception:
+                logger.debug("通知地址格没能自动聚焦", exc_info=True)
+
+        def start_editing(_: ft.Event[ft.Container]) -> None:
+            """从「看」切到「改」：换上输入框，并把光标送进去。
+
+            两头都要：`autofocus` 管控件**挂上去那一帧**，`focus_url` 等它挂稳之后
+            再要一次 —— 万一这一帧客户端漏了，光标也还是落得进去。
+            """
+            url_slot.content = url_field
+            url_slot.on_click = None
+            url_field.autofocus = True
+            page.update()
+            page.run_task(focus_url)
+
+        url_slot.content = url_display
+        url_slot.on_click = start_editing
+
+        def dismiss(_: ft.Event[ft.Control]) -> None:
+            """关掉这个弹窗：先拆掉键盘跟随，再走页面那套关闭流程。"""
+            unwatch_keyboard()
+            close_notify_settings()
 
         def save_notify(_: ft.Event[ft.Control]) -> None:
             db.set_setting(notifications.CHANNEL_SETTING, selection["channel"])
             db.set_setting(
                 notifications.URL_SETTING, (url_field.value or "").strip()
             )
+            unwatch_keyboard()
             dialog.open = False
             set_menu_visible(True)
             refresh_notify_summary()
@@ -358,14 +512,14 @@ def build_preferences_page(
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
                     build_option_row(channel_selector),
-                    url_field,
+                    url_slot,
                 ],
             ),
             [
                 ft.TextButton(
                     "取消",
                     style=dialog_button_style(),
-                    on_click=lambda _: close_notify_settings(),
+                    on_click=dismiss,
                 ),
                 ft.TextButton(
                     "保存",
@@ -374,6 +528,9 @@ def build_preferences_page(
                 ),
             ],
         )
+        # 键盘一升一落都把弹窗挪到键盘上方 / 回到正中（见 track_keyboard）。
+        # 挂在 media 事件上而不是焦点上 —— 和新增待办、新增倒数日那两个弹窗一个做法。
+        unwatch_keyboard = track_keyboard(page, dialog)
         page.show_dialog(dialog)
 
     def settings_section(
@@ -492,14 +649,12 @@ def build_preferences_page(
         )
 
     def cloud_row() -> ft.Control:
-        """数据设置那一行：云端数据（开关先只做样子，不落库、不发请求）。"""
-        return setting_row(
-            "云端数据",
-            ft.Text(
-                "把待办数据同步到云端", size=11, color=MUTED_COLOR
-            ),
-            cloud_switch,
-        )
+        """数据设置那一行：云端数据（开关先只做样子，不落库、不发请求）。
+
+        小字不是死文案 —— 它跟着开关在「只存本机」和「同步到云端」之间换（见
+        `refresh_cloud_summary`）。
+        """
+        return setting_row("云端数据", cloud_summary, cloud_switch)
 
     def check_version_row() -> ft.Control:
         """通用设置那一行：检查新版本 —— 右边写着当前版本号，点它去仓库问一次。
@@ -583,6 +738,7 @@ def build_preferences_page(
         )
 
     refresh_notify_summary()
+    refresh_cloud_summary()
 
     return ft.Container(
         expand=True,
@@ -622,7 +778,7 @@ def build_preferences_page(
                                         check_version_row(),
                                         *(
                                             contact_row(label, value)
-                                            for label, value in CONTACTS
+                                            for label, value in contacts.items()
                                         ),
                                         clear_row(),
                                     ],

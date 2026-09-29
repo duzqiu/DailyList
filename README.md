@@ -53,9 +53,9 @@
 
 ### 设置（二级页，从日历页右上角进入，`pages/preferences.py`）
 分**三档卡片**（`settings_section`：卡片上方一行灰字小标题，条目摆在自己那张卡片里；`setting_row` 是卡片里的一行 = 左「标题 + 小字说明」+ 右动作控件）：
-- **通知设置** → 通知渠道：Bark / Pushdeer / Server酱 / 企业微信 / 钉钉 / 飞书 / Telegram / Discord / Slack + 通知地址（存 `settings` 表）
-- **数据设置** → 导出数据（**导出为 JSON**：`tools/data_export.py` 把待办 / 倒数日 / 设置拍成一份 JSON，经 `FilePicker.save_file(src_bytes=...)` 交给系统 —— 桌面弹「另存为」，手机和 Web 上表现为导出 / 下载；小字与对话框标题都写明是 JSON）、**导入数据**（**从 JSON 恢复**：`tools/data_import.py` —— 按下去先二次确认，再 `pick_files(with_data=True)` 选文件；**待办与倒数日整表替换**、设置逐条覆盖；文件必须验明正身（只认本 App 导出的 `format` 标记），认不出就拒 —— 不然随手选个别的 JSON 就把库清了）、云端数据：开关（**占位功能，不落库、不发请求**）
-- **通用设置** → **检查新版本**（右侧就是当前版本号 `v0.1.0`，**点整行**去仓库问一次：先看 `releases/latest`、没发过 Release 就退到 `tags`，比完弹一句 —— 「发现新版本 vX.Y.Z」/「已是最新版本」/「还没有已发布的版本」/「检查失败，请稍后重试」，请求期间右边先显示「检查中…」。当前版本是 `tools/version_check.py` 的 `APP_VERSION`，和 `pyproject.toml` 的 `version` 是一对，改版本号得两处一起改）、**联系方式**（`CONTACTS` 里逐条列：邮箱、微信；**点一下复制到剪贴板**并弹一句**屏幕中间**的提示「已复制邮箱 / 已复制微信」（走 `tools/toast.py`），右侧一枚复制图标当提示）、清除缓存（二次确认后清空所有待办，并提示清除了多少条）
+- **通知设置** → 通知渠道：Bark / Pushdeer / Server酱 / 企业微信 / 钉钉 / 飞书 / Telegram / Discord / Slack + 通知地址（存 `settings` 表）。下拉**每一项和触发按钮都带渠道图标**（`notifications.CHANNEL_ICONS` / `channel_icon()`：Telegram、Discord、微信是官方品牌图标，其余挑意思最近的一枚；图标 `CHANNEL_ICON_SIZE = 16`、`apply_text_scaling=False`，**宽度要算进面板宽度**，否则行宽被钉死会把名字挤出去）；**面板钉成固定高度**（`menu_height=MENU_HEIGHT`，9 个渠道在里面上下滚）。卡片里那行摘要**不折行**（`no_wrap` + `TextOverflow.ELLIPSIS`）—— 带 `access_token` 的地址能到 580px 宽，而卡片里只放得下 260px，一折就把卡片顶高、地址还断在半截；弹窗里那一格地址**分成「看」和「改」两层**：平时是一行省略号收尾的 `ft.Text`（点一下才换成输入框，**光标直接落进去**：`autofocus=True` 管控件挂上去那一帧，再补一次 `await url_field.focus()`；注意 **`focus()` 是 async 方法、不是布尔字段** —— 写成 `url_field.focus = True` 只会把方法覆盖掉，客户端一点动静都没有，就是「点了光标不出来」。切换后高度不变，都按 `URL_FIELD_HEIGHT = 40`）—— 因为 **Flet 的 `TextField` 没有 `overflow`**，长链接塞进去只会被硬裁（右边直接切掉、连省略号都不给），省略号只有 `Text` 上有；换成输入框后是单行（`multiline=False`），长地址在格子里横向滚。**键盘跟随走 `track_keyboard(page, dialog)`**（和新增待办 / 新增倒数日那两个弹窗一个做法）：`on_focus` / `on_blur` 只负责 `set_menu_visible`，**不碰弹窗位置** —— 焦点事件比键盘动画早到一步，照它挪会先往屏幕底下一沉、键盘真升起来再弹回来（就是「先下拉再弹起」那个抖动，见约定 4）；弹窗关掉时（取消 / 保存两处）调 `unwatch_keyboard()` 把 media 处理还原
+- **数据设置** → 导出数据（**导出为 JSON**：`tools/data_export.py` 把待办 / 倒数日 / 设置拍成一份 JSON，经 `FilePicker.save_file(src_bytes=...)` 交给系统 —— 桌面弹「另存为」，手机和 Web 上表现为导出 / 下载；小字与对话框标题都写明是 JSON）、**导入数据**（**从 JSON 恢复**：`tools/data_import.py` —— 按下去先二次确认，再 `pick_files(with_data=True)` 选文件；**待办与倒数日整表替换**、设置逐条覆盖；文件必须验明正身（只认本 App 导出的 `format` 标记），认不出就拒 —— 不然随手选个别的 JSON 就把库清了）、云端数据：开关（**开关状态存 `settings` 的 `cloud_enabled`**：开 = `"1"`、关 = `"0"`，所以关掉再进来还是关着；同步本身仍是占位，不发请求）。**默认关着**（云端同步是后加的能力，不在用户没表态时就替他打开）；那一行小字不是死文案，跟着开关在「数据只保存在本机」（关）和「本地数据会同步到云端」（开）之间换；**开、关各弹一句提示**（「已开启云端同步」/「已关闭云端同步」）—— 这个开关管的是「数据出不出本机」，值得让用户知道刚做了什么。四条文案集中在 `CLOUD_ON_LABEL` / `CLOUD_OFF_LABEL` / `CLOUD_ON_TOAST` / `CLOUD_OFF_TOAST`，免得两边对不上
+- **通用设置** → **检查新版本**（右侧就是当前版本号 `v0.1.0`，**点整行**去仓库问一次：先看 `releases/latest`、没发过 Release 就退到 `tags`，比完弹一句 —— 「发现新版本 vX.Y.Z」/「已是最新版本」/「还没有已发布的版本」/「检查失败，请稍后重试」，请求期间右边先显示「检查中…」。当前版本是 `tools/version_check.py` 的 `APP_VERSION`，和 `pyproject.toml` 的 `version` 是一对，改版本号得两处一起改）、**联系方式**（`tools/contacts.py` 里逐条列：邮箱、微信；**值同样存在 `settings` 表**（`contact_email` / `contact_wechat`），启动时 `contacts.ensure_defaults()` 把表里还没有的补上默认值 —— 所以以后改联系方式只要改表、不必动代码，导出 / 导入也会带着它们走；**点一下复制到剪贴板**并弹一句**屏幕中间**的提示「已复制邮箱 / 已复制微信」（走 `tools/toast.py`），右侧一枚复制图标当提示）、清除缓存（二次确认后清空所有待办，并提示清除了多少条）
 
 ### 二级 / 三级页的返回（`page.views` + `tools/swipe_back.py`）
 - 二级 / 三级页各自是**一层压进 `page.views` 的真 `ft.View`**（`navigation.py` 的 `show_layer`），不是在一级页的 `content` 里换控件。所以真机的「返回」—— Android 返回键 / 两侧边缘的返回手势、iOS 的边缘返回 —— 有层可弹：弹掉一层就是回上一页，`page.on_view_pop` 接住这一下、走和「‹ 返回」按钮**同一个** `go_back()`。
@@ -71,13 +71,13 @@
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `src/main.py` | 18 | 入口：`db.init_db()` 建库 → **`register_app_services(page)`** 注册 Service（剪贴板 / 文件选择器，**必须赶在页面首次发给客户端之前**）→ `build_navigation(page)` |
+| `src/main.py` | 21 | 入口：`db.init_db()` 建库 → `app_settings.ensure_defaults()` 补默认设置项 → **`register_app_services(page)`** 注册 Service（剪贴板 / 文件选择器，**必须赶在页面首次发给客户端之前**）→ `build_navigation(page)` |
 | `src/pages/navigation.py` | 297 | 底部毛玻璃菜单 + 3 个 Tab 切换 + 二级页（数据 / 设置）跳转；按页面名保管选择状态；二级 / 三级页各压一层真 `ft.View`（`show_layer`），`nav_stack` 记楼层，返回按钮 / 左滑 / 真机的系统返回（`on_view_pop`）共用 `go_back`；页面动画用 `PAGE_TRANSITION`（横向推拉，不留残影） |
 | `src/pages/home.py` | 689 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」面板（新增待办 / 新增倒数日）、右上角「数据」入口 |
 | `src/pages/countdown.py` | 250 | 倒数日页：通栏 + 两列卡片列表 + 底部「已过期 N」开关（过期卡片全部双列；没有「+」，新增入口在待办页） |
 | `src/pages/calendar.py` | 1016 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（月份与选中日期跨 Tab 保留） |
 | `src/pages/data.py` | 596 | 「数据」二级页：数据统计 / 分类占比 / 待办趋势三张卡（年/月/周 保留） |
-| `src/pages/preferences.py` | 636 | 设置二级页：三档卡片 —— 通知设置（通知渠道）、数据设置（导出 / 导入 JSON、云端开关）、通用设置（检查新版本、联系方式、清除缓存） |
+| `src/pages/preferences.py` | 792 | 设置二级页：三档卡片 —— 通知设置（通知渠道）、数据设置（导出 / 导入 JSON、云端开关）、通用设置（检查新版本、联系方式、清除缓存） |
 | `src/tools/db.py` | 709 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings / 读全部两张表（`list_all_todos`、`list_settings`，导出用）/ `replace_data()`（导入用：一个事务里清空重写，**原样存、不展开**） |
 | `src/tools/data_export.py` | 73 | 导出数据：把库里的待办 / 倒数日 / 设置拍成一份 JSON（`export_bytes()` 出字节、`export_file_name()` 出文件名；中文不转义，文件里带 `format` / `version` 标记） |
 | `src/tools/data_import.py` | 157 | 导入数据：把 `data_export` 那份 JSON 解析后写回库（`import_bytes()`；`ImportFailed` 的消息是写给用户看的一句话；坏行跳过并计数）。**坑**：写回去必须**原样**，别改成 `db.add_todo()` —— 文件里的循环待办本来就是铺开后的行，再展开一次一天变一年 |
@@ -98,7 +98,9 @@
 | `src/tools/line_chart.py` | 365 | 待办趋势折线图（`flet-charts` 多系列 LineChart + 毛玻璃自绘浮框） |
 | `src/tools/pie_chart.py` | 82 | 分类占比饼图（`flet-charts` PieChart + 悬停凸出） |
 | `src/tools/lunar.py` | 124 | 农历换算（1900–2099 查表，无外部依赖） |
-| `src/tools/notifications.py` | 18 | 通知渠道清单与文案（目前只有配置，没有发送实现） |
+| `src/tools/notifications.py` | 40 | 通知渠道清单、每档的图标（`CHANNEL_ICONS` / `channel_icon()`）与摘要文案（目前只有配置，没有发送实现） |
+| `src/tools/contacts.py` | 24 | 联系方式：值存 `settings`（`contact_email` / `contact_wechat`），`items()` 读出来给页面显示；默认值由 `app_settings` 统一补 |
+| `src/tools/app_settings.py` | 41 | **`settings` 表里该有哪些行**的清单（通知渠道 / 通知地址 / 云端开关 / 邮箱 / 微信）+ `ensure_defaults()`：启动时把表里还没有的键补上默认值（按「键存不存在」判断，不覆盖用户清空过的值） |
 | `tests/test_main.py` | 22 | Flet 测试框架写的导航冒烟测试 |
 | `scripts/build_ios.sh` | 105 | 一键打签名好的 iOS `.ipa`（免费 Personal Team 自动签名） |
 
@@ -207,8 +209,9 @@ pytest
 - **装依赖要用镜像**：从 pypi.org 直装会被截断（见「运行」），本机目前是照镜像那条命令装上的。
 - **测试过期**：`tests/test_main.py` 断言与当前 UI 文案不符。
 - **通知渠道只有配置**：`tools/notifications.py` 只存渠道名和地址，没有真正发送推送的逻辑。
-- **云端数据是占位**：开关不落库、不请求（代码注释里写明「先只做样子」）。
+- **云端数据是占位**：开关不落库、不请求（代码注释里写明「先只做样子」）—— 所以**开关状态每次进设置页都是「关」**，它只负责弹提示、换小字说明，不做同步。
 - **导入是「替换」不是「合并」**：导入会把待办与倒数日**整表**换成文件里的内容（有二次确认），想往现有数据里追加暂时做不到；文件也必须是本 App 导出的 JSON（认 `format` 标记），只支持 JSON 这一种格式。
-- **仓库里的 `dailylist.db` 是活数据文件**：当前只有 `todos`(204 行) / `settings`，既没有 `countdowns` 表，`todos` 也缺 `due_time` / `end_time` 列 —— 说明该文件早于「倒数日 / 时间」功能，首次运行会被 `init_db()` 自动补齐。它是跟着仓库走的，改动数据会体现为一次文件改动。
+- **两个 `dailylist.db`，查设置时别查错**：`flet run` 会给应用设 `FLET_APP_STORAGE_DATA`，于是 `db.py` 用的是 **`.flet/storage/data/dailylist.db`** —— 应用真正在读写的那个（五项设置、todos、countdowns 都在里面）；项目根那份 **`dailylist.db` 是过时的活数据文件**（只有 `todos`(204 行) / `settings`(2 行)，既没有 `countdowns` 表，`todos` 也缺 `due_time` / `end_time` —— 早于「倒数日 / 时间」功能），它跟着仓库走、改一次就是一次文件改动，但应用已经不写它了。
+- **设置项集中在 `settings` 表**：通知渠道 / 通知地址 / 云端开关 / 邮箱 / 微信五种，键与默认值汇总在 `tools/app_settings.py`，启动时 `ensure_defaults()` 把缺的补上 —— 所以第一次跑完这几行就该都在表里。
 - **多实例同时写库**：应用的 DB 路径固定在项目根，同时开多个实例（或一边跑 App 一边跑测试脚本）会互相覆盖数据，调试时注意先关掉旧实例。
 - **一级页按返回会退出 App**：二级 / 三级页现在是真 View，系统返回弹的是它们；回到一级页（`page.views` 只剩一层）之后按返回就没有可弹的层了，客户端会结束 Activity、回到 Flet 首页 —— 这是系统返回的正常行为，不是 bug。想在首页也拦住返回，得自己接管客户端的返回事件，Flet 目前没给这层口子。
