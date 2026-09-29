@@ -221,10 +221,18 @@ def build_home_page(
         ),
     )
 
+    # 刚被勾上的那几条的 id：交给 `build_todo_item`，让它们的对勾落定后弹一下
+    # （见 tools/todo_timeline.py 的 build_todo_check）。切完成会把七页重铺一遍，
+    # 换上来的是新控件、没有「上一个状态」可以插值，所以只能按「这次勾的是谁」
+    # 现告诉它 —— 铺完（`reload_todos`）就清掉，别的时候重建都不再弹。
+    just_done: set[int] = set()
+
     def reload_todos() -> None:
         nonlocal todos_by_day
         todos_by_day = group_todos_by_day(db.list_todos(dates))
         fill_pages()
+        # 弹过就清：之后再重建（切日期、从二级页回来、编辑保存）不该再弹一次。
+        just_done.clear()
 
     def delete_todo(todo_id: int) -> None:
         db.delete_todo(todo_id)
@@ -241,7 +249,12 @@ def build_home_page(
         """
 
         def toggle_todo(item: db.Todo) -> None:
-            db.set_done(item.id, not item.done)
+            done = not item.done
+            db.set_done(item.id, done)
+            # 只有「刚被勾上」那一条让对勾弹一下；取消完成不弹。
+            just_done.clear()
+            if done:
+                just_done.add(item.id)
             # reload_todos 顺带把七页都重铺、整叠更新一次。
             reload_todos()
 
@@ -252,6 +265,8 @@ def build_home_page(
             on_click=toggle_todo,
             on_delete=lambda item: delete_todo(item.id),
             on_edit=lambda item: edit_todo(item.id),
+            # 这一条刚被勾上：对勾弹一下（见 build_todo_check 的 pop）。
+            popped_ids=just_done,
         )
 
     def build_empty_hint() -> ft.Control:
@@ -595,7 +610,7 @@ def build_home_page(
         )
 
     def start_add(open_form: Callable[[], None]) -> None:
-        """选好一条：先收面板（按钮也跟着转回「+」），紧接着开对应的新增弹窗。"""
+        """选好一条：先收面板，紧接着开对应的新增弹窗。"""
         close_choose()
         open_form()
 

@@ -16,7 +16,7 @@
 点线都不画，卡片直接铺满正文的宽（见 pages/calendar.py 的 day_groups）。
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Set
 from typing import Any
 
 import flet as ft
@@ -221,13 +221,51 @@ def _time_label(
     )
 
 
+# 刚勾上那一条：对勾先缩到一点点，等这一帧布局完再弹回原大，看着就是「跳一下」。
+# 只能这样给 —— 切完成会把整页重铺一遍，换上来的是新控件，没有「上一个状态」可以
+# 从那里插值过去。
+# 时长收在 140ms：这个动效前面还压着一帧布局（`on_size_change` 是布局之后才回的），
+# 再拖就明显觉得「点了半天才弹」；短一点配 `EASE_OUT_BACK` 的过冲才像弹出来的。
+CHECK_POP_START = 0.3
+CHECK_POP_MS = 1
+CHECK_POP_CURVE = ft.AnimationCurve.EASE_OUT_BACK
+
+
 def build_todo_check(
-    done: bool, on_toggle: Callable[[], None] | None = None
+    done: bool,
+    on_toggle: Callable[[], None] | None = None,
+    pop: bool = False,
 ) -> ft.Control:
     """待办前面那枚勾选框：方框带圆角，勾上了是青绿底 + 一枚黑色对勾。
 
     `on_toggle` 给了就能点 —— 点它和点卡片别处一样是切换完成。
+    `pop` 是「这一条刚被勾上」：对勾先缩到 `CHECK_POP_START`，等这一帧布局完
+    （`on_size_change` 是布局之后才回的）再放回原大，中间的 `animate_scale` 就把
+    它弹出来。
     """
+    check_icon = ft.Icon(
+        ft.Icons.CHECK,
+        size=TODO_CHECK_SIZE * 0.72,
+        color=TODO_CHECK_DONE_CHECK,
+    )
+    if done and pop:
+        check_icon.scale = ft.Scale(CHECK_POP_START)
+        check_icon.animate_scale = ft.Animation(CHECK_POP_MS, CHECK_POP_CURVE)
+        grown = {"done": False}
+
+        def grow(_: ft.LayoutSizeChangeEvent) -> None:
+            """布局完就放开：缩着进去、弹出来。之后再触发已经是原大，不会再弹。"""
+            if grown["done"]:
+                return
+            grown["done"] = True
+            check_icon.scale = ft.Scale(1)
+            try:
+                check_icon.update()
+            except RuntimeError:
+                # 这一行已经被摘下树（切页 / 删掉这条）：没什么可更。
+                pass
+
+        check_icon.on_size_change = grow
     box = ft.Container(
         width=TODO_CHECK_SIZE,
         height=TODO_CHECK_SIZE,
@@ -240,15 +278,7 @@ def build_todo_check(
             if done
             else ft.Border.all(TODO_CHECK_BORDER_WIDTH, TODO_CHECK_COLOR)
         ),
-        content=(
-            ft.Icon(
-                ft.Icons.CHECK,
-                size=TODO_CHECK_SIZE * 0.72,
-                color=TODO_CHECK_DONE_CHECK,
-            )
-            if done
-            else None
-        ),
+        content=check_icon if done else None,
     )
     if on_toggle is not None:
         box.on_click = lambda _: on_toggle()
@@ -256,7 +286,10 @@ def build_todo_check(
 
 
 def _card_content(
-    todo: db.Todo, color: str, on_toggle: Callable[[], None] | None
+    todo: db.Todo,
+    color: str,
+    on_toggle: Callable[[], None] | None,
+    pop: bool = False,
 ) -> ft.Control:
     """卡片里两排：上面一排「起止时间 —— 类别标签」，下面一排「勾选框 - 文字 - 已完成」。
 
@@ -302,7 +335,7 @@ def _card_content(
         spacing=CATEGORY_TAG_GAP,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
-            build_todo_check(todo.done, on_toggle),
+            build_todo_check(todo.done, on_toggle, pop),
             ft.Container(
                 expand=True,
                 content=ft.Text(
@@ -356,6 +389,7 @@ def build_todo_row(
     on_click: Callable[[db.Todo], Any] | None = None,
     on_delete: Callable[[db.Todo], Any] | None = None,
     on_edit: Callable[[db.Todo], Any] | None = None,
+    popped_ids: Set[int] = frozenset(),
 ) -> ft.Control:
     """时间轴的一行；`on_delete`/`on_edit` 给了就能左滑出那两个按钮。
 
@@ -368,6 +402,11 @@ def build_todo_row(
 
     `show_timeline=False` 的一行只剩卡片自己：左边那格时间、点线、以及卡片左边
     让给轴的那一截空当都不要（当天弹窗用这一档），卡片于是铺满整行的宽。
+
+    `popped_ids` 是「刚被勾上」的那几条的 id：它们的对勾落定后会弹一下（见
+    `build_todo_check` 的 `pop`）。切完成会把整页重铺一遍，换上来的是新控件，
+    没有「上一个状态」可以插值，所以这个得由调用方按「这次是谁被勾的」告诉它 ——
+    首页在 `toggle_todo` 里记下，重建完再清掉。
     """
     slot_width, axis_left, left_gutter = timeline_metrics(time_align)
     if not show_timeline:
@@ -385,6 +424,7 @@ def build_todo_row(
             todo,
             color,
             (lambda: on_click(todo)) if on_click is not None else None,
+            pop=todo.id in popped_ids,
         ),
     )
     if on_click is not None:
