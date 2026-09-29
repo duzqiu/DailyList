@@ -52,9 +52,10 @@
 - 三张卡各自独立切换 **年 / 月 / 周**，默认「周」；退出去再进来仍是原来那一档
 
 ### 设置（二级页，从日历页右上角进入，`pages/preferences.py`）
-- 通知渠道：Bark / Pushdeer / Server酱 / 企业微信 / 钉钉 / 飞书 / Telegram / Discord / Slack + 通知地址（存 `settings` 表）
-- 清除缓存：二次确认后清空所有待办，并提示清除了多少条
-- 云端数据：开关（**占位功能，不落库、不发请求**）
+分**三档卡片**（`settings_section`：卡片上方一行灰字小标题，条目摆在自己那张卡片里；`setting_row` 是卡片里的一行 = 左「标题 + 小字说明」+ 右动作控件）：
+- **通知设置** → 通知渠道：Bark / Pushdeer / Server酱 / 企业微信 / 钉钉 / 飞书 / Telegram / Discord / Slack + 通知地址（存 `settings` 表）
+- **数据设置** → 导出数据（**导出为 JSON**：`tools/data_export.py` 把待办 / 倒数日 / 设置拍成一份 JSON，经 `FilePicker.save_file(src_bytes=...)` 交给系统 —— 桌面弹「另存为」，手机和 Web 上表现为导出 / 下载；小字与对话框标题都写明是 JSON）、云端数据：开关（**占位功能，不落库、不发请求**）
+- **通用设置** → **检查新版本**（右侧就是当前版本号 `v0.1.0`，**点整行**去仓库问一次：先看 `releases/latest`、没发过 Release 就退到 `tags`，比完弹一句 —— 「发现新版本 vX.Y.Z」/「已是最新版本」/「还没有已发布的版本」/「检查失败，请稍后重试」，请求期间右边先显示「检查中…」。当前版本是 `tools/version_check.py` 的 `APP_VERSION`，和 `pyproject.toml` 的 `version` 是一对，改版本号得两处一起改）、**联系方式**（`CONTACTS` 里逐条列：邮箱、微信；**点一下复制到剪贴板**并弹一句**屏幕中间**的提示「已复制邮箱 / 已复制微信」（走 `tools/toast.py`），右侧一枚复制图标当提示）、清除缓存（二次确认后清空所有待办，并提示清除了多少条）
 
 ### 二级 / 三级页的返回（`page.views` + `tools/swipe_back.py`）
 - 二级 / 三级页各自是**一层压进 `page.views` 的真 `ft.View`**（`navigation.py` 的 `show_layer`），不是在一级页的 `content` 里换控件。所以真机的「返回」—— Android 返回键 / 两侧边缘的返回手势、iOS 的边缘返回 —— 有层可弹：弹掉一层就是回上一页，`page.on_view_pop` 接住这一下、走和「‹ 返回」按钮**同一个** `go_back()`。
@@ -70,15 +71,19 @@
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `src/main.py` | 13 | 入口：`db.init_db()` 建库 → `build_navigation(page)` |
+| `src/main.py` | 18 | 入口：`db.init_db()` 建库 → **`register_app_services(page)`** 注册 Service（剪贴板 / 文件选择器，**必须赶在页面首次发给客户端之前**）→ `build_navigation(page)` |
 | `src/pages/navigation.py` | 297 | 底部毛玻璃菜单 + 3 个 Tab 切换 + 二级页（数据 / 设置）跳转；按页面名保管选择状态；二级 / 三级页各压一层真 `ft.View`（`show_layer`），`nav_stack` 记楼层，返回按钮 / 左滑 / 真机的系统返回（`on_view_pop`）共用 `go_back`；页面动画用 `PAGE_TRANSITION`（横向推拉，不留残影） |
 | `src/pages/home.py` | 689 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」面板（新增待办 / 新增倒数日）、右上角「数据」入口 |
 | `src/pages/countdown.py` | 250 | 倒数日页：通栏 + 两列卡片列表 + 底部「已过期 N」开关（过期卡片全部双列；没有「+」，新增入口在待办页） |
 | `src/pages/calendar.py` | 1016 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（月份与选中日期跨 Tab 保留） |
 | `src/pages/data.py` | 596 | 「数据」二级页：数据统计 / 分类占比 / 待办趋势三张卡（年/月/周 保留） |
-| `src/pages/preferences.py` | 372 | 设置二级页：通知渠道、清除缓存、云端开关 |
-| `src/tools/db.py` | 610 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings |
+| `src/pages/preferences.py` | 534 | 设置二级页：三档卡片 —— 通知设置（通知渠道）、数据设置（导出 JSON、云端开关）、通用设置（检查新版本、联系方式、清除缓存） |
+| `src/tools/db.py` | 641 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings / 读全部两张表（`list_all_todos`、`list_settings`，导出用） |
+| `src/tools/data_export.py` | 73 | 导出数据：把库里的待办 / 倒数日 / 设置拍成一份 JSON（`export_bytes()` 出字节、`export_file_name()` 出文件名；中文不转义，文件里带 `format` / `version` 标记） |
 | `src/tools/layout.py` | 239 | 全局配色与尺寸常量、页面渐变、二级页顶栏（返回 + 居中标题）、弹窗键盘定位、文字宽度估算、可读字色、时间文案 |
+| `src/tools/toast.py` | 76 | 居中的 toast 提示（`build_toast(page, message)`）：`SnackBar` 用 FLOATING 档 + 「(屏高 − 48) / 2」的底部留白顶到**屏幕正中**，宽度按文字估、封顶 `TOAST_MAX_WIDTH = 240`；各页面的提示统一走它，别再自己拼 SnackBar |
+| `src/tools/services.py` | 81 | Service 的统一注册：`register_app_services(page)` 由 `main.py` 在页面首次发出**之前**调用（时机是关键，见约定 10），页面里用 `ensure_service(page, 类型)` 取 |
+| `src/tools/version_check.py` | 95 | 查新版本：`APP_VERSION` 常量 + `latest_version()`（GitHub `releases/latest`，没发过 Release 就退到 `tags`；标准库 `urllib`，**阻塞**，调用方扔 `asyncio.to_thread`）、`is_newer()`、`parse_version()`（`v` 前缀、位数不同都能比）。**坑**：`User-Agent` 必须是 ASCII，拿中文应用名去拼会在发请求前就抛 `UnicodeEncodeError` |
 | `src/tools/categories.py` | 62 | 三个类别及其颜色（红 / 黄 / 绿）、星标控件 |
 | `src/tools/todo_timeline.py` | 535 | 待办行 / 时间轴（首页一条条搭、日历弹窗整列搭都走它；点线随卡片拉伸、点本身仍是圆点；**轴两端不补点** —— 首行上、末行下都不画小圆点，`first` / `last` 由调用方传；**`show_timeline=False` 只剩下卡片**（待办行、整天的一列都支持这一档），当天弹窗用的就是它） |
 | `src/tools/todo_form.py` | 278 | 新增 / 编辑待办弹窗（分类胶囊 + 内容 + 日期 + 起止时间一格 + 周期） |
@@ -149,7 +154,8 @@ main.py
 7. **折线图的浮框是自绘的**（`tools/line_chart.py`）：fl_chart 的浮框是一个系列一行、每行只能一种颜色（`text_spans` 在 flet-charts 1.0.1 里传不到 Dart 侧，一用整个浮框都画不出来），做不出「灰色日期 + 彩点 + 黑色数值」。所以控件自带的浮框只留一个透明的壳，内容换成挂在 `ft.Stack` 上的 `ft.Container`，由 `LineChart.on_event` 的悬停事件摆位置、换内容。浮框贴在锚点左右：`TIP_OFFSET` 比 fl_chart 10px 的 x 命中半径大，光标压不到它，否则会出现「浮框盖住光标 → 图表 pointerExit → 浮框消失 → 又冒出来」的抖动。浮框是毛玻璃：半透明灰白底（`#CCF1F5F9`，`#AARRGGBB`）+ `blur=ft.Blur(12, 12, ft.BlurTileMode.CLAMP)`，与「+」按钮、底部菜单栏同一套写法。
 8. **页面选择状态存在 `pages/navigation.py`**：切页时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份按页面名索引的 `state_store`，由 `page_state(name)` 按名字取（没有就现建一个空的）；页面把它当自己的草稿本 —— 日历页存 `month` / `day`，数据页存三张卡各自的 年/月/周，只有热重载重跑 `main()` 才会回到初始值。
 9. **日历弹窗的高度是「先估后量」**：正文的真高度由 `open_day_dialog` 里那层探针（`on_size_change`）量出来，量一次得等一帧（客户端是 post-frame 回调），所以第一帧先用 `estimate_day_height()` 把 `body.height` / `scroll` 定上。估算**估高不估矮**：估高了下一帧就收回，估矮了弹窗会先按全部内容撑高一下再弹回来 —— 就是「点日期先闪一下全部数据」的样子。
-10. **页面的上下层关系只认 `navigation.py` 的 `nav_stack` + `page.views`**（`tools/swipe_back.py` 把左滑接到它上面）：进一层时把「上一层怎么画」压进 `nav_stack`（`render_data` / `render_preferences` 那类只重画、不动栈的函数），`go_back()` 只弹一层 —— 同时弹掉 `page.views` 顶上那层真 View。所以**别在页面里自己写 `show_page(0)` 当返回**，也别在栈里压一个会再压栈的 `show_xxx`；另外别把子页塞回 `content.content`（那样真机的返回就又没有层可弹、直接退出 App 了）。层数多深都按这个来。
+10. **`ft.Service`（`Clipboard`、`FilePicker` 这些）统一走 `tools/services.py`，而且必须由 `main.py` 的 `register_app_services(page)` 在**启动时**注册**（页面里只用 `ensure_service(page, 类型)` 取）。三个坑：① **`page.services.append(...)` 不算注册** —— `page.services` 拿到的是根 `View` 上那个**普通 list**（连 `register_service` 都没有），append 只是往清单里塞个对象，客户端什么都收不到。② **注册必须赶在页面首次发给客户端之前**：真正会把服务送出去的是注册表的 `register_service()`，可注册表是 `Page` 的一个字段、并不挂在控件树上，它的 `parent` 恒为 `None`，那段 `__internal_update()` 直接返回 —— 新增的服务只能等「随页面首次发出」。设置页这类二级页构建时页面早发过了，那时再注册客户端**永远**收不到，之后调用它的方法就是干等 10 秒然后抛 `TimeoutException: Timeout waiting for invoke method listener for Clipboard(xxx).set`。③ 改用 `ft.CopyToClipboard` 这类客户端动作**绕不过这一点**：它内部的 `shared_service(Clipboard)` 走的是同一个注册路径（它的好处只在 iOS/Safari 的手势时效上，跟注册无关）。
+11. **页面的上下层关系只认 `navigation.py` 的 `nav_stack` + `page.views`**（`tools/swipe_back.py` 把左滑接到它上面）：进一层时把「上一层怎么画」压进 `nav_stack`（`render_data` / `render_preferences` 那类只重画、不动栈的函数），`go_back()` 只弹一层 —— 同时弹掉 `page.views` 顶上那层真 View。所以**别在页面里自己写 `show_page(0)` 当返回**，也别在栈里压一个会再压栈的 `show_xxx`；另外别把子页塞回 `content.content`（那样真机的返回就又没有层可弹、直接退出 App 了）。层数多深都按这个来。
 
 ---
 
@@ -201,6 +207,7 @@ pytest
 - **测试过期**：`tests/test_main.py` 断言与当前 UI 文案不符。
 - **通知渠道只有配置**：`tools/notifications.py` 只存渠道名和地址，没有真正发送推送的逻辑。
 - **云端数据是占位**：开关不落库、不请求（代码注释里写明「先只做样子」）。
+- **导出只有 JSON、还没有「导入」**：导出的文件现在只能给人看 / 备份，回填功能没做（文件里留了 `format` / `version` 标记，就是为了以后能认版本）。
 - **仓库里的 `dailylist.db` 是活数据文件**：当前只有 `todos`(204 行) / `settings`，既没有 `countdowns` 表，`todos` 也缺 `due_time` / `end_time` 列 —— 说明该文件早于「倒数日 / 时间」功能，首次运行会被 `init_db()` 自动补齐。它是跟着仓库走的，改动数据会体现为一次文件改动。
 - **多实例同时写库**：应用的 DB 路径固定在项目根，同时开多个实例（或一边跑 App 一边跑测试脚本）会互相覆盖数据，调试时注意先关掉旧实例。
 - **一级页按返回会退出 App**：二级 / 三级页现在是真 View，系统返回弹的是它们；回到一级页（`page.views` 只剩一层）之后按返回就没有可弹的层了，客户端会结束 Activity、回到 Flet 首页 —— 这是系统返回的正常行为，不是 bug。想在首页也拦住返回，得自己接管客户端的返回事件，Flet 目前没给这层口子。

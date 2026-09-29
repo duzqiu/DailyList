@@ -537,6 +537,25 @@ def list_range(start: date, end: date) -> list[Todo]:
     return [_to_todo(row) for row in rows]
 
 
+def list_all_todos() -> list[Todo]:
+    """库里所有的待办 —— 导出数据用。
+
+    注意给的是**物化之后**的全部行：循环待办是新增 / 编辑时按周期一次性铺开的
+    （见 occurrence_dates），库里没有「模板 + 规则」这种存法。
+    """
+    connection = connect()
+    try:
+        rows = connection.execute(
+            "SELECT id, due_date, due_time, end_time, category, content, done,"
+            " repeat_cycle"
+            " FROM todos"
+            " ORDER BY due_date, id",
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_to_todo(row) for row in rows]
+
+
 def counts_in(
     start: date | None = None, end: date | None = None
 ) -> list[tuple[str, bool, int]]:
@@ -581,6 +600,18 @@ def set_setting(name: str, value: str) -> None:
         connection.commit()
     finally:
         connection.close()
+
+
+def list_settings() -> dict[str, str]:
+    """settings 表里的全部键值 —— 导出数据用。"""
+    connection = connect()
+    try:
+        rows = connection.execute(
+            "SELECT name, value FROM settings ORDER BY name"
+        ).fetchall()
+    finally:
+        connection.close()
+    return {row["name"]: row["value"] for row in rows}
 
 
 def _to_todo(row: sqlite3.Row) -> Todo:

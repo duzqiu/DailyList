@@ -1,15 +1,20 @@
 """设置页：日历页右上角齿轮进来的二级页。
 
-两项设置：通知渠道、清除缓存。顶栏用 tools/layout.py 的 build_subpage_header：
-左边是「‹ 返回」，标题「设置」落在页面正中（左边返回按钮有多宽，右边就留多宽
-的空位撑着）。
+三档设置卡片，每档一张：**通知设置**（通知渠道）、**数据设置**（导出 JSON、云端
+数据）、**通用设置**（当前版本、联系方式、清除缓存）—— 档名是卡片上的小标题，
+条目都摆在自己那张卡片里
+（见 settings_section）。顶栏用 tools/layout.py 的 build_subpage_header：左边是
+「‹ 返回」，标题「设置」落在页面正中（左边返回按钮有多宽，右边就留多宽的空位撑
+着）。
 """
 
+import asyncio
+import logging
 from collections.abc import Callable
 
 import flet as ft
 
-from tools import db, notifications
+from tools import data_export, db, notifications, version_check
 from tools.layout import (
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
@@ -28,6 +33,10 @@ from tools.popup_select import (
     build_option_selector,
     build_option_text,
 )
+from tools.services import ensure_service
+from tools.toast import build_toast
+
+logger = logging.getLogger(__name__)
 
 CARD_BG = UNSELECTED_CARD_BG
 CARD_BORDER = "#E2E8F0"
@@ -35,6 +44,13 @@ TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
 PENDING_COLOR = "#DC2626"
 PAGE_SIDE_PADDING = 24
+# 检查新版本时，右边那枚版本号先换成这句，回来再换回版本号。
+CHECKING_LABEL = "检查中…"
+# 联系方式（摆在「通用设置」那张卡片里，点一下把值复制到剪贴板）。
+CONTACTS = (
+    ("邮箱", "duzqiu@outlook.com"),
+    ("微信", "test001"),
+)
 
 
 def build_preferences_page(
@@ -43,13 +59,8 @@ def build_preferences_page(
     go_back: Callable[[], None],
 ) -> ft.Control:
     def notify(message: str) -> None:
-        page.show_dialog(
-            ft.SnackBar(
-                content=ft.Text(message, size=13, color="#FFFFFF"),
-                bgcolor=TITLE_COLOR,
-                duration=2000,
-            )
-        )
+        """一句话的提示：走 `tools/toast.py`，浮在**屏幕中间**（不再是底部那条）。"""
+        page.show_dialog(build_toast(page, message))
 
     def compact_button_style() -> ft.ButtonStyle:
         """Compact metrics of the card's own 清除 action button."""
@@ -128,6 +139,51 @@ def build_preferences_page(
                 ],
             )
         )
+
+    # 复制和导出各要一个 Service（剪贴板、文件选择器）。它们不能像控件那样随手挂到
+    # 页面上 —— 必须**真注册**（见 tools/services.py）：`page.services.append()` 只
+    # 往清单里塞个对象、不推给客户端，客户端不认识它，之后调它的方法就是干等，10 秒
+    # 后抛 TimeoutException。
+    clipboard = ensure_service(page, ft.Clipboard)
+    export_picker = ensure_service(page, ft.FilePicker)
+
+    async def copy_contact(label: str, value: str) -> None:
+        """点一下联系方式：把值复制到剪贴板，再吱一声复制的是哪一条。"""
+        try:
+            await clipboard.set(value)
+        except Exception:
+            # 复制失败也得应一声，别让人点了没反应；栈打进日志方便查。
+            logger.exception("复制联系方式失败")
+            notify("复制失败")
+            return
+        notify(f"已复制{label}")
+
+    async def export_data() -> None:
+        """导出数据：把库里的东西拍成一份 JSON，交给系统去存。
+
+        桌面端弹「另存为」；手机和 Web 上 `save_file` 表现为导出 / 下载 —— 这几种
+        平台上 `src_bytes` 必须给（不给会直接抛 `ValueError`），内容在内存里就先
+        备好了。用户取消返回 `None`，存下了才有值（手机返回的路径不可用，只拿它
+        判存没存）。
+        """
+        name = data_export.export_file_name()
+        try:
+            saved = await export_picker.save_file(
+                dialog_title="导出为 JSON 文件",
+                file_name=name,
+                # Flet 的 `file_type` 只有 any / media / image / video / audio /
+                # custom 这几档，没有「文本档」—— 要限定后缀就得走 CUSTOM +
+                # allowed_extensions。它只管对话框筛不筛，不校验内容。
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=[data_export.EXPORT_FORMAT],
+                src_bytes=data_export.export_bytes(),
+            )
+        except Exception:
+            logger.exception("导出数据失败")
+            notify("导出失败")
+            return
+        if saved:
+            notify("已导出 JSON 数据")
 
     def toggle_cloud(_: ft.Event[ft.Switch]) -> None:
         """云端数据开关：先只做样子，不落库、不发请求。"""
@@ -239,102 +295,189 @@ def build_preferences_page(
         )
         page.show_dialog(dialog)
 
-    def settings_card() -> ft.Control:
-        """一个卡片里的两行：通知渠道、清除缓存（标题已经在页面顶部）。"""
-        return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
-            border_radius=ft.BorderRadius.all(12),
-            bgcolor=CARD_BG,
-            border=ft.Border.all(1, CARD_BORDER),
-            content=ft.Column(
-                tight=True,
-                spacing=10,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=[
-                    ft.Container(
-                        border_radius=ft.BorderRadius.all(8),
-                        on_click=open_notify_settings,
-                        content=ft.Row(
-                            spacing=8,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Column(
-                                    tight=True,
-                                    spacing=2,
-                                    expand=True,
-                                    controls=[
-                                        ft.Text(
-                                            "通知渠道",
-                                            size=13,
-                                            weight=ft.FontWeight.BOLD,
-                                            color=TITLE_COLOR,
-                                        ),
-                                        notify_summary,
-                                    ],
-                                ),
-                                ft.Icon(
-                                    ft.Icons.CHEVRON_RIGHT,
-                                    size=20,
-                                    color="#94A3B8",
-                                ),
-                            ],
+    def settings_section(
+        title: str, rows: list[ft.Control]
+    ) -> ft.Control:
+        """一档设置：卡片上方一行小标题（灰字），底下的卡片里摆这一档的各行。"""
+        return ft.Column(
+            tight=True,
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[
+                ft.Text(
+                    title,
+                    size=12,
+                    weight=ft.FontWeight.BOLD,
+                    color=MUTED_COLOR,
+                ),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+                    border_radius=ft.BorderRadius.all(12),
+                    bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    content=ft.Column(
+                        tight=True,
+                        spacing=10,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        controls=rows,
+                    ),
+                ),
+            ],
+        )
+
+    def setting_row(
+        title: str,
+        subtitle: ft.Control,
+        action: ft.Control | None = None,
+    ):
+        """卡片里的一行：左边「标题 + 小字说明」，右边跟一个动作控件。
+
+        纯展示的行（当前版本）不给动作，右边就空着。
+        """
+        return ft.Row(
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Column(
+                    tight=True,
+                    spacing=2,
+                    expand=True,
+                    controls=[
+                        ft.Text(
+                            title,
+                            size=13,
+                            weight=ft.FontWeight.BOLD,
+                            color=TITLE_COLOR,
                         ),
-                    ),
-                    ft.Row(
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Column(
-                                tight=True,
-                                spacing=2,
-                                expand=True,
-                                controls=[
-                                    ft.Text(
-                                        "清除缓存",
-                                        size=13,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=TITLE_COLOR,
-                                    ),
-                                    ft.Text(
-                                        "删除当前所有的待办数据",
-                                        size=11,
-                                        color=MUTED_COLOR,
-                                    ),
-                                ],
-                            ),
-                            ft.OutlinedButton(
-                                "清除",
-                                on_click=confirm_clear,
-                                style=compact_button_style(),
-                            ),
-                        ],
-                    ),
-                    ft.Row(
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Column(
-                                tight=True,
-                                spacing=2,
-                                expand=True,
-                                controls=[
-                                    ft.Text(
-                                        "云端数据",
-                                        size=13,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=TITLE_COLOR,
-                                    ),
-                                    ft.Text(
-                                        "把待办数据同步到云端",
-                                        size=11,
-                                        color=MUTED_COLOR,
-                                    ),
-                                ],
-                            ),
-                            cloud_switch,
-                        ],
-                    ),
-                ],
+                        subtitle,
+                    ],
+                ),
+                *([action] if action is not None else []),
+            ],
+        )
+
+    def notify_row() -> ft.Control:
+        """通知设置那一行：通知渠道 —— 点开弹窗改渠道和推送地址。"""
+        return ft.Container(
+            border_radius=ft.BorderRadius.all(8),
+            on_click=open_notify_settings,
+            content=setting_row(
+                "通知渠道",
+                notify_summary,
+                ft.Icon(ft.Icons.CHEVRON_RIGHT, size=20, color="#94A3B8"),
+            ),
+        )
+
+    def export_row() -> ft.Control:
+        """数据设置那一行：导出数据（JSON）。
+
+        小字里就写明是 JSON 文件 —— 点之前用户就知道会拿到个什么样的文件。
+        """
+        return setting_row(
+            "导出数据",
+            ft.Text(
+                "导出为 JSON 文件",
+                size=11,
+                color=MUTED_COLOR,
+                no_wrap=True,
+            ),
+            ft.OutlinedButton(
+                "导出",
+                # async 处理器交给 `run_task` 跑（和首页「+」面板那两条入口一个
+                # 路子），别直接挂在 on_click 上。
+                on_click=lambda _: page.run_task(export_data),
+                style=compact_button_style(),
+            ),
+        )
+
+    def cloud_row() -> ft.Control:
+        """数据设置那一行：云端数据（开关先只做样子，不落库、不发请求）。"""
+        return setting_row(
+            "云端数据",
+            ft.Text(
+                "把待办数据同步到云端", size=11, color=MUTED_COLOR
+            ),
+            cloud_switch,
+        )
+
+    def check_version_row() -> ft.Control:
+        """通用设置那一行：检查新版本 —— 右边写着当前版本号，点它去仓库问一次。
+
+        查询走网络，别堵事件循环：`latest_version()` 自己就是个阻塞的标准库调用，
+        所以扔给 `asyncio.to_thread` 跑。
+        """
+        version_text = ft.Text(
+            version_check.APP_VERSION,
+            size=11,
+            color=MUTED_COLOR,
+            no_wrap=True,
+        )
+
+        async def check_version() -> None:
+            """问一次仓库上的最新版本，结果用一句 toast 说清楚。"""
+            # 请求期间把版本号换成「检查中…」，回来再换回去 —— 网络慢时点了也不至
+            # 于毫无动静。
+            version_text.value = CHECKING_LABEL
+            version_text.update()
+            latest = None
+            try:
+                latest = await asyncio.to_thread(version_check.latest_version)
+            except Exception:
+                logger.exception("检查新版本失败")
+            version_text.value = version_check.APP_VERSION
+            version_text.update()
+
+            # `latest_version()` 的三种返回对应三句不同的话，别混着说。
+            if latest is None:
+                notify("检查失败，请稍后重试")
+            elif not latest:
+                notify("还没有已发布的版本")
+            elif version_check.is_newer(latest):
+                notify(f"发现新版本 {latest}")
+            else:
+                notify("已是最新版本")
+
+        return ft.Container(
+            border_radius=ft.BorderRadius.all(8),
+            on_click=lambda _: page.run_task(check_version),
+            content=setting_row(
+                "检查新版本",
+                ft.Text(
+                    "点这里看有没有新版本",
+                    size=11,
+                    color=MUTED_COLOR,
+                    no_wrap=True,
+                ),
+                version_text,
+            ),
+        )
+
+    def contact_row(label: str, value: str) -> ft.Control:
+        """通用设置里的联系方式行：点一下把值复制走。
+
+        右边那枚复制图标既是「可以点」的提示，也把这行和上面几行区分开。
+        """
+        return ft.Container(
+            border_radius=ft.BorderRadius.all(8),
+            on_click=lambda _: page.run_task(copy_contact, label, value),
+            content=setting_row(
+                label,
+                ft.Text(value, size=11, color=MUTED_COLOR, no_wrap=True),
+                ft.Icon(ft.Icons.COPY, size=16, color="#94A3B8"),
+            ),
+        )
+
+    def clear_row() -> ft.Control:
+        """通用设置那一行：清除缓存。"""
+        return setting_row(
+            "清除缓存",
+            ft.Text(
+                "删除当前所有的待办数据", size=11, color=MUTED_COLOR
+            ),
+            ft.OutlinedButton(
+                "清除",
+                on_click=confirm_clear,
+                style=compact_button_style(),
             ),
         )
 
@@ -363,7 +506,26 @@ def build_preferences_page(
                             spacing=12,
                             scroll=ft.ScrollMode.HIDDEN,
                             padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
-                            controls=[settings_card()],
+                            controls=[
+                                # 三档设置，各一张卡片，条目摆在自己那张里。
+                                settings_section(
+                                    "通知设置", [notify_row()]
+                                ),
+                                settings_section(
+                                    "数据设置", [export_row(), cloud_row()]
+                                ),
+                                settings_section(
+                                    "通用设置",
+                                    [
+                                        check_version_row(),
+                                        *(
+                                            contact_row(label, value)
+                                            for label, value in CONTACTS
+                                        ),
+                                        clear_row(),
+                                    ],
+                                ),
+                            ],
                         ),
                     ],
                 ),
