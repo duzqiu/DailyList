@@ -2,7 +2,7 @@
 
 一张卡片分上中下三段：上段是图标 + 倒数日事项，底色就是这张卡自己选的颜色；
 中段是放大后的天数，「天后」贴在数字右上角；中段高度钉死成「有数字那一行」的高度，
-到期当天改成一块「就是今天」，所以卡片张张等高。一条「--」虚线把中段和下段隔开，
+到期当天改成一块「就是今天」，所以卡片张张等高。一排定大的细小圆点把中段和下段隔开，
 下段写倒数日的日期 · 农历 · 周几。天数徽标按剩余天数分三档上色，用的就是类别三色，
 天数越近越像「重要」那一档：七天及以上绿、三到六天黄、不到三天（含已过）红；不循环
 的那种一过到期日就整张收起。
@@ -58,9 +58,18 @@ DAYS_COLOR = "#111827"
 SUFFIX_TOP_PAD = 4
 SUFFIX_PADDING = ft.Padding.symmetric(horizontal=4, vertical=1)
 SUFFIX_RADIUS = 4
-# 「--」分隔线：细密短横线，卡片宽度变了也跟着重排。
-DASH_COUNT = 16
-DASH_GAP = 2
+# 中下两段之间那排分隔：一排**定大、定距**的细小圆点。早先是拉长的短横线（卡片一
+# 宽线就跟着被拉长），后来改成按宽度摊开间距 —— 通栏卡片上的点被摊得稀稀拉拉。现
+# 在点的大小和**点距都写死**：卡片宽就多摆几个、窄就少摆几个，所以通栏和双列看着
+# 是同一条点线，密度也一样。点距现在只有 2（点 2 + 空 2，中心距 4），密到快连成线
+# —— 再密就把 `DOT_GAP` 减到 1，或者把 `DOT_SIZE` 也收小一号。
+DOT_SIZE = 2
+DOT_GAP = 2
+DOT_COLOR = CARD_BORDER
+# 还没量到宽度时先按双列那档估一排点（双列卡片约 149 宽，减掉左右各 8 的内边距）。
+DOT_ROW_ESTIMATE = 133
+# 再窄也留这么几个，免得算出 0 或 1 个看着不像一条线。
+DOT_MIN_COUNT = 4
 # 天数徽标的三档状态色直接借待办类别的三色：红 = 重要、黄 = 一般、绿 = 可选，天数
 # 越近越像「重要」。三张卡都取同一份色值（tools/categories.py），别再手写十六进制。
 URGENT_COLOR = category_color("重要")
@@ -207,14 +216,51 @@ def days_block(days: int, color: str) -> ft.Control:
     )
 
 
-def dashed_rule() -> ft.Control:
-    """「--」：几段等宽短线排开，卡片宽窄变化都能铺满。"""
-    return ft.Row(
-        spacing=DASH_GAP,
-        controls=[
-            ft.Container(height=1, expand=True, bgcolor=CARD_BORDER)
-            for _ in range(DASH_COUNT)
-        ],
+def dot_count(width: float) -> int:
+    """这么宽能摆几个点：点距是定死的，所以就是宽度除以「一个点 + 一个点距」。"""
+    return max(
+        DOT_MIN_COUNT, int((width + DOT_GAP) // (DOT_SIZE + DOT_GAP))
+    )
+
+
+def _dots(count: int) -> list[ft.Control]:
+    return [
+        ft.Container(
+            width=DOT_SIZE,
+            height=DOT_SIZE,
+            shape=ft.BoxShape.CIRCLE,
+            bgcolor=DOT_COLOR,
+        )
+        for _ in range(count)
+    ]
+
+
+def dotted_rule() -> ft.Control:
+    """一排小圆点：点定大、点距定死，卡片多宽就摆几个（见 `dot_count`）。"""
+    row = ft.Row(
+        spacing=DOT_GAP,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=_dots(dot_count(DOT_ROW_ESTIMATE)),
+    )
+
+    def fit(e: ft.LayoutSizeChangeEvent) -> None:
+        """量到这一排多宽，按定死的点距算该摆几个点，不一样就重摆一次。"""
+        count = dot_count(e.width)
+        if count == len(row.controls):
+            return
+        row.controls = _dots(count)
+        try:
+            row.update()
+        except RuntimeError:
+            # 卡片已经被摘下树（翻页 / 关弹窗）：没什么可更。
+            pass
+
+    # `alignment` 让这层撑满可用宽 —— 量到的才是「能摆几个点」的那个宽度（不然量
+    # 到的只是这排点自己的宽，点数就永远算不出来了）。
+    return ft.Container(
+        alignment=ft.Alignment.CENTER,
+        on_size_change=fit,
+        content=row,
     )
 
 
@@ -294,10 +340,10 @@ def build_countdown_card(
                     padding=MID_PADDING,
                     content=days_block(shown_days, badge_bg),
                 ),
-                # 「--」
+                # 中 / 下之间那一排小圆点
                 ft.Container(
                     padding=ft.Padding.symmetric(horizontal=8),
-                    content=dashed_rule(),
+                    content=dotted_rule(),
                 ),
                 # 下：周几一行、日期 · 农历一行，都居中；过期卡片把日期那行换成
                 # 「已过期 N 天」，字色照旧是灰色。

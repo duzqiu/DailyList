@@ -182,9 +182,9 @@ TODO_TIME_EST = TODO_TIME_SIZE * 1.35
 # 卡片现在铺满正文的宽（见 day_groups 的 show_timeline=False），比原来多出左边
 # 那格时间轴 + 圆点 + 空当那一截（LEFT_GUTTER_DIALOG = 36 + 9 + 4 = 49）。
 TODO_TEXT_SLOT = 180 + 49
-# 倒数日卡片是定高的（见 tools/countdown_card.py）：上段 30 + 中段 42 + 虚线 1
+# 倒数日卡片是定高的（见 tools/countdown_card.py）：上段 30 + 中段 42 + 圆点 2
 # + 下段 39 + 边框 2。
-COUNTDOWN_EST = 114
+COUNTDOWN_EST = 115
 # 「这天没有待办事项」那块（empty_hint）：上下 10 的留白 + 20 的图标 + 边框。
 EMPTY_HINT_EST = 44
 # 估的高度比量出来的真高度差多少（**摊到每一条**上），记在页面 state 里的键（见

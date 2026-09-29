@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from datetime import date, timedelta
 
@@ -18,6 +19,12 @@ from tools.todo_timeline import build_todo_row, sorted_todos
 # The floating add button is a sky-blue glass tile: no border ring, and a
 # translucent fill (60%) so the blur behind it shows through.
 ADD_BUTTON_BG = "#99" + SKY_BLUE[1:]
+# 毛玻璃那层模糊：右上角「数据」入口用过同一块玻璃，所以两处共用它。
+ADD_BUTTON_BLUR = ft.Blur(20, 20, ft.BlurTileMode.CLAMP)
+# 右上角「数据」图标的色：和「+」那块玻璃同一个天蓝，但要深几档才看得清 ——
+# 直接用 `ADD_BUTTON_BG` 的话是 60% 透明，落在白底上淡得几乎看不见。这一档和倒数日
+# 卡片上的强调色（countdown_card.ACCENT_COLOR）是同一个值。
+DATA_ICON_COLOR = "#0EA5E9"
 # A round tile, lifted clear of the floating menu bar.
 ADD_BUTTON_SIZE = 52
 ADD_BUTTON_LIFT = 10
@@ -50,11 +57,20 @@ CHOOSE_PANEL_WIDTH = (
     + CHOOSE_OPTION_PADDING.right
     + CHOOSE_PANEL_PADDING.right
 )
-# 展开 / 收起：缩放（从按钮那一角）+ 淡入淡出，收起就是回到这个起点。
-CHOOSE_GROW_MS = 200
+# 展开 / 收起：面板那层玻璃只淡入淡出，**两条入口是「弹」出来的** —— 各自从按钮
+# 那一角由小撑到原大（`EASE_OUT_BACK` 带一点过冲，像弹出菜单那样顿一下），第二条
+# 比第一条晚 CHOOSE_STAGGER_MS 起步，所以看着是一条一条弹出来的。收起就是回到起
+# 点（不做错峰，一下收掉才跟手）。
+CHOOSE_GROW_MS = 220
 CHOOSE_FADE_MS = 160
+CHOOSE_STAGGER_MS = 70
 CHOOSE_START_SCALE = 0
 CHOOSE_ANCHOR = ft.Alignment.BOTTOM_RIGHT
+CHOOSE_POP_CURVE = ft.AnimationCurve.EASE_OUT_BACK
+# 「+」就是一个「+」：点之前、点之后都一样，不换成「×」、也不转（试过转一圈变
+# 「×」，动效和图标尺寸都调不准，索性不动）。
+ADD_ICON = ft.Icons.ADD
+ADD_ICON_SIZE = 24
 # 顶部日期条：今天排第一个，往后连着 7 天（过去的日子不再列出来）。
 DATE_STRIP_DAYS = 7
 # 日期一格不带底色：选中的那天只是把日期**加粗**，选中标记交给日期底下那条黑
@@ -508,6 +524,18 @@ def build_home_page(
         on_pan_cancel=on_page_pan_cancel,
     )
 
+    add_icon_button = ft.IconButton(
+        # 就是一个「+」：新增入口本身不用再解释，面板里那两条才分工。开着、关着
+        # 都是它，不再换图标也不再转。
+        icon=ADD_ICON,
+        icon_color="#172554",
+        icon_size=ADD_ICON_SIZE,
+        tooltip="新增待办 / 倒数日",
+        style=ft.ButtonStyle(shape=ft.CircleBorder()),
+        # 点一下弹入口；再点一下（或点空白处）收回去。
+        on_click=lambda _: toggle_choose(),
+    )
+
     add_button = ft.Container(
         right=24,
         # Sits 10px above the floating menu bar, whose height drives the inset.
@@ -516,17 +544,8 @@ def build_home_page(
         height=ADD_BUTTON_SIZE,
         shape=ft.BoxShape.CIRCLE,
         bgcolor=ADD_BUTTON_BG,
-        blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
-        content=ft.IconButton(
-            # 就是一个「+」：新增入口本身不用再解释，面板里那两条才分工。
-            icon=ft.Icons.ADD,
-            icon_color="#172554",
-            icon_size=24,
-            tooltip="新增待办 / 倒数日",
-            style=ft.ButtonStyle(shape=ft.CircleBorder()),
-            # 点一下弹小面板，再点一下收回去。
-            on_click=lambda _: set_choose_open(not choose_open),
-        ),
+        blur=ADD_BUTTON_BLUR,
+        content=add_icon_button,
     )
 
     choose_open = False
@@ -536,19 +555,30 @@ def build_home_page(
         expand=True,
         bgcolor="#01000000",
         visible=False,
-        on_click=lambda _: set_choose_open(False),
+        on_click=lambda _: close_choose(),
     )
 
     def choose_option(
         label: str, icon: str, open_form: Callable[[], None]
     ) -> ft.Container:
-        """面板上的一条入口：图标 + 文案，点一下先收面板再开弹窗。"""
+        """面板上的一条入口：图标 + 文案，点一下先收面板再开弹窗。
+
+        收起时是「缩到按钮那一角 + 全透明」，展开时由 `pop_options` 把它弹回来。
+        控件一直留在树上，缩放和淡入才有起点可插值（就是「从按钮里弹出来」的动
+        效）；缩到 0 之后既看不见也不吃点击，所以不必再用 `visible` 开关它。
+        """
         return ft.Container(
             height=CHOOSE_OPTION_HEIGHT,
             border_radius=ft.BorderRadius.all(CHOOSE_OPTION_RADIUS),
             padding=CHOOSE_OPTION_PADDING,
             ink=True,
             on_click=lambda _: start_add(open_form),
+            scale=ft.Scale(CHOOSE_START_SCALE, alignment=CHOOSE_ANCHOR),
+            opacity=0,
+            animate_scale=ft.Animation(CHOOSE_GROW_MS, CHOOSE_POP_CURVE),
+            animate_opacity=ft.Animation(
+                CHOOSE_FADE_MS, ft.AnimationCurve.EASE_OUT
+            ),
             content=ft.Row(
                 tight=True,
                 spacing=CHOOSE_ICON_GAP,
@@ -565,9 +595,23 @@ def build_home_page(
         )
 
     def start_add(open_form: Callable[[], None]) -> None:
-        """选好一条：先收面板，紧接着开对应的新增弹窗。"""
-        set_choose_open(False)
+        """选好一条：先收面板（按钮也跟着转回「+」），紧接着开对应的新增弹窗。"""
+        close_choose()
         open_form()
+
+    # 两条入口：要一条一条弹出来（见 pop_options），所以先留一份引用。
+    choose_options = [
+        choose_option("新增待办", ft.Icons.EDIT_NOTE, open_add_todo),
+        choose_option(
+            "新增倒数日", ft.Icons.HOURGLASS_BOTTOM, open_add_countdown
+        ),
+    ]
+    choose_options_column = ft.Column(
+        tight=True,
+        spacing=CHOOSE_OPTION_GAP,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        controls=choose_options,
+    )
 
     choose_panel = ft.Container(
         right=24,
@@ -584,49 +628,62 @@ def build_home_page(
         bgcolor=CHOOSE_PANEL_BG,
         blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
         border=ft.Border.all(1, CHOOSE_PANEL_BORDER),
-        # 收起状态是「缩到按钮那一角 + 全透明」：控件一直留在树上，缩放和淡入才有
-        # 起点可插值（就是「从按钮里长出来」的动效）；缩到 0 之后既看不见也不吃
-        # 点击，所以不必再用 `visible` 开关它。
-        scale=ft.Scale(CHOOSE_START_SCALE, alignment=CHOOSE_ANCHOR),
+        # 这一层是玻璃底：只淡入淡出（两条入口自己弹，见 pop_options）。控件一直
+        # 留在树上，淡入才有起点可插值。
         opacity=0,
-        animate_scale=ft.Animation(
-            CHOOSE_GROW_MS, ft.AnimationCurve.EASE_OUT_CUBIC
-        ),
         animate_opacity=ft.Animation(CHOOSE_FADE_MS, ft.AnimationCurve.EASE_OUT),
-        content=ft.Column(
-            tight=True,
-            spacing=CHOOSE_OPTION_GAP,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[
-                choose_option("新增待办", ft.Icons.EDIT_NOTE, open_add_todo),
-                choose_option(
-                    "新增倒数日",
-                    ft.Icons.HOURGLASS_BOTTOM,
-                    open_add_countdown,
-                ),
-            ],
-        ),
+        content=choose_options_column,
     )
 
-    def set_choose_open(open_panel: bool) -> None:
-        """开 / 收「+」面板：缩放配淡入淡出，缩放的落点是按钮那一角。"""
+    async def pop_options(open_panel: bool) -> None:
+        """把两条入口一条一条弹出来（收起时一起收回）。
+
+        第二条晚 CHOOSE_STAGGER_MS 起步，所以点「+」看到的是「先弹出新增待办、接
+        着弹出新增倒数日」，而不是一整块面板同时现形。收起不必错峰 —— 一下收掉才
+        跟手。
+        """
+        for order, option in enumerate(
+            choose_options if open_panel else reversed(choose_options)
+        ):
+            if open_panel and order:
+                await asyncio.sleep(CHOOSE_STAGGER_MS / 1000)
+            option.scale = ft.Scale(
+                1 if open_panel else CHOOSE_START_SCALE,
+                alignment=CHOOSE_ANCHOR,
+            )
+            option.opacity = 1 if open_panel else 0
+            page.update()
+
+    def set_panel_open(open_panel: bool) -> bool:
+        """开 / 收面板本身：玻璃底淡入淡出，两条入口从按钮那一角依次弹出。
+
+        返回「状态真的变了」—— 没变就说明面板本来就是收着的，不必白刷一遍
+        （`set_bottom_controls_visible` 每次弹窗都会叫一次收）。
+        """
         nonlocal choose_open
         if open_panel == choose_open:
-            return
+            return False
         choose_open = open_panel
         scrim.visible = open_panel
-        choose_panel.scale = ft.Scale(
-            1 if open_panel else CHOOSE_START_SCALE, alignment=CHOOSE_ANCHOR
-        )
         choose_panel.opacity = 1 if open_panel else 0
         page.update()
+        page.run_task(pop_options, open_panel)
+        return True
+
+    def close_choose() -> None:
+        """收：把入口和遮罩收掉（面板本来就是关的就不做什么）。"""
+        set_panel_open(False)
+
+    def toggle_choose() -> None:
+        """「+」被点：开着就收，关着就弹。按钮自己不变样。"""
+        set_panel_open(not choose_open)
 
     def set_bottom_controls_visible(visible: bool) -> None:
         set_menu_visible(visible)
         add_button.visible = visible
         add_button.update()
         # 弹窗（输入框弹键盘）时，「+」上的小面板也跟着退场。
-        set_choose_open(False)
+        close_choose()
 
     return ft.Stack(
         expand=True,
@@ -690,7 +747,10 @@ def build_home_page(
                                                             content=ft.Icon(
                                                                 ft.Icons.BAR_CHART,
                                                                 size=22,
-                                                                color="#172554",
+                                                                # 「+」那块玻璃的天蓝，但深
+                                                                # 几档才看得清（见
+                                                                # DATA_ICON_COLOR）。
+                                                                color=DATA_ICON_COLOR,
                                                             ),
                                                         ),
                                                     ],
