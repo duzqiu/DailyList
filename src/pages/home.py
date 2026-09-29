@@ -72,15 +72,20 @@ DATE_CARD_SPACING = 8
 BLOCK_GAP = 10
 # 卡片 = 56 的内容（周几 + 日期）+ BLOCK_GAP 那么高的一条底，横条就钉在那条底上。
 DATE_CARD_HEIGHT = 56 + BLOCK_GAP
-DATE_CARD_TOP_PADDING = BLOCK_GAP - 2  # 比原来那档（+2）再往上提 4px
+# 收掉的那点高度从这里补回来（见 DATE_DAY_BOX_HEIGHT）：日期那一行的中心还落在
+# 原来的高度上，它和底下那条横条、那条灰线的相对位置一个像素没动 —— 变的只是
+# 周几往下靠拢的这一点。
+DATE_CARD_TOP_PADDING = 17
 # 周几在上、日期在下（一律写成「09.28」这样的月.日，今天也不写「今」）；两行之间
-# 那点空当由 DATE_COLUMN_SPACING 管，收得很紧 —— 周几几乎贴着日期。
+# 那点空当 = DATE_COLUMN_SPACING + 日期盒里字上下的留白，收得很紧 —— 周几几乎贴
+# 着日期。
 DATE_WEEKDAY_SIZE = 11
 # 日期那一行固定占这么高：整串「09.28」比单个日号长得多，字号收小、宽度也框住，
-# 相邻两格的日期不会互相顶到，整条日期条的高度还跟原来一样。
+# 相邻两格的日期不会互相顶到，整条日期条的高度还跟原来一样。盒子只比 10pt 的字
+# 高出一圈：早先给到 34，字上下各空出十来 px，看着就成了分家的两行。
 DATE_DAY_SIZE = 10
-DATE_DAY_BOX_HEIGHT = 34
-DATE_COLUMN_SPACING = 2
+DATE_DAY_BOX_HEIGHT = 18
+DATE_COLUMN_SPACING = 1
 # 选中标记：日期正下方一条黑横条，钉在日期卡片底边上（也就是贴住下面那条
 # 灰间隔线）。整条日期条只画这一条，选中哪一格它就滑到那一格下面（见
 # date_bar_offset）。
