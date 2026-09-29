@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import flet as ft
 
 from pages.calendar import build_calendar_page
@@ -12,6 +14,7 @@ from tools.layout import (
     MENU_LABEL_SIZE,
     PAGE_BGCOLOR,
 )
+from tools.swipe_back import build_swipe_back
 
 # Dropdown carets are Material IconButtons; their default surface/overlay colour
 # painted over neighbouring content (the selected 年/月/周 and the popup below
@@ -20,6 +23,13 @@ ICON_BUTTON_STYLE = ft.ButtonStyle(
     bgcolor="#00000000",
     overlay_color="#00000000",
 )
+
+# 页面进 / 退场动画。Android 那档默认是 `FADE_UPWARDS`：新页淡入并往上移，旧页
+# 还留在原地一起淡 —— 两页同时在屏上叠着，这套自己画渐变底的自定义页面就会被
+# 看穿，像上一个页面留下的残影（桌面默认的 `ZOOM` 同样要淡）。换成 `CUPERTINO`
+# 是纯横向推拉：新旧两页各自整块不透明地滑进滑出，前后不会叠在一起，配边缘返回
+# 手势也是这一档最顺。想干脆不要动画，把它换成 `ft.PageTransitionTheme.NONE`。
+PAGE_TRANSITION = ft.PageTransitionTheme.CUPERTINO
 
 
 def build_navigation(page: ft.Page) -> None:
@@ -33,6 +43,14 @@ def build_navigation(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.LIGHT
     page.theme = ft.Theme(
         icon_button_theme=ft.IconButtonTheme(style=ICON_BUTTON_STYLE),
+        # 进 / 退场动画见上面的 PAGE_TRANSITION：默认那档会让两页叠出残影。
+        page_transitions=ft.PageTransitionsTheme(
+            android=PAGE_TRANSITION,
+            ios=PAGE_TRANSITION,
+            linux=PAGE_TRANSITION,
+            macos=PAGE_TRANSITION,
+            windows=PAGE_TRANSITION,
+        ),
         # Nothing in the app should flash a grey rectangle when tapped: the
         # menu entries and the dialog's triggers and buttons stay flat, so the
         # only thing that changes on a tap is the selected value.
@@ -50,6 +68,65 @@ def build_navigation(page: ft.Page) -> None:
 
     def page_state(name: str) -> dict[str, object]:
         return state_store.setdefault(name, {})
+
+    # 页面栈：每往下进一层就压一个「回上一层」的动作。二级 / 三级页的「‹ 返回」
+    # 和左滑都走同一个 `go_back`（取栈顶执行），所以从三级页退回二级页时回到的是
+    # 二级页自己，再退才是一级页 —— 层数多深都成立。一级页是根，回到它就把栈清空。
+    nav_stack: list[Callable[[], None]] = []
+
+    def go_back() -> None:
+        """回上一层：顶栏「‹ 返回」、左滑、真机的返回都调它。
+
+        二级 / 三级页各是一层压进 `page.views` 的真 View（见 `show_layer`），所以
+        这里要先把顶上那一层弹掉，再让父层把自己重画一遍。
+        """
+        if not nav_stack:
+            return
+        parent = nav_stack.pop()
+        if len(page.views) > 1:
+            page.views.pop()
+        parent()
+
+    def on_view_pop(_: ft.ViewPopEvent) -> None:
+        """真机的返回落到这儿：Android 的返回键 / 边缘返回手势、iOS 的边缘返回。
+
+        客户端是把它接到 `page.views` 上的。早先整个 App 只有 `views[0]` 一层，
+        系统返回没有可弹的层，客户端只能把 Activity 结束掉 —— 看上去就是「一滑就
+        回到 Flet 首页」。现在二级 / 三级页都是真 View，返回就有层可弹了。
+
+        一级页（根）上没有 `nav_stack`，`go_back()` 直接返回：在首页按返回仍然是
+        退出 App，这是系统的正常行为。
+        """
+        go_back()
+
+    def show_layer(
+        depth: int, route: str, build: Callable[[], ft.Control]
+    ) -> None:
+        """把 `build()` 画成第 `depth` 层，二级起每层一个真 `ft.View`。
+
+        第 0 层是一级页的外壳（`content` + 底部菜单），由 `show_page` 直接画在
+        `page.add()` 建出来的根 View 里。这一层已经存在就重画它（从更深的层退回来
+        时走这条），不存在才压一层新的 —— **压出来的必须是真 View**，客户端的
+        「返回」和边缘返回手势才有层可弹、才不回把整个 App 结束掉。
+        """
+        control = build_swipe_back(build(), go_back)
+        views = page.views
+        if len(views) > depth:
+            view = views[depth]
+            view.route = route
+            view.controls = [control]
+        else:
+            views.append(
+                ft.View(
+                    route=route,
+                    # View 默认带内边距 / 间距，这一页自己已经把渐变、SafeArea 和
+                    # 内边距都画好了，别再叠一层。
+                    padding=0,
+                    spacing=0,
+                    bgcolor=PAGE_BGCOLOR,
+                    controls=[control],
+                )
+            )
 
     menu_items = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -87,6 +164,9 @@ def build_navigation(page: ft.Page) -> None:
     def show_page(index: int, update: bool = True) -> None:
         nonlocal selected_index
         selected_index = index
+        # 一级页是根：回到它就把上面压的层全撤掉，也再没有「上一页」了。
+        nav_stack.clear()
+        del page.views[1:]
         content.content = (
             build_home_page(page, set_menu_visible, show_data)
             if index == 0
@@ -105,12 +185,36 @@ def build_navigation(page: ft.Page) -> None:
         if update:
             page.update()
 
+    def render_data(update: bool = True) -> None:
+        """只重画「数据」页那**一层**，不动页面栈 —— 从三级页退回二级页回的就是它。"""
+        show_layer(
+            1,
+            "/data",
+            lambda: build_data_page(
+                page, go_back=go_back, state=page_state("data")
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
     def show_data(update: bool = True) -> None:
         """待办页右上角柱状图进来的「数据」页：二级页，进来后底部菜单收起。"""
-        content.content = build_data_page(
-            page,
-            go_back=lambda: show_page(0),
-            state=page_state("data"),
+        nav_stack.append(lambda: show_page(0))
+        render_data(update)
+
+    def render_preferences(update: bool = True) -> None:
+        """只重画设置页那**一层**，不动页面栈（同上）。"""
+        show_layer(
+            1,
+            "/settings",
+            lambda: build_preferences_page(
+                page,
+                # 二级页没有底部菜单：输入框弹键盘、弹窗收起时都不要把它叫回来。
+                set_menu_visible=lambda _visible: None,
+                go_back=go_back,
+            ),
         )
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = False
@@ -119,16 +223,8 @@ def build_navigation(page: ft.Page) -> None:
 
     def show_preferences(update: bool = True) -> None:
         """日历页右上角齿轮进来的设置页：二级页，进来后底部菜单收起。"""
-        content.content = build_preferences_page(
-            page,
-            # 二级页没有底部菜单：输入框弹键盘、弹窗收起时都不要把它叫回来。
-            set_menu_visible=lambda _visible: None,
-            go_back=lambda: show_page(2),
-        )
-        page.bgcolor = PAGE_BGCOLOR
-        menu_bar.visible = False
-        if update:
-            page.update()
+        nav_stack.append(lambda: show_page(2))
+        render_preferences(update)
 
     def menu_item(
         index: int, icon: str, selected_icon: str, label: str, key: str
@@ -196,3 +292,6 @@ def build_navigation(page: ft.Page) -> None:
     )
 
     page.on_media_change = keep_menu_off_keyboard
+    # 真机的「返回」接到页面上：返回键 / 边缘返回手势弹的是一层 View，而不是
+    # 把 Activity 结束掉（见 `on_view_pop`）。
+    page.on_view_pop = on_view_pop

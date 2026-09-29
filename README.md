@@ -56,6 +56,14 @@
 - 清除缓存：二次确认后清空所有待办，并提示清除了多少条
 - 云端数据：开关（**占位功能，不落库、不发请求**）
 
+### 二级 / 三级页的返回（`page.views` + `tools/swipe_back.py`）
+- 二级 / 三级页各自是**一层压进 `page.views` 的真 `ft.View`**（`navigation.py` 的 `show_layer`），不是在一级页的 `content` 里换控件。所以真机的「返回」—— Android 返回键 / 两侧边缘的返回手势、iOS 的边缘返回 —— 有层可弹：弹掉一层就是回上一页，`page.on_view_pop` 接住这一下、走和「‹ 返回」按钮**同一个** `go_back()`。
+- 除了一级页，**在页面上左滑一下**也回上一页：手指往左走够 `SWIPE_BACK_DISTANCE = 24`，或者甩得够快（`SWIPE_BACK_VELOCITY = 300`），都算一次返回；不够就什么都不做 —— 页面不跟手，也没有「滑到一半」的中间态。这两个阈值跟首页切日期那套横滑取同一档，整台机器手感一致。
+- 这个手势只绑**横滑那一族**（`on_horizontal_drag_*`），不碰 `on_pan_*`：页面里竖着滚的列表照样抢得走竖滑。起点落在某条左滑行上时，行自己那层在更里面、先进手势竞技场，仍然优先露出编辑 / 删除（和首页同一套安排）。
+- 另外两道闸：**竖着划过去的（`|dy| > |dx|`）不算返回**（那其实是页面在自己滚）；**起手点落在屏幕左右各 `SWIPE_BACK_EDGE_INSET = 32` 之内也不算** —— 那两条边是系统手势区，交给系统去弹 View（走上面那条路）就行，App 再接一次就会「一次划掉两层」。
+- `go_back()` 只做两件事：把 `page.views` 顶上那层弹掉，再让父层重画自己（父层要么是 `render_data` / `render_preferences` 这种只重画、不动栈的函数，要么是一级页的 `show_page`）。回调外面包了一层 `try/except` + `logger.exception`：返回失败最多是这一下没退，不会把异常漏进事件循环（那会把整个会话带下去，客户端表现为掉线、回到 Flet 首页）。一级页（根）上 `nav_stack` 是空的，`go_back()` 什么也不做 —— 在首页按返回仍然是退出 App，那是系统的正常行为。
+- **进 / 退场动画钉成了 `PAGE_TRANSITION = ft.PageTransitionTheme.CUPERTINO`**（在 `navigation.py` 顶部，`page.theme.page_transitions` 五个平台都设它）。Android 那档默认是 `FADE_UPWARDS`、桌面是 `ZOOM`，两者都要**让新旧两页一起淡**：两页同时叠在屏上，这套自己画渐变底的自定义页面就会被看穿，看着像上一个页面留下的残影（进入下一页、退回上一页时都能看到）。`CUPERTINO` 是纯横向推拉 —— 两页各自整块不透明地滑进滑出，前后不叠；配边缘返回手势也是这一档最顺。想干脆不要动画，把它换成 `ft.PageTransitionTheme.NONE` 即可。
+
 ---
 
 ## 二、目录结构
@@ -63,7 +71,7 @@
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
 | `src/main.py` | 13 | 入口：`db.init_db()` 建库 → `build_navigation(page)` |
-| `src/pages/navigation.py` | 198 | 底部毛玻璃菜单 + 3 个 Tab 切换 + 二级页（数据 / 设置）跳转；按页面名保管选择状态 |
+| `src/pages/navigation.py` | 297 | 底部毛玻璃菜单 + 3 个 Tab 切换 + 二级页（数据 / 设置）跳转；按页面名保管选择状态；二级 / 三级页各压一层真 `ft.View`（`show_layer`），`nav_stack` 记楼层，返回按钮 / 左滑 / 真机的系统返回（`on_view_pop`）共用 `go_back`；页面动画用 `PAGE_TRANSITION`（横向推拉，不留残影） |
 | `src/pages/home.py` | 689 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」面板（新增待办 / 新增倒数日）、右上角「数据」入口 |
 | `src/pages/countdown.py` | 250 | 倒数日页：通栏 + 两列卡片列表 + 底部「已过期 N」开关（过期卡片全部双列；没有「+」，新增入口在待办页） |
 | `src/pages/calendar.py` | 1016 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（月份与选中日期跨 Tab 保留） |
@@ -75,6 +83,7 @@
 | `src/tools/todo_timeline.py` | 461 | 待办行 / 时间轴（首页一条条搭、日历弹窗整列搭都走它；点线随卡片拉伸、点本身仍是圆点；**轴两端不补点** —— 首行上、末行下都不画小圆点，`first` / `last` 由调用方传；**`show_timeline=False` 只剩下卡片**（待办行、整天的一列都支持这一档），当天弹窗用的就是它） |
 | `src/tools/todo_form.py` | 278 | 新增 / 编辑待办弹窗（分类胶囊 + 内容 + 日期 + 起止时间一格 + 周期） |
 | `src/tools/swipe_delete.py` | 124 | 左滑露出操作按钮的行容器 |
+| `src/tools/swipe_back.py` | 102 | 整页左滑返回上一页的壳（二级 / 三级页用；只绑横滑，竖滑和屏幕两侧的系统手势区都让出去） |
 | `src/tools/popup_select.py` | 219 | 统一的下拉选择器（待办/倒数日的日期、类别、循环、通知渠道都用它） |
 | `src/tools/segmented.py` | 152 | 横向胶囊分段开关（「数据」页 年/月/周、待办弹窗的三个分类；可一项一色） |
 | `src/tools/pickers.py` | 129 | 系统日期 / 时间选择器封装（含 UTC 时区修正、可选标题） |
@@ -105,7 +114,7 @@ main.py
         tools/db.py  ──→  SQLite（dailylist.db）
 ```
 
-约定：**页面不直接写 SQL**，一律经 `tools/db.py`；**页面不重复造控件**，能共享的（时间轴行、卡片、弹窗、下拉、选择器）都放在 `tools/`。`navigation.py` 每次切页都重建页面控件（`build_xxx_page`），并把 `set_menu_visible` 回调传下去，页面在弹窗 / 键盘出现时用它收起底部菜单和「+」按钮。
+约定：**页面不直接写 SQL**，一律经 `tools/db.py`；**页面不重复造控件**，能共享的（时间轴行、卡片、弹窗、下拉、选择器）都放在 `tools/`。`navigation.py` 每次切页都重建页面控件（`build_xxx_page`），并把 `set_menu_visible` 回调传下去，页面在弹窗 / 键盘出现时用它收起底部菜单和「+」按钮；二级 / 三级页还要接住传下来的 `go_back`（顶栏返回按钮、左滑、真机的系统返回都调它），具体退到哪一层由 `nav_stack`、压了几层由 `page.views` 决定 —— 一级页的外壳在 `views[0]`，往上一层一个 View。
 
 ---
 
@@ -138,8 +147,9 @@ main.py
 5. **列表底部留白**用 `BOTTOM_MENU_INSET`，否则最后一行会被浮动菜单栏压住。
 6. 页面内容滚动一律 `scroll=ft.ScrollMode.HIDDEN` 隐藏滚动条。
 7. **折线图的浮框是自绘的**（`tools/line_chart.py`）：fl_chart 的浮框是一个系列一行、每行只能一种颜色（`text_spans` 在 flet-charts 1.0.1 里传不到 Dart 侧，一用整个浮框都画不出来），做不出「灰色日期 + 彩点 + 黑色数值」。所以控件自带的浮框只留一个透明的壳，内容换成挂在 `ft.Stack` 上的 `ft.Container`，由 `LineChart.on_event` 的悬停事件摆位置、换内容。浮框贴在锚点左右：`TIP_OFFSET` 比 fl_chart 10px 的 x 命中半径大，光标压不到它，否则会出现「浮框盖住光标 → 图表 pointerExit → 浮框消失 → 又冒出来」的抖动。浮框是毛玻璃：半透明灰白底（`#CCF1F5F9`，`#AARRGGBB`）+ `blur=ft.Blur(12, 12, ft.BlurTileMode.CLAMP)`，与「+」按钮、底部菜单栏同一套写法。
-8. **页面选择状态存在 `pages/navigation.py`**：切页时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份按页面名索引的 `state_store`，由 `page_state(
+8. **页面选择状态存在 `pages/navigation.py`**：切页时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份按页面名索引的 `state_store`，由 `page_state(name)` 按名字取（没有就现建一个空的）；页面把它当自己的草稿本 —— 日历页存 `month` / `day`，数据页存三张卡各自的 年/月/周，只有热重载重跑 `main()` 才会回到初始值。
 9. **日历弹窗的高度是「先估后量」**：正文的真高度由 `open_day_dialog` 里那层探针（`on_size_change`）量出来，量一次得等一帧（客户端是 post-frame 回调），所以第一帧先用 `estimate_day_height()` 把 `body.height` / `scroll` 定上。估算**估高不估矮**：估高了下一帧就收回，估矮了弹窗会先按全部内容撑高一下再弹回来 —— 就是「点日期先闪一下全部数据」的样子。
+10. **页面的上下层关系只认 `navigation.py` 的 `nav_stack` + `page.views`**（`tools/swipe_back.py` 把左滑接到它上面）：进一层时把「上一层怎么画」压进 `nav_stack`（`render_data` / `render_preferences` 那类只重画、不动栈的函数），`go_back()` 只弹一层 —— 同时弹掉 `page.views` 顶上那层真 View。所以**别在页面里自己写 `show_page(0)` 当返回**，也别在栈里压一个会再压栈的 `show_xxx`；另外别把子页塞回 `content.content`（那样真机的返回就又没有层可弹、直接退出 App 了）。层数多深都按这个来。
 
 ---
 
@@ -193,3 +203,4 @@ pytest
 - **云端数据是占位**：开关不落库、不请求（代码注释里写明「先只做样子」）。
 - **仓库里的 `dailylist.db` 是活数据文件**：当前只有 `todos`(204 行) / `settings`，既没有 `countdowns` 表，`todos` 也缺 `due_time` / `end_time` 列 —— 说明该文件早于「倒数日 / 时间」功能，首次运行会被 `init_db()` 自动补齐。它是跟着仓库走的，改动数据会体现为一次文件改动。
 - **多实例同时写库**：应用的 DB 路径固定在项目根，同时开多个实例（或一边跑 App 一边跑测试脚本）会互相覆盖数据，调试时注意先关掉旧实例。
+- **一级页按返回会退出 App**：二级 / 三级页现在是真 View，系统返回弹的是它们；回到一级页（`page.views` 只剩一层）之后按返回就没有可弹的层了，客户端会结束 Activity、回到 Flet 首页 —— 这是系统返回的正常行为，不是 bug。想在首页也拦住返回，得自己接管客户端的返回事件，Flet 目前没给这层口子。
