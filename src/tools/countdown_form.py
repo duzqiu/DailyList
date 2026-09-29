@@ -1,9 +1,10 @@
 """The 新增/编辑倒数日 dialog, shared by the 倒数日 and 日历 pages.
 
-It carries the card-background palette as well, so the colour a card is painted
-with and the colour the picker offers can never drift apart.
+弹窗里不摆颜色：新增时从 `CARD_COLORS` 那套浅色里**随机**取一个当卡片底色，编辑时
+沿用这条倒数日原来的颜色（见 `open_countdown_form`）。
 """
 
+import random
 from collections.abc import Callable
 from datetime import date
 
@@ -15,18 +16,14 @@ from tools.layout import (
     DIALOG_SURFACE,
     date_label,
     dialog_button_style,
-    text_width,
     track_keyboard,
 )
 from tools.pickers import build_date_picker, build_value_trigger
 from tools.popup_select import (
     MENU_HEIGHT,
-    OPTION_TEXT_SIZE,
     build_option_row,
     build_option_selector,
     build_option_text,
-    option_row,
-    option_text,
 )
 
 TITLE_COLOR = "#172554"
@@ -49,13 +46,6 @@ CARD_COLORS = (
     ("页面底色灰", "#F8FAFC"),
     ("边框浅灰", "#E2E8F0"),
 )
-CARD_COLOR_HEX = {name: value for name, value in CARD_COLORS}
-# The 背景色 panel is sized to its longest name instead of a guessed width, so a
-# name can never be clipped by the panel's right edge.
-SWATCH_SIZE = 12
-SWATCH_GAP = 6
-
-
 def open_countdown_form(
     page: ft.Page,
     *,
@@ -67,39 +57,12 @@ def open_countdown_form(
     editing = item is not None
     today = date.today()
     start_day = item.due_date if editing else today
-    start_color = item.bgcolor if editing else CARD_COLORS[0][1]
-    start_color_name = next(
-        (name for name, value in CARD_COLORS if value == start_color),
-        CARD_COLORS[0][0],
-    )
+    # 新增的倒数日不让用户挑颜色：从原来那套浅色里**随机**取一个当卡片底色；编辑时
+    # 沿用这条倒数日原来的颜色，不动。
+    start_color = item.bgcolor if editing else random.choice(CARD_COLORS)[1]
     draft = {"date": start_day, "bgcolor": start_color}
     cycle_text = build_option_text(
         item.cycle if editing else db.DEFAULT_CYCLE
-    )
-    color_text = build_option_text(start_color_name)
-
-    def swatch(value: str) -> ft.Control:
-        return ft.Container(
-            width=SWATCH_SIZE,
-            height=SWATCH_SIZE,
-            border_radius=ft.BorderRadius.all(3),
-            bgcolor=value,
-            # A hairline keeps the palest swatch visible on the white panel.
-            border=ft.Border.all(1, "#E2E8F0"),
-        )
-
-    def color_face(name: str, text: ft.Control) -> ft.Control:
-        """Swatch plus name - the same pair in the trigger and the panel."""
-        return ft.Row(
-            tight=True,
-            spacing=SWATCH_GAP,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[swatch(CARD_COLOR_HEX[name]), text],
-        )
-
-    color_width = max(
-        SWATCH_SIZE + SWATCH_GAP + text_width(name, OPTION_TEXT_SIZE)
-        for name, _ in CARD_COLORS
     )
 
     date_text = build_option_text(date_label(start_day))
@@ -131,26 +94,6 @@ def open_countdown_form(
         content_width=90,
     )
 
-    def set_color(name: str) -> None:
-        draft["bgcolor"] = CARD_COLOR_HEX[name]
-        color_text.value = name
-        color_trigger.content = color_face(name, color_text)
-        color_trigger.update()
-
-    color_trigger = ft.Container(
-        content=color_face(start_color_name, color_text)
-    )
-    color_selector = build_option_selector(
-        color_trigger,
-        [(name, name) for name, _ in CARD_COLORS],
-        set_color,
-        # 十四个颜色：同样钉成固定高度、在面板里滚。
-        menu_height=MENU_HEIGHT,
-        label_builder=lambda name: option_row(
-            color_face(name, option_text(name))
-        ),
-        content_width=color_width,
-    )
     def focus_changed(focused: bool) -> None:
         # 弹窗跟着键盘走由 `track_keyboard` 管（焦点事件比键盘动画早一步，按它挪
         # 会先沉一下再弹回来）。
@@ -224,7 +167,6 @@ def open_countdown_form(
             controls=[
                 content_field,
                 build_option_row(date_trigger),
-                build_option_row(color_selector),
                 build_option_row(cycle_selector),
             ],
         ),
