@@ -170,9 +170,8 @@ def open_countdown_form(
         content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
         text_style=ft.TextStyle(size=13, color="#334155"),
         dense=True,
-        multiline=True,
-        min_lines=2,
-        max_lines=5,
+        # 事项就是一行字，输入框也保持单行 —— 不设 `multiline`，它就没有会长高的
+        # 余地（和 新增待办 的输入框一个做法）。
     )
 
     def close_dialog(_: ft.Event[ft.Control] | None = None) -> None:
@@ -223,10 +222,10 @@ def open_countdown_form(
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
-                build_option_row(date_trigger),
-                build_option_row(cycle_selector),
-                build_option_row(color_selector),
                 content_field,
+                build_option_row(date_trigger),
+                build_option_row(color_selector),
+                build_option_row(cycle_selector),
             ],
         ),
         actions=[

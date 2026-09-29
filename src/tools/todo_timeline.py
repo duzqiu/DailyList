@@ -37,6 +37,7 @@ from tools.layout import (
     TODO_TIME_SIZE,
     UNSELECTED_CARD_BG,
     readable_ink,
+    text_width,
     todo_text_style,
     todo_time_label,
     todo_time_range,
@@ -99,6 +100,20 @@ ALL_DAY_LABEL = "全天"
 # （跟着起止时间），所以谁也压不着谁。
 DONE_LABEL = "已完成"
 DONE_LABEL_SIZE = TODO_TIME_SIZE
+# 待办文字和「已完成」之间那条固定的间距：文字用 `expand` 撑到这条线就停，再长也
+# 挤不过去，「已完成」也就一直待在同一条线上。
+DONE_LABEL_GAP = 12
+# 「已完成」占的宽度（三个字）。这个宽**一直给它留着**（见 `_card_content`），所以
+# 勾没勾上，待办文字能用的宽度都一样 —— 不然勾上之后文字被挤窄会折成两行，卡片
+# 就从一行变两行、高度跳一下。
+DONE_LABEL_WIDTH = text_width(DONE_LABEL, DONE_LABEL_SIZE)
+# 右上角那枚类别标签占的高度：没有起止时间的那一张，正文得从它下面开始；有时间时
+# 时间行本来就压在它那一排，不用让。
+TAG_CLEARANCE = (
+    CATEGORY_TAG_SIZE * 1.35
+    + CATEGORY_TAG_PADDING.top
+    + CATEGORY_TAG_PADDING.bottom
+)
 
 # 每条待办是一张「便签纸」（等级标签也贴在这一张上）：**一种纸色**（原来的那块灰，
 # 和数据页卡片、分类 tile 是同一档 UNSELECTED_CARD_BG）+ 下沿一道深一档的纸边 +
@@ -295,11 +310,11 @@ def _card_content(
     on_toggle: Callable[[], None] | None,
     pop: bool = False,
 ) -> ft.Control:
-    """卡片里两排：上面一排「起止时间 —— 类别标签」，下面一排「勾选框 - 文字 - 已完成」。
+    """卡片里两排：上面一行起止时间，下面一排「勾选框 - 文字 - 已完成」。
 
-    两排各自水平对齐：标签跟着起止时间排在同一排（顶到行尾），勾选框 / 文字 /
-    「已完成」共用下面那一排的中线。时间只写进卡片；左边那条时间轴照旧只报开始
-    时间。
+    类别标签贴在卡片**右上角**（外层 `Stack` 的定位子，盖在正文上面）；下面那一排
+    里，勾选框 / 文字 / 「已完成」共用 CENTER 那条中线。时间只写进卡片；左边那条
+    时间轴照旧只报开始时间。
     """
     time_range = todo_time_range(todo.due_time, todo.end_time)
     tag = ft.Container(
@@ -312,29 +327,10 @@ def _card_content(
             color=readable_ink(color),
         ),
     )
-    # 上面一排：左边起止时间（没有就留空），右边那枚类别标签 —— 两者水平对齐。
-    # 中间那格 `expand` 只负责把标签顶到行尾。
-    header_row = ft.Row(
-        spacing=CATEGORY_TAG_GAP,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            *(
-                [
-                    ft.Text(
-                        time_range,
-                        size=TODO_TIME_SIZE,
-                        color=TODO_TIME_COLOR,
-                    )
-                ]
-                if time_range
-                else []
-            ),
-            ft.Container(expand=True),
-            tag,
-        ],
-    )
-    # 下面这一行：勾选框 - 待办文字 - 已完成。文字用 `expand` 撑开，「已完成」就
-    # 被顶到最右，三者共用 Row 的 CENTER 那条中线。
+    # 下面这一排：勾选框 - 待办文字 - 已完成，三者共用 CENTER 那条中线。
+    # 文字容器**一直**留出 `DONE_LABEL_GAP + DONE_LABEL_WIDTH` 那块空位；而
+    # 「已完成」是外层 Stack 的定位子、**不参与这一排的宽度分配** —— 于是勾没勾上，
+    # Row 的子控件和文字能用到的宽度分毫不差，折行也一样，卡片不会从一行跳成两行。
     content_row = ft.Row(
         spacing=CATEGORY_TAG_GAP,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -342,6 +338,9 @@ def _card_content(
             build_todo_check(todo.done, on_toggle, pop),
             ft.Container(
                 expand=True,
+                padding=ft.Padding.only(
+                    right=DONE_LABEL_GAP + DONE_LABEL_WIDTH
+                ),
                 content=ft.Text(
                     todo.content,
                     size=TODO_TEXT_SIZE,
@@ -350,14 +349,24 @@ def _card_content(
                     style=todo_text_style(todo.done),
                 ),
             ),
-            # 完成了的挂一行灰字：被 expand 的文字顶到最右，和文字之间的间距就是
-            # Row 自己的 spacing —— 与左边「勾选框 - 文字」那一档相同。
+        ],
+    )
+    content_slot = ft.Stack(
+        controls=[
+            content_row,
+            # 完成了的就挂进那块留好的空位里：右对齐、和文字同一条中线。
             *(
                 [
-                    ft.Text(
-                        DONE_LABEL,
-                        size=DONE_LABEL_SIZE,
-                        color=TODO_DONE_TEXT,
+                    ft.Container(
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Text(
+                            DONE_LABEL,
+                            size=DONE_LABEL_SIZE,
+                            color=TODO_DONE_TEXT,
+                        ),
                     )
                 ]
                 if todo.done
@@ -365,20 +374,36 @@ def _card_content(
             ),
         ],
     )
-    return ft.Container(
-        # 卡片的内边距在这一层：左右对称（左边留多少，靠右的标签和「已完成」就
-        # 离边多少）。标签进了行里，所以顶部不再需要为它额外让位。
-        padding=ft.Padding.only(
-            left=DOT_TO_TEXT_GAP,
-            right=DOT_TO_TEXT_GAP,
-            top=6,
-            bottom=6,
-        ),
-        content=ft.Column(
-            tight=True,
-            spacing=0,
-            controls=[header_row, content_row],
-        ),
+    # 正文两排：上面一行起止时间（没有就不占位），下面一排「勾选框 - 文字 - 已完成」。
+    rows: list[ft.Control] = []
+    if time_range:
+        rows.append(
+            ft.Text(time_range, size=TODO_TIME_SIZE, color=TODO_TIME_COLOR)
+        )
+    rows.append(content_slot)
+    # 没有起止时间时，正文会顶到卡片最上面、和右上角那枚标签撞上 —— 顶部垫出标签
+    # 那块高，让它从标签下面开始；有时间时时间行本来就和标签同一排，不用垫。
+    top_pad = 6 if time_range else 6 + TAG_CLEARANCE
+    return ft.Stack(
+        controls=[
+            ft.Container(
+                # 卡片的内边距在这一层：左右对称（左边留多少，靠右的「已完成」就
+                # 离边多少）。
+                padding=ft.Padding.only(
+                    left=DOT_TO_TEXT_GAP,
+                    right=DOT_TO_TEXT_GAP,
+                    top=top_pad,
+                    bottom=6,
+                ),
+                content=ft.Column(
+                    tight=True,
+                    spacing=0,
+                    controls=rows,
+                ),
+            ),
+            # 类别标签：贴着卡片右上角。
+            ft.Container(top=0, right=0, content=tag),
+        ],
     )
 
 
