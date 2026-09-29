@@ -100,11 +100,15 @@ ALL_DAY_LABEL = "全天"
 DONE_LABEL = "已完成"
 DONE_LABEL_SIZE = TODO_TIME_SIZE
 
-# 每条待办自己的一块底色（等级标签也在这一块里）。纯白在首页渐变上太亮、在日历
-# 弹窗的灰底上又太跳，统一用全局那张「未选中的卡片」灰：和数据页卡片、分类 tile
-# 是同一档（tools/layout.py 的 UNSELECTED_CARD_BG）。
+# 每条待办是一张「便签纸」（等级标签也贴在这一张上）：**一种纸色**（原来的那块灰，
+# 和数据页卡片、分类 tile 是同一档 UNSELECTED_CARD_BG）+ 下沿一道深一档的纸边 +
+# 小圆角。完成的也是这张纸，不再另换底色 —— 那行灰字加删除线够区分了。
+# 纸边只能用下边框画、不能用投影：卡片外面套着左滑那一层（见 build_todo_row 的
+# `body`），它按卡片的边界裁，投影伸出去的部分会被切掉，剩下的反而像一道硬边。
 CARD_BG = UNSELECTED_CARD_BG
-CARD_RADIUS = 8
+CARD_EDGE = "#E2E8F0"
+CARD_EDGE_HEIGHT = 2
+CARD_RADIUS = 6
 
 
 def timeline_metrics(
@@ -415,9 +419,14 @@ def build_todo_row(
     color = category_color(todo.category)
     card = ft.Container(
         key=f"todo-{todo.id}",
-        # 待办自己一块灰底（标签也在里面），左边留出轴到文字的空当。
+        # 便签纸：一种纸色（首页和日历弹窗一个样，完成的也一样）。左边留出轴到
+        # 文字的空当（内边距在 `_card_content` 里）。
         bgcolor=CARD_BG,
         border_radius=ft.BorderRadius.all(CARD_RADIUS),
+        # 下沿那道深一档的边就是纸的厚度：画在卡片里，不会被左滑那层裁掉。
+        border=ft.Border.only(
+            bottom=ft.BorderSide(CARD_EDGE_HEIGHT, CARD_EDGE)
+        ),
         # 内边距在 `_card_content` 里：标签跟着起止时间排进那一排，不再需要这一层
         # 额外裁剪。
         content=_card_content(
