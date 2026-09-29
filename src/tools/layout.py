@@ -91,15 +91,56 @@ def anchor_dialog_above_keyboard(dialog: ft.AlertDialog, above: bool) -> None:
     Material centres a dialog in whatever space the keyboard leaves, which on a
     phone leaves a dimmed strip between the dialog and the keyboard. Anchoring it
     to the bottom of that space - and trimming the bottom gap - removes the strip.
+
+    已经是这个摆法就什么都不做：`track_keyboard` 每收到一次 media 事件都会调它，
+    重复 `update()` 会让弹窗自己抖一下。
     """
-    dialog.alignment = (
+    alignment = (
         ft.Alignment.BOTTOM_CENTER if above else ft.Alignment.CENTER
     )
-    dialog.inset_padding = ft.Padding.symmetric(
+    inset_padding = ft.Padding.symmetric(
         horizontal=DIALOG_INSET_X,
         vertical=DIALOG_INSET_Y_KEYBOARD if above else DIALOG_INSET_Y,
     )
-    dialog.update()
+    if dialog.alignment == alignment and dialog.inset_padding == inset_padding:
+        return
+    dialog.alignment = alignment
+    dialog.inset_padding = inset_padding
+    try:
+        dialog.update()
+    except RuntimeError:
+        # 弹窗正关着（这一层已经不在树上了）：没什么可更。
+        pass
+
+
+def track_keyboard(page: ft.Page, dialog: ft.AlertDialog) -> Callable[[], None]:
+    """让 `dialog` 跟着键盘升降走；返回「拆掉这个跟随」的函数。
+
+    键盘占多高只能从 `page.media.view_insets.bottom` 上读，而**焦点事件比键盘动画
+    早到一步** —— 按焦点挪弹窗，会先往屏幕底下一沉（键盘还没起来），键盘真的升起
+    时再弹回来，看上去就是「掉下去又弹上来」。所以这里挂在 `page.on_media_change`
+    上：键盘升起、落下各回一次事件，弹窗跟着挪一次就位。
+
+    键盘落下时也会收到事件，于是弹窗肯定回得来 —— 只听失焦的话，点外面 / 按返回
+    关掉时拿不到 blur，弹窗就留在底部了。
+    """
+    previous = page.on_media_change
+
+    def sync(event: ft.Event[ft.Page] | None = None) -> None:
+        keyboard = getattr(page.media.view_insets, "bottom", 0) or 0
+        anchor_dialog_above_keyboard(dialog, keyboard > 0)
+        if previous is not None:
+            # 底下那层（底部菜单躲键盘）也要照常跑。
+            previous(event)
+
+    page.on_media_change = sync
+
+    def detach() -> None:
+        """弹窗关掉时调它：把 media 处理还原成原来那个。"""
+        if page.on_media_change is sync:
+            page.on_media_change = previous
+
+    return detach
 
 
 def page_gradient() -> ft.LinearGradient:

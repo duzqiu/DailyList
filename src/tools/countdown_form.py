@@ -13,10 +13,10 @@ from tools import db
 from tools.layout import (
     DIALOG_RADIUS,
     DIALOG_SURFACE,
-    anchor_dialog_above_keyboard,
     date_label,
     dialog_button_style,
     text_width,
+    track_keyboard,
 )
 from tools.pickers import build_date_picker, build_value_trigger
 from tools.popup_select import (
@@ -152,8 +152,9 @@ def open_countdown_form(
         content_width=color_width,
     )
     def focus_changed(focused: bool) -> None:
+        # 弹窗跟着键盘走由 `track_keyboard` 管（焦点事件比键盘动画早一步，按它挪
+        # 会先沉一下再弹回来）。
         set_menu_visible(not focused)
-        anchor_dialog_above_keyboard(dialog, focused)
 
     content_field = ft.TextField(
         value=item.content if editing else "",
@@ -175,6 +176,7 @@ def open_countdown_form(
     )
 
     def close_dialog(_: ft.Event[ft.Control] | None = None) -> None:
+        unwatch_keyboard()
         dialog.open = False
         set_menu_visible(True)
         page.update()
@@ -214,6 +216,7 @@ def open_countdown_form(
         content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
         actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
         action_button_padding=ft.Padding.symmetric(horizontal=8),
+        # 点外面 / 按返回关掉时也走 `close_dialog`，键盘跟随在那里拆。
         on_dismiss=lambda _: close_dialog(),
         content=ft.Column(
             tight=True,
@@ -239,4 +242,6 @@ def open_countdown_form(
             ),
         ],
     )
+    # 键盘一升一落都把弹窗挪到键盘上方 / 回到正中（见 track_keyboard）。
+    unwatch_keyboard = track_keyboard(page, dialog)
     page.show_dialog(dialog)

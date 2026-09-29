@@ -143,7 +143,7 @@ main.py
 1. **颜色 / 尺寸集中在 `tools/layout.py` 和 `tools/categories.py`**：卡片色、选中蓝、完成灰、弹窗圆角（`DIALOG_RADIUS = 12`，Material 默认 28）、弹窗表面色（`DIALOG_SURFACE`）等都在这里，页面里不要再手写十六进制。
 2. **下拉一律用 `tools/popup_select.py`**，不要用 `ft.Dropdown`：Dropdown 的触发器是 Material TextField，`InputDecorator` 会在弹层之上再画一遍自己的框，把贴在它下面的面板盖住一半。现在用 `PopupMenuButton + menu_position=UNDER`。触发器的箭头跟着面板走：展开时 `EXPAND_LESS`（朝上）、点外面关掉或选了一项都回到 `EXPAND_MORE`（朝下）。例外是「数据」页的 年/月/周 和新增待办弹窗的分类：选项直接摊在卡片标题行 / 弹窗行里，用 `tools/segmented.py` 的横向胶囊开关，点一下就切，不必先点开面板。
 3. **弹窗**统一 `shape=RoundedRectangleBorder(radius=DIALOG_RADIUS)` + `bgcolor=DIALOG_SURFACE` + `elevation=0`。
-4. **键盘处理**：输入框 `on_focus` 里调 `anchor_dialog_above_keyboard(dialog, True)`（弹窗贴键盘上方）并用 `set_menu_visible(False)` 收起底部菜单和浮动按钮；`on_blur` 复原。
+4. **键盘处理**：弹窗打开后调一次 `track_keyboard(page, dialog)`，它会挂在 `page.on_media_change` 上，按 `view_insets.bottom` 把弹窗挪到键盘上方 / 键盘落下时挪回正中（返回的函数在 `close` 里调一下，把 media 处理还原）。**别改用 `on_focus` / `on_blur` 去挪弹窗**：焦点事件比键盘动画早到一步，按它挪会先往屏幕底下一沉、键盘真的升起时再弹回来；而且点外面 / 按返回关掉时拿不到 blur，弹窗会留在底部。`on_focus` / `on_blur` 只管 `set_menu_visible`。
 5. **列表底部留白**用 `BOTTOM_MENU_INSET`，否则最后一行会被浮动菜单栏压住。
 6. 页面内容滚动一律 `scroll=ft.ScrollMode.HIDDEN` 隐藏滚动条。
 7. **折线图的浮框是自绘的**（`tools/line_chart.py`）：fl_chart 的浮框是一个系列一行、每行只能一种颜色（`text_spans` 在 flet-charts 1.0.1 里传不到 Dart 侧，一用整个浮框都画不出来），做不出「灰色日期 + 彩点 + 黑色数值」。所以控件自带的浮框只留一个透明的壳，内容换成挂在 `ft.Stack` 上的 `ft.Container`，由 `LineChart.on_event` 的悬停事件摆位置、换内容。浮框贴在锚点左右：`TIP_OFFSET` 比 fl_chart 10px 的 x 命中半径大，光标压不到它，否则会出现「浮框盖住光标 → 图表 pointerExit → 浮框消失 → 又冒出来」的抖动。浮框是毛玻璃：半透明灰白底（`#CCF1F5F9`，`#AARRGGBB`）+ `blur=ft.Blur(12, 12, ft.BlurTileMode.CLAMP)`，与「+」按钮、底部菜单栏同一套写法。

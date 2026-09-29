@@ -19,9 +19,9 @@ from tools.categories import (
 from tools.layout import (
     DIALOG_RADIUS,
     DIALOG_SURFACE,
-    anchor_dialog_above_keyboard,
     date_label,
     dialog_button_style,
+    track_keyboard,
 )
 from tools.pickers import (
     build_date_picker,
@@ -167,8 +167,9 @@ def open_todo_form(
         cycle_text.update()
 
     def focus_changed(focused: bool) -> None:
+        # 弹窗挪到键盘上方这件事交给 `track_keyboard` 跟着键盘走：焦点事件比键盘
+        # 动画早到一步，按它挪会先往下沉一下、键盘升起时再弹回来。
         set_menu_visible(not focused)
-        anchor_dialog_above_keyboard(dialog, focused)
 
     todo_field = ft.TextField(
         value=todo.content if editing else "",
@@ -207,6 +208,7 @@ def open_todo_form(
     )
 
     def close(_: ft.Event[ft.Control] | None = None) -> None:
+        unwatch_keyboard()
         dialog.open = False
         set_menu_visible(True)
         page.update()
@@ -258,7 +260,8 @@ def open_todo_form(
         content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
         actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
         action_button_padding=ft.Padding.symmetric(horizontal=8),
-        on_dismiss=lambda _: set_menu_visible(True),
+        # 点外面 / 按返回关掉时也要把键盘跟随拆掉（保存、取消走 `close`）。
+        on_dismiss=lambda _: close(),
         content=ft.Column(
             tight=True,
             spacing=8,
@@ -278,4 +281,6 @@ def open_todo_form(
             ft.TextButton("保存", style=dialog_button_style(), on_click=save),
         ],
     )
+    # 键盘一升一落都把弹窗挪到键盘上方 / 回到正中（见 track_keyboard）。
+    unwatch_keyboard = track_keyboard(page, dialog)
     page.show_dialog(dialog)
