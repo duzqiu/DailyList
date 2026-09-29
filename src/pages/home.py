@@ -112,6 +112,9 @@ DATE_STRIP_ESTIMATED_WIDTH = ESTIMATED_PAGE_WIDTH - 2 * PAGE_SIDE_PADDING
 DATE_STRIP_KEY = "date-strip"
 # 下方那叠页的 key：页面上找「一天一页的那一叠」就认它。
 PAGE_SLIDE_KEY = "date-pages"
+# 选中那一天存在页面 state 里的键（见 restore_day_index）：待办页每次切页都是重
+# 建的，「在看哪一天」得跟着页面名留住，不然从二级页退回来就弹回今天。
+SELECTED_DAY_KEY = "selected_day"
 # 日期条和下面待办列表之间那条灰线：1px，比卡片描边更淡一档的浅灰。
 STRIP_DIVIDER_COLOR = "#F1F5F9"
 STRIP_DIVIDER_THICKNESS = 1
@@ -149,10 +152,27 @@ def group_todos_by_day(
     return grouped
 
 
+def restore_day_index(dates: list[date], state: dict[str, object]) -> int:
+    """回到上次看的那一格：state 里存的是那一天本身（见 SELECTED_DAY_KEY）。
+
+    存日期而不是下标 —— 下标是相对「今天」的，隔了零点之后整条日期条往后挪一天，
+    同一个下标指的就是另一天了。存的这天已经不在这一周里（隔了几天才回来），
+    就还是回到今天。
+    """
+    saved = state.get(SELECTED_DAY_KEY)
+    if not isinstance(saved, str):
+        return 0
+    try:
+        return dates.index(date.fromisoformat(saved))
+    except ValueError:
+        return 0
+
+
 def build_home_page(
     page: ft.Page,
     set_menu_visible: Callable[[bool], None],
     open_data: Callable[[], None],
+    state: dict[str, object],
 ) -> ft.Control:
     # 今天排在日期条的第一个，往后连着 DATE_STRIP_DAYS 天 —— 待办页只看今天和
     # 接下来的这几天，过去的日子不再列。
@@ -161,9 +181,10 @@ def build_home_page(
     today_index = 0
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     todos_by_day = group_todos_by_day(db.list_todos(dates))
-    selected_index = today_index
+    # 进二级页（数据页）再退回来时这一页是重新 build 出来的，日期条要回到进去前
+    # 看的那一格，而不是弹回今天那第一格（见 restore_day_index）。
+    selected_index = restore_day_index(dates, state)
     # 日期条的真实宽度（量到之前是 0，按估的值算）。
-    state: dict[str, float] = {"strip_width": 0.0}
     date_selector = ft.Row(spacing=DATE_CARD_SPACING)
     # 整条日期条只画这一条黑横条：铺满日期条的宽、钉在底边上，靠 `offset`
     # （按自身宽度换算的平移，见 date_bar_offset）滑到选中那一格下面。
@@ -356,6 +377,8 @@ def build_home_page(
     def select_date(index: int) -> None:
         nonlocal selected_index
         selected_index = index
+        # 记下这一天：退到二级页再回来时，日期条照它摆回去。
+        state[SELECTED_DAY_KEY] = dates[index].isoformat()
         date_selector.controls = [
             build_date_item(date_index) for date_index in range(len(dates))
         ]
@@ -366,7 +389,7 @@ def build_home_page(
 
     def strip_width() -> float:
         """日期条的真实宽度；还没量到时先用估的那个兜底。"""
-        return state["strip_width"] or DATE_STRIP_ESTIMATED_WIDTH
+        return state.get("strip_width") or DATE_STRIP_ESTIMATED_WIDTH
 
     def place_date_bar() -> None:
         """横条摆到选中那一格下面 —— 只改 `offset`，滑动的动效由 `animate_offset` 管。"""
@@ -382,7 +405,11 @@ def build_home_page(
         这一次先把动效摘掉，免得一启动就看到横条自己挪一小下。
         """
         width = e.width
-        if not width or width <= 0 or abs(width - state["strip_width"]) < 1:
+        if (
+            not width
+            or width <= 0
+            or abs(width - state.get("strip_width", 0.0)) < 1
+        ):
             return
         state["strip_width"] = float(width)
         date_bar.animate_offset = None

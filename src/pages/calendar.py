@@ -86,8 +86,17 @@ ESTIMATED_PAGE_WIDTH = 400
 CELL_HEIGHT_SLACK = 2
 
 
-def estimated_grid_width() -> float:
-    """量不到宽度时的兜底：按估的页宽算一行 7 格有多宽。"""
+def estimated_grid_width(page: ft.Page | None = None) -> float:
+    """量不到宽度时的兜底：先问页面自己有多宽，问不到才按手机竖屏估。
+
+    切 Tab 进日历页的时候 `page.width` 早就量出来了（App 早渲染完，只是这一页是
+    新建的），第一帧直接照它排版，整片格子就不会「先按 400 画一遍、第一周那行量
+    到真宽度后又收缩一下」。只有页面还没布局（宽度是 0 / 拿不到）时才退回竖屏估
+    值，那种情况下仍由 `learn_row_width` 量到后重排一次。
+    """
+    page_width = getattr(page, "width", None)
+    if isinstance(page_width, (int, float)) and page_width > 0:
+        return float(page_width) - PAGE_HORIZONTAL_INSETS
     return ESTIMATED_PAGE_WIDTH - PAGE_HORIZONTAL_INSETS
 
 
@@ -178,6 +187,11 @@ TODO_TEXT_SLOT = 180 + 49
 COUNTDOWN_EST = 114
 # 「这天没有待办事项」那块（empty_hint）：上下 10 的留白 + 20 的图标 + 边框。
 EMPTY_HINT_EST = 44
+# 估的高度比量出来的真高度差多少（**摊到每一条**上），记在页面 state 里的键（见
+# estimate_day_height / open_day_dialog 的 fit_body）。
+DAY_HEIGHT_SLACK_KEY = "day_height_slack"
+# 校准值别被一次异常的量测带跑：夹在这个范围里（一条待办卡片的高度量级）。
+DAY_HEIGHT_SLACK_LIMIT = 40
 # 日期格子的描边：比卡片边框 #E2E8F0 再淡一点点，只要把格子界限画出来。
 CELL_BORDER = "#E2E8F0"
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
@@ -196,12 +210,17 @@ def lunar_short(day: date) -> str:
     return rest or label
 
 
-def estimate_day_height(day: date) -> float:
+def estimate_day_height(day: date, slack: float = 0.0) -> float:
     """当天弹窗正文大概有多高（第一帧先拿它撑起来，见 open_day_dialog）。
 
     只按布局粗算：一条待办取「时间轴最矮身高」和「卡片留白 + 折行数」的大者，
     倒数日卡片是定高的，分组标题和间距都照实加起来。宁可多算一点 —— 估高了下一
-    帧就收回去，估低了才会出现「先按全部内容撑高一下」的那一闪。
+    帧就收回去，估低了才会出现「先按全部内容撑开一下」的那一闪。
+
+    `slack` 是上次量出来的「**每一条**差了多少」（见 open_day_dialog 里的
+    fit_body）：粗算漏掉的是字体行高、标签高度这些固定量，一条差多少在同一台机器
+    上是个定值，条数越多差得越多 —— 所以按条数摊，补上它以后第一帧就基本是最终
+    高度，弹窗开出来不再上下撑一下。
     """
     todos = db.list_range(day, day)
     countdowns = countdowns_on(day)
@@ -237,7 +256,20 @@ def estimate_day_height(day: date) -> float:
             + count * COUNTDOWN_EST
             + (count - 1) * GROUP_GAP
         )
-    return sum(groups) + BODY_GAP * (len(groups) - 1)
+    return (
+        sum(groups)
+        + BODY_GAP * (len(groups) - 1)
+        + slack * (len(todos) + len(countdowns))
+    )
+
+
+def day_item_count(day: date) -> int:
+    """这一天弹窗里要摆几条（待办 + 倒数日）。
+
+    校准估高时拿它把差值摊到每一条上（见 open_day_dialog 的 fit_body）：粗算漏掉
+    的量是一条一份，条数越多差得越多。
+    """
+    return len(db.list_range(day, day)) + len(countdowns_on(day))
 
 
 def overdue_count(day: date, todos: list[db.Todo]) -> int:
@@ -457,13 +489,36 @@ def build_calendar_page(
         # 量高度得等一帧，弹窗第一帧只能先按估的高度把正文撑起来：不预先定高的话，
         # 内容比上限高的那些天会先按全部内容撑高一下、下一帧才收回去 —— 点日期时
         # 看到的那一闪就是它（估高见上面的 estimate_day_height，宁可估高别估矮）。
-        body.height = min(estimate_day_height(day), DIALOG_BODY_MAX_HEIGHT)
+        # 估的时候补上上次量出来的偏差（`slack`），第一帧就越接近最终高度。
+        saved_slack = state.get(DAY_HEIGHT_SLACK_KEY)
+        slack = (
+            float(saved_slack)
+            if isinstance(saved_slack, (int, float))
+            else 0.0
+        )
+        estimated = estimate_day_height(day, slack)
+        body.height = min(estimated, DIALOG_BODY_MAX_HEIGHT)
         # 高度先给了就先开滚动（不画滚动条）：万一估矮，第一帧顶多底下少露一点，
         # 内容也不会溢出到弹窗外面；量到真高度后 fit_body 再定最终高度。
         body.scroll = ft.ScrollMode.HIDDEN
 
         def fit_body(natural: float) -> None:
-            """按量出来的自然高度定正文：够矮就贴着内容，超过上限才钉住、开滚动。"""
+            """按量出来的自然高度定正文：够矮就贴着内容，超过上限才钉住、开滚动。
+
+            顺便把「这一次的估算还差多少」摊到每一条上、补进 `state`：已经补过的
+            那部分留着（`slack`），这一次差多少再补上 0.7（留点阻尼，免得被一次
+            异常量测带跑），最后向上取整 —— 宁可估高一点让下一帧收回去，也别估低
+            了把弹窗撑开一下。这样点第二、第三个日期起，第一帧就基本是最终高度。
+            """
+            items = max(1, day_item_count(day))
+            offset = (natural - estimated) / items
+            offset = max(
+                -DAY_HEIGHT_SLACK_LIMIT,
+                min(DAY_HEIGHT_SLACK_LIMIT, offset),
+            )
+            # 补在已经补过的基数上（不是拿新差值去平均 —— 那样会把补好的那部分
+            # 又摊薄，校准永远收敛不到位）。
+            state[DAY_HEIGHT_SLACK_KEY] = math.ceil(slack + offset * 0.7)
             over = natural > DIALOG_BODY_MAX_HEIGHT
             height = DIALOG_BODY_MAX_HEIGHT if over else None
             scroll = ft.ScrollMode.HIDDEN if over else None
@@ -728,16 +783,22 @@ def build_calendar_page(
     def learn_row_width(e: ft.LayoutSizeChangeEvent) -> None:
         """量到一周那行的真实宽度：一格能摆几个点由它说了算，行数变了就重排。
 
-        宽度要等布局完才量得到，所以第一帧先按估的宽度排版；量到的值记在 `state`
-        里，切走再回来、翻月、选日期都直接用它，只有热重载才会退回估的值。
+        第一帧按 `page.width` 排（见 estimated_grid_width），量到的值记在 `state`
+        里，切走再回来、翻月、选日期都直接用它。量出来跟现在摆的这一版一样宽就不
+        重排 —— 重排出来的格子一模一样高，白白重建一次还可能被看成抖一下。
         """
         width = e.width
         if not width or width <= 0:
             return
         known = state.get("calendar_row_width")
-        if isinstance(known, (int, float)) and abs(float(known) - width) < 1:
-            return
+        current = (
+            float(known)
+            if isinstance(known, (int, float)) and known
+            else estimated_grid_width(page)
+        )
         state["calendar_row_width"] = float(width)
+        if abs(current - width) < 1:
+            return
         try:
             month_view.content = build_month_view()
             month_view.update()
@@ -757,7 +818,7 @@ def build_calendar_page(
         grid_width = (
             float(known_width)
             if isinstance(known_width, (int, float)) and known_width
-            else estimated_grid_width()
+            else estimated_grid_width(page)
         )
         per_run = dots_per_run(cell_inner_width(grid_width))
         # 每天要占几行：键是日期（month_todos 按 date 分组），别拿日号去取。
