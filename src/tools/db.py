@@ -407,6 +407,74 @@ def clear_todos() -> int:
         connection.close()
 
 
+def replace_data(
+    todos: list[dict],
+    countdowns: list[dict],
+    settings: dict[str, str] | None = None,
+) -> tuple[int, int, int]:
+    """导入用：清空待办与倒数日，再把这批记录写进去。
+
+    三个要点：
+    - 记录是**原样**写的：`repeat_cycle` 直接存、**不按周期展开**。导入的每一行本来
+      就是循环铺开后的结果（见 occurrence_dates），再展开一次一天就变一年 —— 所以
+      这里不能用 `add_todo`。
+    - `settings` 是逐条覆盖、**不清空**：那张表里还放着通知渠道之类的配置，导入文件
+      里没有的键不该被抹掉。
+    - 全程一个连接、一个事务：几千行逐条 `add_*` 要开几千次连接，而且中途出错会留下
+      半截数据；这里要么全进、要么全不进。
+
+    返回 `(写了几条待办, 写了几个倒数日, 覆盖了几个设置)`。
+    """
+    created_at = _now()
+    connection = connect()
+    try:
+        connection.execute("DELETE FROM todos")
+        connection.execute("DELETE FROM countdowns")
+        for todo in todos:
+            connection.execute(
+                "INSERT INTO todos (due_date, due_time, end_time, category,"
+                " content, done, repeat_cycle, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    todo["due_date"],
+                    todo.get("due_time", ""),
+                    todo.get("end_time", ""),
+                    todo["category"],
+                    todo["content"],
+                    1 if todo.get("done") else 0,
+                    todo.get("repeat_cycle", DEFAULT_CYCLE),
+                    created_at,
+                ),
+            )
+        for item in countdowns:
+            connection.execute(
+                "INSERT INTO countdowns (due_date, cycle, content, bgcolor,"
+                " created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    item["due_date"],
+                    item.get("cycle", DEFAULT_CYCLE),
+                    item["content"],
+                    item.get("bgcolor", "#F1F5F9"),
+                    created_at,
+                ),
+            )
+        written_settings = 0
+        for name, value in (settings or {}).items():
+            connection.execute(
+                "INSERT INTO settings (name, value) VALUES (?, ?)"
+                " ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+                (name, value),
+            )
+            written_settings += 1
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return len(todos), len(countdowns), written_settings
+
+
 def add_countdown(
     due_date: date,
     content: str,

@@ -54,7 +54,7 @@
 ### 设置（二级页，从日历页右上角进入，`pages/preferences.py`）
 分**三档卡片**（`settings_section`：卡片上方一行灰字小标题，条目摆在自己那张卡片里；`setting_row` 是卡片里的一行 = 左「标题 + 小字说明」+ 右动作控件）：
 - **通知设置** → 通知渠道：Bark / Pushdeer / Server酱 / 企业微信 / 钉钉 / 飞书 / Telegram / Discord / Slack + 通知地址（存 `settings` 表）
-- **数据设置** → 导出数据（**导出为 JSON**：`tools/data_export.py` 把待办 / 倒数日 / 设置拍成一份 JSON，经 `FilePicker.save_file(src_bytes=...)` 交给系统 —— 桌面弹「另存为」，手机和 Web 上表现为导出 / 下载；小字与对话框标题都写明是 JSON）、云端数据：开关（**占位功能，不落库、不发请求**）
+- **数据设置** → 导出数据（**导出为 JSON**：`tools/data_export.py` 把待办 / 倒数日 / 设置拍成一份 JSON，经 `FilePicker.save_file(src_bytes=...)` 交给系统 —— 桌面弹「另存为」，手机和 Web 上表现为导出 / 下载；小字与对话框标题都写明是 JSON）、**导入数据**（**从 JSON 恢复**：`tools/data_import.py` —— 按下去先二次确认，再 `pick_files(with_data=True)` 选文件；**待办与倒数日整表替换**、设置逐条覆盖；文件必须验明正身（只认本 App 导出的 `format` 标记），认不出就拒 —— 不然随手选个别的 JSON 就把库清了）、云端数据：开关（**占位功能，不落库、不发请求**）
 - **通用设置** → **检查新版本**（右侧就是当前版本号 `v0.1.0`，**点整行**去仓库问一次：先看 `releases/latest`、没发过 Release 就退到 `tags`，比完弹一句 —— 「发现新版本 vX.Y.Z」/「已是最新版本」/「还没有已发布的版本」/「检查失败，请稍后重试」，请求期间右边先显示「检查中…」。当前版本是 `tools/version_check.py` 的 `APP_VERSION`，和 `pyproject.toml` 的 `version` 是一对，改版本号得两处一起改）、**联系方式**（`CONTACTS` 里逐条列：邮箱、微信；**点一下复制到剪贴板**并弹一句**屏幕中间**的提示「已复制邮箱 / 已复制微信」（走 `tools/toast.py`），右侧一枚复制图标当提示）、清除缓存（二次确认后清空所有待办，并提示清除了多少条）
 
 ### 二级 / 三级页的返回（`page.views` + `tools/swipe_back.py`）
@@ -77,9 +77,10 @@
 | `src/pages/countdown.py` | 250 | 倒数日页：通栏 + 两列卡片列表 + 底部「已过期 N」开关（过期卡片全部双列；没有「+」，新增入口在待办页） |
 | `src/pages/calendar.py` | 1016 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（月份与选中日期跨 Tab 保留） |
 | `src/pages/data.py` | 596 | 「数据」二级页：数据统计 / 分类占比 / 待办趋势三张卡（年/月/周 保留） |
-| `src/pages/preferences.py` | 534 | 设置二级页：三档卡片 —— 通知设置（通知渠道）、数据设置（导出 JSON、云端开关）、通用设置（检查新版本、联系方式、清除缓存） |
-| `src/tools/db.py` | 641 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings / 读全部两张表（`list_all_todos`、`list_settings`，导出用） |
+| `src/pages/preferences.py` | 636 | 设置二级页：三档卡片 —— 通知设置（通知渠道）、数据设置（导出 / 导入 JSON、云端开关）、通用设置（检查新版本、联系方式、清除缓存） |
+| `src/tools/db.py` | 709 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings / 读全部两张表（`list_all_todos`、`list_settings`，导出用）/ `replace_data()`（导入用：一个事务里清空重写，**原样存、不展开**） |
 | `src/tools/data_export.py` | 73 | 导出数据：把库里的待办 / 倒数日 / 设置拍成一份 JSON（`export_bytes()` 出字节、`export_file_name()` 出文件名；中文不转义，文件里带 `format` / `version` 标记） |
+| `src/tools/data_import.py` | 157 | 导入数据：把 `data_export` 那份 JSON 解析后写回库（`import_bytes()`；`ImportFailed` 的消息是写给用户看的一句话；坏行跳过并计数）。**坑**：写回去必须**原样**，别改成 `db.add_todo()` —— 文件里的循环待办本来就是铺开后的行，再展开一次一天变一年 |
 | `src/tools/layout.py` | 239 | 全局配色与尺寸常量、页面渐变、二级页顶栏（返回 + 居中标题）、弹窗键盘定位、文字宽度估算、可读字色、时间文案 |
 | `src/tools/toast.py` | 76 | 居中的 toast 提示（`build_toast(page, message)`）：`SnackBar` 用 FLOATING 档 + 「(屏高 − 48) / 2」的底部留白顶到**屏幕正中**，宽度按文字估、封顶 `TOAST_MAX_WIDTH = 240`；各页面的提示统一走它，别再自己拼 SnackBar |
 | `src/tools/services.py` | 81 | Service 的统一注册：`register_app_services(page)` 由 `main.py` 在页面首次发出**之前**调用（时机是关键，见约定 10），页面里用 `ensure_service(page, 类型)` 取 |
@@ -207,7 +208,7 @@ pytest
 - **测试过期**：`tests/test_main.py` 断言与当前 UI 文案不符。
 - **通知渠道只有配置**：`tools/notifications.py` 只存渠道名和地址，没有真正发送推送的逻辑。
 - **云端数据是占位**：开关不落库、不请求（代码注释里写明「先只做样子」）。
-- **导出只有 JSON、还没有「导入」**：导出的文件现在只能给人看 / 备份，回填功能没做（文件里留了 `format` / `version` 标记，就是为了以后能认版本）。
+- **导入是「替换」不是「合并」**：导入会把待办与倒数日**整表**换成文件里的内容（有二次确认），想往现有数据里追加暂时做不到；文件也必须是本 App 导出的 JSON（认 `format` 标记），只支持 JSON 这一种格式。
 - **仓库里的 `dailylist.db` 是活数据文件**：当前只有 `todos`(204 行) / `settings`，既没有 `countdowns` 表，`todos` 也缺 `due_time` / `end_time` 列 —— 说明该文件早于「倒数日 / 时间」功能，首次运行会被 `init_db()` 自动补齐。它是跟着仓库走的，改动数据会体现为一次文件改动。
 - **多实例同时写库**：应用的 DB 路径固定在项目根，同时开多个实例（或一边跑 App 一边跑测试脚本）会互相覆盖数据，调试时注意先关掉旧实例。
 - **一级页按返回会退出 App**：二级 / 三级页现在是真 View，系统返回弹的是它们；回到一级页（`page.views` 只剩一层）之后按返回就没有可弹的层了，客户端会结束 Activity、回到 Flet 首页 —— 这是系统返回的正常行为，不是 bug。想在首页也拦住返回，得自己接管客户端的返回事件，Flet 目前没给这层口子。

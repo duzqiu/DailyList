@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import flet as ft
 
-from tools import data_export, db, notifications, version_check
+from tools import data_export, data_import, db, notifications, version_check
 from tools.layout import (
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
@@ -184,6 +184,87 @@ def build_preferences_page(
             return
         if saved:
             notify("已导出 JSON 数据")
+
+    def confirm_import(_: ft.Event[ft.Control]) -> None:
+        """导入前的二次确认 —— 它会把现在的待办与倒数日整表换掉，不能点错就进去。"""
+        page.show_dialog(
+            ft.CupertinoAlertDialog(
+                modal=True,
+                title=ft.Text(
+                    "导入数据",
+                    size=15,
+                    weight=ft.FontWeight.BOLD,
+                    color=TITLE_COLOR,
+                ),
+                content=ft.Container(
+                    padding=ft.Padding.only(top=6),
+                    content=ft.Text(
+                        "会用 JSON 文件里的内容替换现在的待办与倒数日，且无法撤销。",
+                        size=13,
+                        color=TITLE_COLOR,
+                    ),
+                ),
+                actions=[
+                    ft.CupertinoDialogAction(
+                        content=ft.Text("取消", size=14),
+                        on_click=lambda _: page.pop_dialog(),
+                    ),
+                    ft.CupertinoDialogAction(
+                        content=ft.Text(
+                            "选择文件",
+                            size=14,
+                            color=PENDING_COLOR,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+                        destructive=True,
+                        on_click=pick_import_file,
+                    ),
+                ],
+            )
+        )
+
+    def pick_import_file(_: ft.Event[ft.Control]) -> None:
+        """关掉确认框再去挑文件（挑文件是异步的，交给 `run_task`）。"""
+        page.pop_dialog()
+        page.run_task(import_data)
+
+    async def import_data() -> None:
+        """挑一个 JSON 文件导进库；结果用一句提示说清楚。"""
+        files = await export_picker.pick_files(
+            dialog_title="选择要导入的 JSON 文件",
+            # 和导出同理：Flet 的 `file_type` 没有「文本档」这一档，限定后缀得走
+            # CUSTOM + allowed_extensions。
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=[data_export.EXPORT_FORMAT],
+            # 让 Flet 把内容一并读进来：手机上返回的路径不可用，只有 bytes 靠得住。
+            with_data=True,
+        )
+        if not files:
+            return
+        chosen = files[0]
+        raw = chosen.bytes
+        if not raw and chosen.path:
+            # 有的平台 `with_data` 只回路径，桌面端就自己补读一次。
+            try:
+                with open(chosen.path, "rb") as handle:
+                    raw = handle.read()
+            except OSError:
+                logger.exception("读取导入文件失败")
+        if not raw:
+            notify("读不到文件内容")
+            return
+
+        try:
+            result = data_import.import_bytes(raw)
+        except data_import.ImportFailed as failure:
+            # 这一步的消息本来就是写给用户看的（「不是 JSON」之类），直接弹。
+            notify(str(failure))
+            return
+        except Exception:
+            logger.exception("导入数据失败")
+            notify("导入失败")
+            return
+        notify(result.summary())
 
     def toggle_cloud(_: ft.Event[ft.Switch]) -> None:
         """云端数据开关：先只做样子，不落库、不发请求。"""
@@ -390,6 +471,26 @@ def build_preferences_page(
             ),
         )
 
+    def import_row() -> ft.Control:
+        """数据设置那一行：导入数据（从导出的 JSON 恢复）。
+
+        小字里就写明**会覆盖** —— 这一行按下去是要整表换掉的，得先说清楚。
+        """
+        return setting_row(
+            "导入数据",
+            ft.Text(
+                "从 JSON 恢复，会覆盖现有数据",
+                size=11,
+                color=MUTED_COLOR,
+                no_wrap=True,
+            ),
+            ft.OutlinedButton(
+                "导入",
+                on_click=confirm_import,
+                style=compact_button_style(),
+            ),
+        )
+
     def cloud_row() -> ft.Control:
         """数据设置那一行：云端数据（开关先只做样子，不落库、不发请求）。"""
         return setting_row(
@@ -512,7 +613,8 @@ def build_preferences_page(
                                     "通知设置", [notify_row()]
                                 ),
                                 settings_section(
-                                    "数据设置", [export_row(), cloud_row()]
+                                    "数据设置",
+                                    [export_row(), import_row(), cloud_row()],
                                 ),
                                 settings_section(
                                     "通用设置",
