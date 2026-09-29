@@ -40,6 +40,13 @@ CARET_COLOR = "#94A3B8"
 # a tight 44px lets the entries land right under the caret instead of leaving a
 # wide empty strip after the text.
 MENU_MIN_WIDTH = 44
+# 长列表（周期 10 项、卡片颜色 14 项）的面板钉在这个高度上：面板不再跟着项数长，
+# 多出来的项在里面上下滚。按「一行占 OPTION_HEIGHT + 上下各一点外边距」算摆几行，
+# 再加面板自己上下各 2 的内边距。
+MENU_VISIBLE_ROWS = 6
+MENU_HEIGHT = (
+    MENU_VISIBLE_ROWS * (OPTION_HEIGHT + 2 * OPTION_VERTICAL_MARGIN) + 4
+)
 # Slack kept between the longest entry and the panel edge, so a glyph can never
 # touch - or be shaved by - the panel's rounded border.
 MENU_LABEL_SLACK = 6
@@ -107,7 +114,7 @@ def build_option_selector(
     text: ft.Control,
     options: list[tuple[str, str]],
     on_pick: Callable[[str], None],
-    max_menu_height: float | None = None,
+    menu_height: float | None = None,
     label_builder: Callable[[str], ft.Control] | None = None,
     content_width: float | None = None,
     bgcolor: str = MENU_BG,
@@ -117,8 +124,8 @@ def build_option_selector(
 
     `options` is `[(key, label)]`; `on_pick` gets the key of the chosen entry,
     while `text` - owned by the caller - shows the current value.
-    `max_menu_height` caps a long list (the dialog's dates) so the panel scrolls
-    instead of growing past the screen.
+    `menu_height` 把面板钉成一个固定高度（长列表用，见 `MENU_HEIGHT`）：面板不再
+    跟着项数长，超出这一截的项在面板里上下滚。
     `label_builder` renders an option's own content (e.g. the category stars plus
     its name) instead of the plain label text.
     `content_width` pins the panel to the width one entry needs, so a short list
@@ -131,8 +138,11 @@ def build_option_selector(
     if content_width is not None:
         menu_constraints["min_width"] = panel_width(content_width)
         menu_constraints["max_width"] = panel_width(content_width)
-    if max_menu_height is not None:
-        menu_constraints["max_height"] = max_menu_height
+    if menu_height is not None:
+        # 钉死成固定高度（Material 的菜单会在这个高度里自己滚起来），短列表也不会
+        # 缩回去 —— 周期、颜色那两排开出来的面板一样大。
+        menu_constraints["min_height"] = menu_height
+        menu_constraints["max_height"] = menu_height
     # Material lays an entry's content out at its natural width, so an entry's
     # own background is pinned to the panel width instead (minus its own side
     # gaps) and every row is painted edge to edge.
@@ -141,6 +151,30 @@ def build_option_selector(
         if content_width is not None
         else menu_min_width(options)
     ) - 2 * OPTION_HORIZONTAL_MARGIN
+    # 展开时箭头朝上、收起时朝下：光看箭头就知道这一格现在是开着的还是合上的。
+    caret = ft.Icon(
+        ft.Icons.EXPAND_MORE,
+        size=16,
+        color=CARET_COLOR,
+        # A large Android font scale grows text; the caret keeps its size so it
+        # cannot grow into the value next to it.
+        apply_text_scaling=False,
+    )
+
+    def set_expanded(expanded: bool) -> None:
+        caret.icon = (
+            ft.Icons.EXPAND_LESS if expanded else ft.Icons.EXPAND_MORE
+        )
+        try:
+            caret.update()
+        except RuntimeError:
+            # 面板是在弹窗里开的：这一层可能已经跟着弹窗一起没了。
+            pass
+
+    def pick(key: str) -> None:
+        set_expanded(False)
+        on_pick(key)
+
     return ft.PopupMenuButton(
         items=[
             ft.PopupMenuItem(
@@ -164,7 +198,7 @@ def build_option_selector(
                 ),
                 height=OPTION_HEIGHT,
                 padding=ft.Padding.all(0),
-                on_click=lambda _, key=key: on_pick(key),
+                on_click=lambda _, key=key: pick(key),
             )
             for key, label in options
         ],
@@ -177,22 +211,17 @@ def build_option_selector(
                 tight=True,
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    text,
-                    ft.Icon(
-                        ft.Icons.EXPAND_MORE,
-                        size=16,
-                        color=CARET_COLOR,
-                        # A large Android font scale grows text; the caret keeps
-                        # its size so it cannot grow into the value next to it.
-                        apply_text_scaling=False,
-                    ),
-                ],
+                controls=[text, caret],
             ),
         ),
         # The panel is anchored flush under the button by Material, so it never
         # overlaps the trigger and never floats away from it.
         menu_position=ft.PopupMenuPosition.UNDER,
+        # 面板一开一合都把箭头掰到对应的方向（见 set_expanded）：开着朝上、
+        # 点外面关掉（on_cancel）或选了一项（pick）都掰回朝下。
+        on_open=lambda *_: set_expanded(True),
+        on_cancel=lambda *_: set_expanded(False),
+        on_select=lambda *_: set_expanded(False),
         style=SELECTOR_STYLE,
         bgcolor=bgcolor,
         elevation=0,
@@ -205,6 +234,10 @@ def build_option_selector(
         ),
         menu_padding=ft.Padding.symmetric(vertical=2),
         size_constraints=ft.BoxConstraints(**menu_constraints),
+        # Material 的弹出菜单默认 `ClipBehavior.NONE`：面板不裁自己的内容，钉了固定
+        # 高度之后，上下滑动时滚出视野的那几项会从圆角边框外面露出去。按面板的圆
+        # 角裁（`ANTI_ALIAS`）就贴着边框收住，和 MENU_RADIUS 一个形状。
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         padding=ft.Padding.all(0),
     )
 

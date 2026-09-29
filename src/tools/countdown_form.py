@@ -20,6 +20,7 @@ from tools.layout import (
 )
 from tools.pickers import build_date_picker, build_value_trigger
 from tools.popup_select import (
+    MENU_HEIGHT,
     OPTION_TEXT_SIZE,
     build_option_row,
     build_option_selector,
@@ -125,6 +126,8 @@ def open_countdown_form(
         cycle_text,
         [(name, name) for name in db.REPEAT_CYCLES],
         set_cycle,
+        # 周期有十档：面板钉成固定高度，多出来的在里面上下滚。
+        menu_height=MENU_HEIGHT,
         content_width=90,
     )
 
@@ -141,6 +144,8 @@ def open_countdown_form(
         color_trigger,
         [(name, name) for name, _ in CARD_COLORS],
         set_color,
+        # 十四个颜色：同样钉成固定高度、在面板里滚。
+        menu_height=MENU_HEIGHT,
         label_builder=lambda name: option_row(
             color_face(name, option_text(name))
         ),

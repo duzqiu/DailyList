@@ -30,6 +30,7 @@ from tools.pickers import (
     midnight,
 )
 from tools.popup_select import (
+    MENU_HEIGHT,
     OPTION_TEXT_SIZE,
     build_option_row,
     build_option_selector,
@@ -198,6 +199,8 @@ def open_todo_form(
         cycle_text,
         [(name, name) for name in db.REPEAT_CYCLES],
         pick_cycle,
+        # 周期有十档：面板钉成固定高度，多出来的在里面上下滚。
+        menu_height=MENU_HEIGHT,
         content_width=max(
             len(name) * OPTION_TEXT_SIZE for name in db.REPEAT_CYCLES
         ),

@@ -11,6 +11,10 @@
 新增待办弹窗的三个分类也用它：那里传 `color_of`，选中项就填自己的分类色（红 / 黄 / 绿），
 而不是统一的「选中蓝」；字色由 `readable_ink` 跟着底色挑深浅。分类那排用方一点的
 那款（`square=True`）：圆角收小、两档之间立一条竖线，一眼就和 年/月/周 的胶囊区分开。
+
+切档不是硬切：旧的底色和字淡出、新的淡入（`SEGMENT_SWITCH`，180ms）。`ft.Text` 的字色
+没得动画（Flet 的 Text 没有 `animate`），所以每一档的文字摆两份叠着 —— 一份选中色加粗、
+一份灰的 —— 靠两层 `Container` 的 `animate_opacity` 交叉淡入淡出。
 """
 
 from collections.abc import Callable
@@ -54,6 +58,12 @@ SEGMENT_ACTIVE_BG = DATE_SELECTED_BG
 SEGMENT_TILE_BG = "#00000000"
 SEGMENT_TEXT_COLOR = "#64748B"
 SEGMENT_ACTIVE_TEXT_COLOR = "#172554"
+# 切一档用多久、怎么走：底色和两份字一起渐变（旧的切出、新的切入）。短一点才像
+# 「点哪档哪档亮起来」，长了会显得拖。
+SEGMENT_SWITCH_MS = 180
+SEGMENT_SWITCH = ft.Animation(
+    SEGMENT_SWITCH_MS, ft.AnimationCurve.EASE_OUT
+)
 
 
 def build_segmented(
@@ -78,7 +88,11 @@ def build_segmented(
     tile_radius = (
         SEGMENT_SQUARE_TILE_RADIUS if square else SEGMENT_TILE_RADIUS
     )
-    labels: dict[str, ft.Text] = {}
+    # 一档的文字摆两份、叠在一起：一份选中色 + 加粗，一份灰的。切换时两份的透明
+    # 度对调（旧的淡出、新的淡入），看上去就是字色自己过了一遍 —— `ft.Text` 的字
+    # 色没得动画（Flet 的 Text 没有 `animate`），只能这样交叉着来。
+    active_labels: dict[str, ft.Container] = {}
+    idle_labels: dict[str, ft.Container] = {}
     tiles: dict[str, ft.Container] = {}
     current = {"key": value}
 
@@ -86,20 +100,20 @@ def build_segmented(
         """选中项的底色：默认「选中蓝」，也可以一项一色。"""
         return SEGMENT_ACTIVE_BG if color_of is None else color_of(key)
 
+    def active_ink(key: str) -> str:
+        """选中项的字色：一档一色时按它的底色挑深浅（黄底深蓝、红 / 绿底白）。"""
+        return (
+            SEGMENT_ACTIVE_TEXT_COLOR
+            if color_of is None
+            else readable_ink(active_bg(key))
+        )
+
     def paint(active: str) -> None:
         for key, tile in tiles.items():
             chosen = key == active
-            bg = active_bg(key)
-            tile.bgcolor = bg if chosen else SEGMENT_TILE_BG
-            ink = (
-                SEGMENT_ACTIVE_TEXT_COLOR
-                if color_of is None
-                else readable_ink(bg)
-            )
-            labels[key].color = ink if chosen else SEGMENT_TEXT_COLOR
-            labels[key].weight = (
-                ft.FontWeight.BOLD if chosen else ft.FontWeight.NORMAL
-            )
+            tile.bgcolor = active_bg(key) if chosen else SEGMENT_TILE_BG
+            active_labels[key].opacity = 1.0 if chosen else 0.0
+            idle_labels[key].opacity = 0.0 if chosen else 1.0
 
     def select(key: str) -> None:
         # 点当前这一档什么也不做，免得白刷一遍。
@@ -107,12 +121,30 @@ def build_segmented(
             return
         current["key"] = key
         paint(key)
+        # 底色和字的渐变都交给各自的 `animate`（见 SEGMENT_SWITCH），这里只把新
+        # 状态推下去：旧的切出、新的切入是它们自己走的。
         for tile in tiles.values():
             tile.update()
         on_pick(key)
 
     for key, label in options:
-        labels[key] = ft.Text(label, size=SEGMENT_TEXT_SIZE)
+        active_labels[key] = ft.Container(
+            content=ft.Text(
+                label,
+                size=SEGMENT_TEXT_SIZE,
+                weight=ft.FontWeight.BOLD,
+                color=active_ink(key),
+            ),
+            opacity=0,
+            animate_opacity=SEGMENT_SWITCH,
+        )
+        idle_labels[key] = ft.Container(
+            content=ft.Text(
+                label, size=SEGMENT_TEXT_SIZE, color=SEGMENT_TEXT_COLOR
+            ),
+            opacity=1,
+            animate_opacity=SEGMENT_SWITCH,
+        )
         tiles[key] = ft.Container(
             height=SEGMENT_TILE_HEIGHT,
             border_radius=ft.BorderRadius.all(tile_radius),
@@ -120,7 +152,12 @@ def build_segmented(
             alignment=ft.Alignment.CENTER,
             # 水波纹要跟着圆角走，所以用 Container 自带的 ink 而不是 IconButton。
             ink=True,
-            content=labels[key],
+            animate=SEGMENT_SWITCH,
+            # 两份字居中叠着：宽度取较大的那份，切档时胶囊不会跟着抖一下。
+            content=ft.Stack(
+                alignment=ft.Alignment.CENTER,
+                controls=[idle_labels[key], active_labels[key]],
+            ),
             on_click=lambda _, key=key: select(key),
         )
 
