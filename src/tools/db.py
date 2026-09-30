@@ -16,6 +16,9 @@ DB_PATH = (
     else Path(__file__).resolve().parents[2] / "dailylist.db"
 )
 
+# 待办和倒数日都带一列 `owner`：**这份数据属于哪台设备**（值就是设备主键，见
+# `data_owner`）。读写一律带 `owner = 当前设备` —— 换台设备就是另一份清单。settings
+# 不带 owner：通知渠道这些是**这台设备**的配置，本来就只有一份。
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS todos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +29,7 @@ CREATE TABLE IF NOT EXISTS todos (
     content TEXT NOT NULL,
     done INTEGER NOT NULL DEFAULT 0,
     repeat_cycle TEXT NOT NULL DEFAULT '不循环',
+    owner TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 
@@ -42,9 +46,26 @@ CREATE TABLE IF NOT EXISTS countdowns (
     cycle TEXT NOT NULL DEFAULT '不循环',
     content TEXT NOT NULL,
     bgcolor TEXT NOT NULL DEFAULT '#F1F5F9',
+    owner TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 """
+
+# 带上 owner 的索引**不能写在 SCHEMA 里**：老库的 `todos` 还没有这一列，`executescript`
+# 会在建索引那句上直接报 `no such column: owner`。等 `_add_missing_columns` 把列补齐
+# 之后再建。
+OWNER_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos (owner, due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_countdowns_owner ON countdowns (owner)",
+)
+
+# 当前设备的主键 —— 启动时由 main.py 问一次设备信息填进来（见 tools/device.py）。
+# 空串是合法的：Android / Web 上拿不到设备标识，那时所有数据都落在 `owner = ''` 那一堆
+# 里，等于"默认那一份"，照样能用（只有一个用户，也就不存在隔离问题）。
+_owner = {"value": ""}
+
+# "老数据已经认领过了"的标记：见 set_data_owner —— 认领只能做一次。
+_ADOPTED_SETTING = "owner_adopted"
 
 # 待办的循环周期: the value stored in `todos.repeat_cycle`.
 DEFAULT_CYCLE = "不循环"
@@ -78,7 +99,9 @@ ADDED_COLUMNS = (
     ("todos", "repeat_cycle", "TEXT NOT NULL DEFAULT '不循环'"),
     ("todos", "due_time", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "end_time", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "owner", "TEXT NOT NULL DEFAULT ''"),
     ("countdowns", "bgcolor", "TEXT NOT NULL DEFAULT '#F1F5F9'"),
+    ("countdowns", "owner", "TEXT NOT NULL DEFAULT ''"),
 )
 
 # The dialog opens on the current clock, rounded down to this many minutes so the
@@ -234,9 +257,56 @@ def init_db() -> None:
     try:
         connection.executescript(SCHEMA)
         _add_missing_columns(connection)
+        _create_owner_indexes(connection)
         connection.commit()
     finally:
         connection.close()
+
+
+def data_owner() -> str:
+    """这份数据属于哪台设备：全 App 的待办和倒数日都按它隔开。"""
+    return _owner["value"]
+
+
+def set_data_owner(key: str) -> int:
+    """记下当前设备的键，返回**认领了几行老数据**。
+
+    加 `owner` 这一版之前存下来的行，`owner` 是空串 —— 第一次用这个版本打开库时把它们
+    认过来（不认领的话，升级之后那些待办一条都看不见）。
+
+    **认领只做一次**，靠 `owner_adopted` 这个标记把门。空串除了表示"还没迁移的老数据"，
+    还兼着 Android / Web 那份数据的键（那两个平台拿不到设备标识，见 tools/device.py）：
+    不把门的话，Android 上攒了一堆数据、下次换台电脑打开，那批数据就被认领走了 ——
+    它可不是"没人要的老数据"，它是有主的。所以**第一次调用的"这一版"启动就算迁移过**
+    （哪怕那次没拿到设备键，标记照打）—— 老数据留在空串下，Android 自己反而看得见。
+    """
+    _owner["value"] = key
+    if get_setting(_ADOPTED_SETTING, ""):
+        return 0
+    connection = connect()
+    try:
+        adopted = 0
+        if key:
+            for table in ("todos", "countdowns"):
+                cursor = connection.execute(
+                    f"UPDATE {table} SET owner = ? WHERE owner = ''", (key,)
+                )
+                adopted += max(0, int(cursor.rowcount))
+        connection.execute(
+            "INSERT INTO settings (name, value) VALUES (?, '1')"
+            " ON CONFLICT(name) DO UPDATE SET value = '1'",
+            (_ADOPTED_SETTING,),
+        )
+        connection.commit()
+        return adopted
+    finally:
+        connection.close()
+
+
+def _create_owner_indexes(connection: sqlite3.Connection) -> None:
+    """补建 owner 上的索引 —— 得等列补齐之后才建（见 OWNER_INDEXES）。"""
+    for statement in OWNER_INDEXES:
+        connection.execute(statement)
 
 
 def add_todo(
@@ -254,13 +324,15 @@ def add_todo(
     cycle and 起止时间, so the series stays recognisable.
     """
     created_at = _now()
+    owner = data_owner()
     connection = connect()
     try:
         first_id = 0
         for day in occurrence_dates(due_date, repeat_cycle):
             cursor = connection.execute(
                 "INSERT INTO todos (due_date, due_time, end_time, category,"
-                " content, repeat_cycle, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " content, repeat_cycle, owner, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     day.isoformat(),
                     due_time,
@@ -268,6 +340,7 @@ def add_todo(
                     category,
                     content,
                     repeat_cycle,
+                    owner,
                     created_at,
                 ),
             )
@@ -282,9 +355,10 @@ def add_todo(
 def set_done(todo_id: int, done: bool) -> None:
     connection = connect()
     try:
+        # 一律带上 owner：id 是全局自增的，手上那个万一不是本机的，也不能动。
         connection.execute(
-            "UPDATE todos SET done = ? WHERE id = ?",
-            (1 if done else 0, todo_id),
+            "UPDATE todos SET done = ? WHERE id = ? AND owner = ?",
+            (1 if done else 0, todo_id, data_owner()),
         )
         connection.commit()
     finally:
@@ -294,7 +368,10 @@ def set_done(todo_id: int, done: bool) -> None:
 def delete_todo(todo_id: int) -> None:
     connection = connect()
     try:
-        connection.execute("DELETE FROM todos WHERE id = ?", (todo_id,))
+        connection.execute(
+            "DELETE FROM todos WHERE id = ? AND owner = ?",
+            (todo_id, data_owner()),
+        )
         connection.commit()
     finally:
         connection.close()
@@ -305,8 +382,8 @@ def get_todo(todo_id: int) -> Todo | None:
     try:
         row = connection.execute(
             "SELECT id, due_date, due_time, end_time, category, content, done,"
-            " repeat_cycle FROM todos WHERE id = ?",
-            (todo_id,),
+            " repeat_cycle FROM todos WHERE id = ? AND owner = ?",
+            (todo_id, data_owner()),
         ).fetchone()
     finally:
         connection.close()
@@ -323,18 +400,20 @@ def todo_series(todo_id: int) -> list[Todo]:
     todo = get_todo(todo_id)
     if todo is None:
         return []
+    owner = data_owner()
     connection = connect()
     try:
         row = connection.execute(
-            "SELECT created_at FROM todos WHERE id = ?", (todo_id,)
+            "SELECT created_at FROM todos WHERE id = ? AND owner = ?",
+            (todo_id, owner),
         ).fetchone()
         if todo.repeat_cycle == DEFAULT_CYCLE:
             return [todo]
         rows = connection.execute(
             "SELECT id, due_date, due_time, end_time, category, content, done,"
             " repeat_cycle FROM todos WHERE created_at = ? AND repeat_cycle = ?"
-            " AND content = ? ORDER BY due_date, id",
-            (row["created_at"], todo.repeat_cycle, todo.content),
+            " AND content = ? AND owner = ? ORDER BY due_date, id",
+            (row["created_at"], todo.repeat_cycle, todo.content, owner),
         ).fetchall()
     finally:
         connection.close()
@@ -368,16 +447,20 @@ def update_todo(
     start = due_date - (todo.due_date - anchor)
     ids = [item.id for item in series]
     created_at = _now()
+    owner = data_owner()
     connection = connect()
     try:
         placeholders = ", ".join("?" for _ in ids)
-        connection.execute(f"DELETE FROM todos WHERE id IN ({placeholders})", ids)
+        connection.execute(
+            f"DELETE FROM todos WHERE id IN ({placeholders}) AND owner = ?",
+            [*ids, owner],
+        )
         written = 0
         for place, day in enumerate(occurrence_dates(start, repeat_cycle)):
             connection.execute(
                 "INSERT INTO todos (due_date, due_time, end_time, category,"
-                " content, done, repeat_cycle, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " content, done, repeat_cycle, owner, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     day.isoformat(),
                     due_time,
@@ -386,6 +469,7 @@ def update_todo(
                     content,
                     1 if place in done_places else 0,
                     repeat_cycle,
+                    owner,
                     created_at,
                 ),
             )
@@ -397,10 +481,12 @@ def update_todo(
 
 
 def clear_todos() -> int:
-    """Delete every todo row, returning how many rows were removed."""
+    """Delete every todo row **of this device**, returning how many went."""
     connection = connect()
     try:
-        cursor = connection.execute("DELETE FROM todos")
+        cursor = connection.execute(
+            "DELETE FROM todos WHERE owner = ?", (data_owner(),)
+        )
         connection.commit()
         return int(cursor.rowcount)
     finally:
@@ -424,17 +510,21 @@ def replace_data(
       半截数据；这里要么全进、要么全不进。
 
     返回 `(写了几条待办, 写了几个倒数日, 覆盖了几个设置)`。
+
+    **只动本机的那些行**：导入是"把这批记录换进我这台设备的清单"，别人那边的数据一条
+    都不能碰。
     """
     created_at = _now()
+    owner = data_owner()
     connection = connect()
     try:
-        connection.execute("DELETE FROM todos")
-        connection.execute("DELETE FROM countdowns")
+        connection.execute("DELETE FROM todos WHERE owner = ?", (owner,))
+        connection.execute("DELETE FROM countdowns WHERE owner = ?", (owner,))
         for todo in todos:
             connection.execute(
                 "INSERT INTO todos (due_date, due_time, end_time, category,"
-                " content, done, repeat_cycle, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " content, done, repeat_cycle, owner, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     todo["due_date"],
                     todo.get("due_time", ""),
@@ -443,18 +533,20 @@ def replace_data(
                     todo["content"],
                     1 if todo.get("done") else 0,
                     todo.get("repeat_cycle", DEFAULT_CYCLE),
+                    owner,
                     created_at,
                 ),
             )
         for item in countdowns:
             connection.execute(
                 "INSERT INTO countdowns (due_date, cycle, content, bgcolor,"
-                " created_at) VALUES (?, ?, ?, ?, ?)",
+                " owner, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     item["due_date"],
                     item.get("cycle", DEFAULT_CYCLE),
                     item["content"],
                     item.get("bgcolor", "#F1F5F9"),
+                    owner,
                     created_at,
                 ),
             )
@@ -486,8 +578,15 @@ def add_countdown(
     try:
         cursor = connection.execute(
             "INSERT INTO countdowns (due_date, cycle, content, bgcolor,"
-            " created_at) VALUES (?, ?, ?, ?, ?)",
-            (due_date.isoformat(), cycle, content, bgcolor, _now()),
+            " owner, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                due_date.isoformat(),
+                cycle,
+                content,
+                bgcolor,
+                data_owner(),
+                _now(),
+            ),
         )
         connection.commit()
         return int(cursor.lastrowid)
@@ -496,12 +595,13 @@ def add_countdown(
 
 
 def list_countdowns() -> list[Countdown]:
-    """Every 倒数日, oldest anchor first; the page sorts by the countdown."""
+    """本机的倒数日, oldest anchor first; the page sorts by the countdown."""
     connection = connect()
     try:
         rows = connection.execute(
             "SELECT id, due_date, cycle, content, bgcolor FROM countdowns"
-            " ORDER BY id"
+            " WHERE owner = ? ORDER BY id",
+            (data_owner(),),
         ).fetchall()
     finally:
         connection.close()
@@ -521,7 +621,8 @@ def delete_countdown(countdown_id: int) -> None:
     connection = connect()
     try:
         connection.execute(
-            "DELETE FROM countdowns WHERE id = ?", (countdown_id,)
+            "DELETE FROM countdowns WHERE id = ? AND owner = ?",
+            (countdown_id, data_owner()),
         )
         connection.commit()
     finally:
@@ -533,8 +634,8 @@ def get_countdown(countdown_id: int) -> Countdown | None:
     try:
         row = connection.execute(
             "SELECT id, due_date, cycle, content, bgcolor FROM countdowns"
-            " WHERE id = ?",
-            (countdown_id,),
+            " WHERE id = ? AND owner = ?",
+            (countdown_id, data_owner()),
         ).fetchone()
     finally:
         connection.close()
@@ -561,8 +662,15 @@ def update_countdown(
     try:
         connection.execute(
             "UPDATE countdowns SET due_date = ?, content = ?, cycle = ?,"
-            " bgcolor = ? WHERE id = ?",
-            (due_date.isoformat(), content, cycle, bgcolor, countdown_id),
+            " bgcolor = ? WHERE id = ? AND owner = ?",
+            (
+                due_date.isoformat(),
+                content,
+                cycle,
+                bgcolor,
+                countdown_id,
+                data_owner(),
+            ),
         )
         connection.commit()
     finally:
@@ -580,9 +688,9 @@ def list_todos(days: Iterable[date]) -> list[Todo]:
             "SELECT id, due_date, due_time, end_time, category, content, done,"
             " repeat_cycle"
             " FROM todos"
-            f" WHERE due_date IN ({placeholders})"
+            f" WHERE due_date IN ({placeholders}) AND owner = ?"
             " ORDER BY due_date, id",
-            due_dates,
+            [*due_dates, data_owner()],
         ).fetchall()
     finally:
         connection.close()
@@ -596,9 +704,9 @@ def list_range(start: date, end: date) -> list[Todo]:
             "SELECT id, due_date, due_time, end_time, category, content, done,"
             " repeat_cycle"
             " FROM todos"
-            " WHERE due_date BETWEEN ? AND ?"
+            " WHERE due_date BETWEEN ? AND ? AND owner = ?"
             " ORDER BY due_date, id",
-            (start.isoformat(), end.isoformat()),
+            (start.isoformat(), end.isoformat(), data_owner()),
         ).fetchall()
     finally:
         connection.close()
@@ -606,7 +714,7 @@ def list_range(start: date, end: date) -> list[Todo]:
 
 
 def list_all_todos() -> list[Todo]:
-    """库里所有的待办 —— 导出数据用。
+    """本机所有的待办 —— 导出数据用。
 
     注意给的是**物化之后**的全部行：循环待办是新增 / 编辑时按周期一次性铺开的
     （见 occurrence_dates），库里没有「模板 + 规则」这种存法。
@@ -617,7 +725,9 @@ def list_all_todos() -> list[Todo]:
             "SELECT id, due_date, due_time, end_time, category, content, done,"
             " repeat_cycle"
             " FROM todos"
+            " WHERE owner = ?"
             " ORDER BY due_date, id",
+            (data_owner(),),
         ).fetchall()
     finally:
         connection.close()
@@ -628,11 +738,11 @@ def counts_in(
     start: date | None = None, end: date | None = None
 ) -> list[tuple[str, bool, int]]:
     """(category, done, count) rows, optionally limited to a due-date range."""
-    query = "SELECT category, done, COUNT(*) AS count FROM todos"
-    parameters: list[str] = []
+    query = "SELECT category, done, COUNT(*) AS count FROM todos WHERE owner = ?"
+    parameters: list[str] = [data_owner()]
     if start is not None and end is not None:
-        query += " WHERE due_date BETWEEN ? AND ?"
-        parameters = [start.isoformat(), end.isoformat()]
+        query += " AND due_date BETWEEN ? AND ?"
+        parameters += [start.isoformat(), end.isoformat()]
     query += " GROUP BY category, done"
     connection = connect()
     try:

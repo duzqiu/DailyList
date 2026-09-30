@@ -808,6 +808,31 @@ def build_preferences_page(
             ),
         )
 
+    def device_label() -> ft.Control:
+        """页面顶部那一行：当前设备的 ID。
+
+        待办和倒数日就是按它存取的（见 tools/db.py 的 `data_owner`），所以摊开写在
+        最上面 —— 换机之后"数据怎么都不见了"，第一个要核对的就是这一行。拿不到设备
+        标识的平台（Android / Web）退回"默认一份"，这里照实说，不假装有个 id。
+
+        **只显示冒号后面那截**：`ios:` / `windows:` 这些前缀是设备层自己加的
+        （tools/device.py 的 `_compose`，防止两个平台的标识恰好撞上），摆给人看没有
+        意义 —— 显示时去掉它，存储里那份照旧带着。
+        """
+        owner = db.data_owner()
+        identifier = owner.split(":", 1)[-1] if owner else ""
+        return ft.Text(
+            f"设备 ID：{identifier}"
+            if identifier
+            else "设备 ID：未获取到（数据按默认一份存取）",
+            size=11,
+            color=MUTED_COLOR,
+            # id 是 UUID 那种没空格的长串：一号字号也放不下时宁可省略，别折行把它
+            # 断成两截、还把下面的卡片顶下去。
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+
     def app_info() -> ft.Control:
         """页面最下方那行署名：App 名 + 版本 + 版权，居中一行灰字。
 
@@ -852,6 +877,10 @@ def build_preferences_page(
                             scroll=ft.ScrollMode.HIDDEN,
                             padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
                             controls=[
+                                # 设备 ID 是三档卡片**上面**的一行，但和它们一起滚
+                                # （不进卡片）：它是这些数据归谁的第一线索，不常看，
+                                # 没必要钉住占着版面。
+                                device_label(),
                                 # 三档设置，各一张卡片，条目摆在自己那张里。
                                 settings_section(
                                     "通知设置",
