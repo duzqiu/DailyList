@@ -1,17 +1,33 @@
 """待办趋势折线图：官方 `LineChart` 画线，浮框由本文件用 Flet 控件自己画。
 
 Flet 1.0 把图表控件拆到了独立的 ``flet-charts`` 包：`LineChart` 能在同一张图里挂多条
-`LineChartData`（多系列），自带网格、轴刻度、悬停高亮和 y 轴线 —— 「周/月/年」切换、
-点按放大都交给控件。
+`LineChartData`（多系列），自带网格、轴刻度和 y 轴线。
 
-浮框（悬停提示）没有用它自带的那个：fl_chart 的浮框是「一个系列一行」，每行只有一种
+浮框（点按提示）没有用它自带的那个：fl_chart 的浮框是「一个系列一行」，每行只有一种
 颜色（`text_spans` 在 flet-charts 1.0.1 里到不了 Dart 侧），画不出「灰色日期 + 彩色
-圆点 + 黑色数值」。所以自带浮框只留个透明的壳（位置还算它算的），内容换成这里自绘的
-`ft.Container`，挂在图表的 `ft.Stack` 上，由 `on_event` 的悬停事件摆位置、换内容。
+圆点 + 黑色数值」。所以整张图**关掉自带触摸**（`interactive=False`）—— 自带那套触摸还会
+画一条竖直的指示线、把点到的那颗点放大，这两样都不要；手势改由外面那层
+`ft.GestureDetector` 自己接（点按 / 横向拖动 / 悬停），浮框是我们挂在同一个 `ft.Stack`
+上的 `ft.Container`，位置按下标自己算（`spot_pixel` / `tip_placement`）。
 
-浮框特意贴在锚点左右（`TIP_OFFSET` 比 fl_chart 10px 的命中半径大）：它只按 x 距离判断
-命中，光标永远碰不到浮框，也就不会出现「浮框盖住光标 → 图表 pointerExit → 浮框消失 →
-又冒出来」的抖动。
+**线上的圆点也自己画**（`build_dots`）：关掉自带触摸之后，控件那颗点整个不出现了
+（`interactive=False` 时它不画），所以每条线的每个点都由我们摆一颗圆点 ——
+**没点的时候是实心圆**（填满分类色，`DOT_DIAMETER`），**点住那一格时换成空心、放大**
+（`ACTIVE_DOT_DIAMETER` + 一圈 `ACTIVE_DOT_STROKE_WIDTH` 同色线），两种样子都在
+`style_dot` 里换。点与点之间连的仍是折线本身（**实线**，`LINE_WIDTH`）；**点住那一列**
+另有一条**浅灰细虚线**（`build_guide` / `GUIDE_*`）把这一列的几个圆点串起来，从最上面
+那颗的下沿连到最下面那颗的上沿 —— 它只是「这一列是同一天」的引导线，不是折线。点多过
+`POINT_LIMIT` 的维度（一个月 28-31 天）不画点：一条线上三十来个圆点会连成一条链子。
+
+手势（见 `build_interactive_line_chart` 里的几个回调）：
+
+- **点一下**：浮框停在最近的那个点上，之后再点同一点才收起来；
+- **横向拖动**：沿着曲线看别的点，浮框一路跟过去（用横向拖动而不是 pan，顺手把竖直
+  方向的滚动留给页面 —— pan 会和外面 `ListView` 的滚动抢手势）；
+- **悬停**（桌面鼠标）：跟着鼠标走，移开就收 —— **但点住的那一点不会被悬停带走**。
+
+浮框是毛玻璃：半透明灰白底（`#CCF1F5F9`，`#AARRGGBB`）+ `blur=ft.Blur(12, 12, ft.BlurTileMode.CLAMP)`，
+与「+」按钮、底部菜单栏同一套写法。
 """
 
 import flet as ft
@@ -33,9 +49,23 @@ AXIS_LABEL_SIZE = 9
 AXIS_LABEL_COLOR = "#64748B"
 X_LABEL_SLOT = 34
 Y_LABEL_SLOT = 18
+# 折线本身：**实线**，点与点之间就靠它连（虚线不用在这里 —— 见下面的 GUIDE_*）。
 LINE_WIDTH = 2.5
-POINT_RADIUS = 2.5
-SELECTED_POINT_RADIUS = 5
+# 线上的圆点**自己画**（见文件开头）：关掉自带触摸之后，控件那颗点不再出现
+# （`interactive=False` 时不画）。平时是**实心圆** —— 填满自己的分类色（一眼看出这条线
+# 是哪个等级，也压得住底下的网格线）；**点住的那一颗换成空心、放大到
+# `ACTIVE_DOT_DIAMETER`、圈线 `ACTIVE_DOT_STROKE_WIDTH`**，圈里空着、露出来的是页面
+# 渐变 —— 和浮框一起指明「现在看的是哪一格」。两种样子都在 `style_dot` 里换。
+DOT_DIAMETER = 8
+ACTIVE_DOT_DIAMETER = 11
+ACTIVE_DOT_STROKE_WIDTH = 2
+# 点住那一列：把这一列的几个圆点用一条**浅灰细虚线**串起来（只是「这一列是同一天」
+# 的引导线，不是折线本身），从最上面那颗的下沿连到最下面那颗的上沿，不穿过圆点。
+# Flet 没有虚线边框，所以按「一段实线 + 一段空」拼出来（见 build_guide）。
+GUIDE_COLOR = "#94A3B8"
+GUIDE_WIDTH = 1
+GUIDE_DASH = 3
+GUIDE_GAP = 3
 # Dots are drawn on every point up to this many points; a 28-31 day month would
 # otherwise turn into a dotted stripe.
 POINT_LIMIT = 14
@@ -62,10 +92,6 @@ TIP_DOT_SIZE = 7
 # 一点，光标才不会落到浮框上。
 TIP_OFFSET = 14
 TIP_MARGIN = 2
-# 控件自带浮框的底色：全透明，等于只借它的高亮，不显示它自己的文字。
-TIP_CLEAR = "#00FFFFFF"
-# 这几种事件表示指针已经离开数据点，浮框要收起来。
-TIP_HIDE_EVENTS = ("pointerExit", "tapCancel", "panCancel", "longPressEnd")
 
 
 def axis_ceiling(values: list[int]) -> tuple[int, int]:
@@ -208,13 +234,18 @@ def tip_placement(
     return left, right, top
 
 
-def event_index(event, count: int) -> int:
-    """悬停事件命中的数据点下标；离开数据点或点在空白处时返回 -1。"""
-    if getattr(event.type, "value", event.type) in TIP_HIDE_EVENTS:
+def event_index(event, count: int, width: float) -> int:
+    """手势事件命中的数据点下标：按事件里的横坐标取**最近**的那个点。
+
+    和 `spot_pixel` 是同一套换算反过来用（画布左边留给 y 刻度，右边到底是一个点），
+    所以手指点在两点之间也能落到最近的那一点上，不需要非点中图上的圆点。
+    """
+    position = getattr(event, "local_position", None)
+    if position is None:
         return -1
-    spots = getattr(event, "spots", None) or []
-    index = spots[0].spot_index if spots else -1
-    return index if isinstance(index, int) and 0 <= index < count else -1
+    plot_width = max(1.0, width - Y_LABEL_SLOT)
+    ratio = (position.x - Y_LABEL_SLOT) / plot_width
+    return max(0, min(count - 1, round(ratio * (count - 1))))
 
 
 def build_interactive_line_chart(
@@ -224,7 +255,7 @@ def build_interactive_line_chart(
     height: float,
     x_label_step: int | None = None,
 ) -> ft.Control:
-    """多系列折线图，带一个跟着悬停点走的自绘浮框。
+    """多系列折线图，带一个跟着点按 / 悬停走的自绘浮框。
 
     `labels`  每个点的横轴文字（1月…12月 / 9/21…9/27）
     `series`  [(名称, 数值列表, 颜色)]，每个元素画一条线
@@ -233,7 +264,10 @@ def build_interactive_line_chart(
         [value for _, values, _ in series for value in values]
     )
     x_max = max(1, len(labels) - 1)
-    shown = {"index": -1}
+    # index = 浮框现在画在哪个点上（-1 = 收着）；pinned = 点住的那一点（-1 = 没点住）；
+    # dragged = 这一次手势里横拖过（拖动之后的抬手不算「点选」，别再把它取消掉）；
+    # active = 手指/鼠标还按在图上（这期间指针移出图表不算「离开」）。
+    shown = {"index": -1, "pinned": -1, "dragged": False, "active": False}
     tip = ft.Container(
         visible=False,
         bgcolor=TIP_BG,
@@ -242,12 +276,124 @@ def build_interactive_line_chart(
         border_radius=ft.BorderRadius.all(TIP_RADIUS),
         padding=ft.Padding.all(TIP_PAD),
     )
+    # 自己画的圆点：{(第几条线, 第几个点): 那颗点}。
+    dots: dict[tuple[int, int], ft.Container] = {}
+    # 点住那一列的浅灰细虚线（见 GUIDE_*）。它是一根定位的柱子，里面按「一段实线 +
+    # 一段空」码一串小方块 —— Flet 没有虚线边框。
+    guide = ft.Container(visible=False, width=GUIDE_WIDTH)
+
+    def build_guide(index: int) -> None:
+        """把这一列几个圆点之间的虚线摆好（`index < 0` 收起来）。
+
+        只在**最上面那颗的下沿**和**最下面那颗的上沿**之间连 —— 两头都让开圆点，
+        圆点是空心的，线穿进去就成了「圆里一道线」，不好看。
+        """
+        if index < 0:
+            guide.visible = False
+            return
+        centers: list[float] = []
+        for _name, values, _color in series:
+            if index >= len(values):
+                continue
+            _x, y = spot_pixel(
+                index, len(labels), values[index], ceiling, width, height
+            )
+            centers.append(y)
+        if len(centers) < 2:
+            guide.visible = False
+            return
+        top = min(centers) + ACTIVE_DOT_DIAMETER / 2
+        bottom = max(centers) - ACTIVE_DOT_DIAMETER / 2
+        span = bottom - top
+        if span <= GUIDE_DASH:
+            # 几个点挤在一格里（都没待办时都在 0 线上）：没地方画虚线，不画。
+            guide.visible = False
+            return
+        x, _y = spot_pixel(
+            index, len(labels), series[0][1][index], ceiling, width, height
+        )
+        guide.left = x - GUIDE_WIDTH / 2
+        guide.top = top
+        guide.height = span
+        guide.content = ft.Column(
+            tight=True,
+            spacing=GUIDE_GAP,
+            controls=[
+                ft.Container(
+                    width=GUIDE_WIDTH, height=GUIDE_DASH, bgcolor=GUIDE_COLOR
+                )
+                for _ in range(max(1, int(span // (GUIDE_DASH + GUIDE_GAP))))
+            ],
+        )
+        guide.visible = True
+
+    def style_dot(dot: ft.Container, color: str, active: bool) -> None:
+        """把一颗点改写成 `active` 那一档的样子（以自己中心重摆，位置不跳）。
+
+        平时：`DOT_DIAMETER` 的**实心圆**（填满分类色）；点住的那颗：放大到
+        `ACTIVE_DOT_DIAMETER`、**空心**（不填底，只画一圈同色的线）。
+        """
+        diameter = ACTIVE_DOT_DIAMETER if active else DOT_DIAMETER
+        center_x = dot.left + dot.width / 2
+        center_y = dot.top + dot.height / 2
+        dot.width = dot.height = diameter
+        dot.border_radius = ft.BorderRadius.all(diameter / 2)
+        if active:
+            dot.bgcolor = None
+            dot.border = ft.Border.all(ACTIVE_DOT_STROKE_WIDTH, color)
+        else:
+            dot.bgcolor = color
+            dot.border = None
+        dot.left = center_x - diameter / 2
+        dot.top = center_y - diameter / 2
+
+    def highlight_dots(index: int) -> None:
+        """把 `index` 那一列的点改成空心放大（其余回到实心）—— 一眼看出浮框指着哪一格。"""
+        changed: list[ft.Container] = []
+        for (series_index, point_index), dot in dots.items():
+            active = point_index == index
+            wanted_size = ACTIVE_DOT_DIAMETER if active else DOT_DIAMETER
+            # 大小和「实 / 空」两样都得对：收起来时实心、点住时空心。
+            if dot.width == wanted_size and (dot.bgcolor is None) == active:
+                continue
+            style_dot(dot, series[series_index][2], active)
+            changed.append(dot)
+        for dot in changed:
+            dot.update()
+
+    def build_dots() -> list[ft.Control]:
+        """每条线上的圆点（见文件开头：控件自己那颗不画了）。
+
+        点多过 `POINT_LIMIT` 的那一档不画 —— 一条线上三十来个点会连成虚线。
+        """
+        made: list[ft.Control] = []
+        for series_index, (_name, values, color) in enumerate(series):
+            if len(values) > POINT_LIMIT:
+                continue
+            for index, value in enumerate(values):
+                x, y = spot_pixel(
+                    index, len(labels), value, ceiling, width, height
+                )
+                dot = ft.Container(
+                    left=x - DOT_DIAMETER / 2,
+                    top=y - DOT_DIAMETER / 2,
+                    width=DOT_DIAMETER,
+                    height=DOT_DIAMETER,
+                    border_radius=ft.BorderRadius.all(DOT_DIAMETER / 2),
+                    # 实心：填满自己的分类色（点住时才换成空心，见 style_dot）。
+                    bgcolor=color,
+                )
+                dots[(series_index, index)] = dot
+                made.append(dot)
+        return made
 
     def show_tip(index: int) -> None:
         """摆好浮框：换一个点才重画，同一个点重复悬停不做事。"""
         if index == shown["index"]:
             return
         shown["index"] = index
+        highlight_dots(index)
+        build_guide(index)
         if index < 0:
             tip.visible = False
         else:
@@ -264,102 +410,156 @@ def build_interactive_line_chart(
             )
             tip.visible = True
         tip.update()
+        # 虚线是另一个控件，得自己推一下（和浮框同一处、同一个前提：页面已在屏上）。
+        guide.update()
 
-    def on_chart_event(event) -> None:
-        show_tip(event_index(event, len(labels)))
+    def on_tap_down(event) -> None:
+        """按下去：先落到最近的那一点上（还没「点住」，等抬手那一下再定）。"""
+        shown["active"] = True
+        shown["dragged"] = False
+        index = event_index(event, len(labels), width)
+        if index >= 0:
+            show_tip(index)
+
+    def on_tap_up(event) -> None:
+        """抬手：点在别处就**点住**那个点，点在同一点上就收起来。
+
+        触屏抬手不会再收到任何 `pointerExit`（自带触摸关掉了、手势是我们自己接的），
+        所以不会出现「浮框刚出来又被收走」的那一闪。
+        """
+        shown["active"] = False
+        if shown["dragged"]:
+            # 横拖之后抬的手：保持停在最后那一点上。
+            shown["dragged"] = False
+            return
+        index = event_index(event, len(labels), width)
+        if index < 0 or index == shown["pinned"]:
+            shown["pinned"] = -1
+            show_tip(-1)
+            return
+        shown["pinned"] = index
+        show_tip(index)
+
+    def on_drag_start(event) -> None:
+        """横向拖动的第一下：浮框挪过去并点住 —— 后面每挪一步都跟着走。"""
+        shown["active"] = True
+        shown["dragged"] = True
+        follow(event)
+
+    def on_drag_update(event) -> None:
+        follow(event)
+
+    def follow(event) -> None:
+        index = event_index(event, len(labels), width)
+        if index >= 0:
+            shown["pinned"] = index
+            show_tip(index)
+
+    def on_release(event) -> None:
+        """横拖结束 / 手势取消：松手，浮框留在最后那一点上（没点住才收）。"""
+        shown["active"] = False
+        if shown["pinned"] < 0:
+            show_tip(-1)
+
+    def on_hover(event) -> None:
+        """桌面鼠标悬停：跟着走 —— 但**点住的那一点不会被悬停带走**。"""
+        if shown["pinned"] >= 0:
+            return
+        index = event_index(event, len(labels), width)
+        if index >= 0:
+            show_tip(index)
+
+    def on_exit(event) -> None:
+        """鼠标移出图表：没点住的收起来（点住的留着）。"""
+        if shown["pinned"] < 0 and not shown["active"]:
+            show_tip(-1)
+
+    gestures = ft.GestureDetector(
+        # 横向拖动而不是 pan：竖直方向留给页面滚（pan 会和外面 ListView 抢手势）。
+        on_tap_down=on_tap_down,
+        on_tap_up=on_tap_up,
+        on_tap_cancel=on_release,
+        on_horizontal_drag_start=on_drag_start,
+        on_horizontal_drag_update=on_drag_update,
+        on_horizontal_drag_end=on_release,
+        on_horizontal_drag_cancel=on_release,
+        on_hover=on_hover,
+        on_exit=on_exit,
+        content=fch.LineChart(
+            width=width,
+            height=height,
+            min_x=0,
+            max_x=x_max,
+            min_y=0,
+            max_y=ceiling,
+            # **关掉自带触摸**：它那套还会画一条竖直指示线、把点到的那颗点放大 ——
+            # 两样都不要；手势和浮框由外面这层手势控件 + 自绘容器负责（见文件开头）。
+            interactive=False,
+            horizontal_grid_lines=fch.ChartGridLines(
+                interval=y_step, color=GRID_COLOR, width=GRID_WIDTH
+            ),
+            border=ft.Border(
+                left=ft.BorderSide(Y_AXIS_WIDTH, GRID_COLOR),
+            ),
+            left_axis=fch.ChartAxis(
+                show_labels=True,
+                labels=[
+                    fch.ChartAxisLabel(
+                        value=value,
+                        label=ft.Text(
+                            str(value),
+                            size=AXIS_LABEL_SIZE,
+                            color=AXIS_LABEL_COLOR,
+                        ),
+                    )
+                    for value in range(0, ceiling + 1, y_step)
+                ],
+                label_size=Y_LABEL_SLOT,
+                # 固定刻度间隔，标签才会正好落在 fl_chart 取的刻度值上。
+                label_spacing=y_step,
+            ),
+            bottom_axis=fch.ChartAxis(
+                show_labels=True,
+                labels=[
+                    fch.ChartAxisLabel(
+                        value=index,
+                        label=ft.Text(
+                            labels[index],
+                            size=AXIS_LABEL_SIZE,
+                            color=AXIS_LABEL_COLOR,
+                            no_wrap=True,
+                        ),
+                    )
+                    for index in label_indices(len(labels), x_label_step)
+                    if index < len(labels)
+                ],
+                label_size=X_LABEL_SLOT,
+            ),
+            data_series=[
+                fch.LineChartData(
+                    points=[
+                        fch.LineChartDataPoint(x=index, y=value)
+                        for index, value in enumerate(values)
+                    ],
+                    color=color,
+                    stroke_width=LINE_WIDTH,
+                    curved=True,
+                    # A curve through few points otherwise dips under the zero line.
+                    prevent_curve_over_shooting=True,
+                    # 线上的点**不由控件画**：它那颗点在 `interactive=False` 时不出现，
+                    # 这里自己摆（见 build_dots）。
+                )
+                for _name, values, color in series
+            ],
+        ),
+    )
 
     return ft.Stack(
         width=width,
         height=height,
+        # 浮框可以开到画布外一点点，这一层别裁它。
         clip_behavior=ft.ClipBehavior.NONE,
-        controls=[
-            fch.LineChart(
-                width=width,
-                height=height,
-                min_x=0,
-                max_x=x_max,
-                min_y=0,
-                max_y=ceiling,
-                # 触摸提示：点/长按某个点会弹出它的数值
-                interactive=True,
-                on_event=on_chart_event,
-                # The card would otherwise clip a tooltip that opens above the plot.
-                tooltip=fch.LineChartTooltip(
-                    bgcolor=TIP_CLEAR,
-                    padding=ft.Padding.all(0),
-                    border_side=ft.BorderSide.none(),
-                    fit_inside_horizontally=True,
-                    fit_inside_vertically=True,
-                ),
-                horizontal_grid_lines=fch.ChartGridLines(
-                    interval=y_step, color=GRID_COLOR, width=GRID_WIDTH
-                ),
-                border=ft.Border(
-                    left=ft.BorderSide(Y_AXIS_WIDTH, GRID_COLOR),
-                ),
-                left_axis=fch.ChartAxis(
-                    show_labels=True,
-                    labels=[
-                        fch.ChartAxisLabel(
-                            value=value,
-                            label=ft.Text(
-                                str(value),
-                                size=AXIS_LABEL_SIZE,
-                                color=AXIS_LABEL_COLOR,
-                            ),
-                        )
-                        for value in range(0, ceiling + 1, y_step)
-                    ],
-                    label_size=Y_LABEL_SLOT,
-                    # 固定刻度间隔，标签才会正好落在 fl_chart 取的刻度值上。
-                    label_spacing=y_step,
-                ),
-                bottom_axis=fch.ChartAxis(
-                    show_labels=True,
-                    labels=[
-                        fch.ChartAxisLabel(
-                            value=index,
-                            label=ft.Text(
-                                labels[index],
-                                size=AXIS_LABEL_SIZE,
-                                color=AXIS_LABEL_COLOR,
-                                no_wrap=True,
-                            ),
-                        )
-                        for index in label_indices(len(labels), x_label_step)
-                        if index < len(labels)
-                    ],
-                    label_size=X_LABEL_SLOT,
-                ),
-                data_series=[
-                    fch.LineChartData(
-                        points=[
-                            fch.LineChartDataPoint(
-                                x=index,
-                                y=value,
-                                show_tooltip=True,
-                                # 自带浮框的文字留空：内容由上面那个 `tip` 画。
-                                tooltip=fch.LineChartDataPointTooltip(text=""),
-                            )
-                            for index, value in enumerate(values)
-                        ],
-                        color=color,
-                        stroke_width=LINE_WIDTH,
-                        curved=True,
-                        # A curve through few points otherwise dips under the zero line.
-                        prevent_curve_over_shooting=True,
-                        point=(
-                            fch.ChartCirclePoint(radius=POINT_RADIUS)
-                            if len(values) <= POINT_LIMIT
-                            else None
-                        ),
-                        selected_point=fch.ChartCirclePoint(
-                            radius=SELECTED_POINT_RADIUS, stroke_width=2
-                        ),
-                    )
-                    for _name, values, color in series
-                ],
-            ),
-            tip,
-        ],
+        # 图 → 那一列的引导虚线 → 我们摆的圆点 → 浮框
+        # （虚线垫在点下面，点压在线上，浮框压在最上面）。
+        controls=[gestures, guide, *build_dots(), tip],
     )
