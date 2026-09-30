@@ -115,7 +115,7 @@ def build_countdown_page(
                         color=MUTED_COLOR,
                     ),
                     ft.Text(
-                        "还没有倒数日，去待办页点右下角 + 添加",
+                        "还没有倒数日哦",
                         size=13,
                         color="#64748B",
                     ),

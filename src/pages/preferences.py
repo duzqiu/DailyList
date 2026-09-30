@@ -127,8 +127,11 @@ def build_preferences_page(
 
     def clear_data(_: ft.Event[ft.Control]) -> None:
         page.pop_dialog()
-        removed = db.clear_todos()
-        notify(f"已清除 {removed} 条待办数据")
+        # 待办和倒数日一起清：「清除缓存」的意思是"把我这份数据倒空"，只清一半会让人
+        # 以为倒数日删不掉、再点一次还是删不掉。
+        todos = db.clear_todos()
+        countdowns = db.clear_countdowns()
+        notify(f"已清除 {todos} 条待办、{countdowns} 个倒数日")
 
     def confirm_clear(_: ft.Event[ft.Control]) -> None:
         # iOS-style dialog, the one Cupertino control Flet offers: the whole
@@ -145,7 +148,7 @@ def build_preferences_page(
                 content=ft.Container(
                     padding=ft.Padding.only(top=6),
                     content=ft.Text(
-                        "将删除数据库中当前所有的待办数据，且无法恢复。",
+                        "将删除当前所有的待办与倒数日，且无法恢复。",
                         size=13,
                         color=TITLE_COLOR,
                     ),
@@ -795,11 +798,11 @@ def build_preferences_page(
         )
 
     def clear_row() -> ft.Control:
-        """通用设置那一行：清除缓存。"""
+        """通用设置那一行：清除缓存（**待办和倒数日一起清**，见 clear_data）。"""
         return setting_row(
             "清除缓存",
             ft.Text(
-                "删除当前所有的待办数据", size=11, color=MUTED_COLOR
+                "删除当前所有的待办与倒数日", size=11, color=MUTED_COLOR
             ),
             ft.OutlinedButton(
                 "清除",

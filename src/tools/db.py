@@ -493,6 +493,19 @@ def clear_todos() -> int:
         connection.close()
 
 
+def clear_countdowns() -> int:
+    """Delete every 倒数日 row **of this device**, returning how many went."""
+    connection = connect()
+    try:
+        cursor = connection.execute(
+            "DELETE FROM countdowns WHERE owner = ?", (data_owner(),)
+        )
+        connection.commit()
+        return int(cursor.rowcount)
+    finally:
+        connection.close()
+
+
 def replace_data(
     todos: list[dict],
     countdowns: list[dict],
