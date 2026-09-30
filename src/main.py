@@ -1,8 +1,17 @@
 import flet as ft
+from pathlib import Path
 
 from pages.navigation import build_navigation
 from tools import app_settings, db
 from tools.services import register_app_services
+
+# 静态资源目录（`src/assets`：设置入口那张图、App 图标、开屏图）。
+# `ft.run()` 在**不给**这个参数时会拿「当前工作目录」去拼默认的 `assets` —— 从项目根目录
+# 起跑（`python src/main.py`）就拼到不存在的 `DailyList/assets`，图全加载不出来；而
+# `flet run` 又会用它自己的 `FLET_ASSETS_DIR` 覆盖这里传的值。写成「本文件旁边的
+# assets」，两条路都对。页面里引用时用**相对这个目录**的路径（见 pages/calendar.py 的
+# SETTINGS_ICON_SRC）。
+ASSETS_DIR = str(Path(__file__).parent / "assets")
 
 
 def main(page: ft.Page):
@@ -18,4 +27,4 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.run(main)
+    ft.run(main, assets_dir=ASSETS_DIR)

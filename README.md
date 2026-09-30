@@ -13,7 +13,7 @@
 - 空态显示「今天没有待办事项哦」
 - 右下角毛玻璃圆形按钮（天蓝 `#B2E0F4` 60% 透明 + Blur 20，图标就是一个「+」`ADD`）：点一下就**从按钮那一角弹出一块毛玻璃小面板**（奶白 `#B3FFFFFF` 70% 透明 + Blur 20）：玻璃底淡入 160ms，**两条入口是一条一条弹出来的** —— 各自从按钮那一角由小撑到原大（220ms，`EASE_OUT_BACK` 带一点过冲，像弹出菜单那样顿一下），第二条比第一条晚 `CHOOSE_STAGGER_MS = 70ms` 起步；收起不做错峰，一下收掉才跟手。选完才开对应的新增弹窗；再点一次「+」或点面板外的空白处收起。按钮**始终是个「+」**，点前点后都一样 —— 不换「×」、也不转（试过「转一圈变 ×」，旋转量按圈还是按弧度都对不上、两个图标的号也配不平，干脆去掉）
 - 新增待办弹窗只弹出，**不自动聚焦输入框**
-- 右上角柱状图图标（`BAR_CHART`）→ 数据二级页
+- 右上角柱状图图标（内置 `BAR_CHART`，22px，色用 `DATA_ICON_COLOR` —— 「+」那块玻璃同一个天蓝但深几档才看得清）→ 数据二级页
 
 ### 新增 / 编辑待办弹窗（`tools/todo_form.py`）
 - 分类：**三个胶囊并排（复用 `tools/segmented.py`），单选** —— 选中项填自己的分类色（红 / 黄 / 绿），字色跟着底色挑深浅（黄底深蓝、红 / 绿底白）；点另一档就切过去，点当前这一档不会松开，永远留一个选中；切的时候旧的底色与字淡出、新的淡入（`SEGMENT_SWITCH`，180ms —— `ft.Text` 的字色没法直接做动画，所以一档的文字摆两份叠着交叉淡入）。这排用方一点的那款（square=True）：圆角收小，两档之间立一条浅灰竖线，和「数据」页的 年/月/周 胶囊区分开。胶囊底是一层降过白的浅灰白 #F8FAFC（比待办卡片那张灰纸 #F1F5F9 亮一格）
@@ -42,7 +42,7 @@
 - 点任意日期 → 弹窗列出当天全部内容：待办（**一列卡片，不摆时间轴** —— 左边那格时间和点线都没有，卡片铺满正文的宽，可左滑编辑 / 删除）+ 倒数日（卡片，**过了的也置灰**：只要所看那天在今天之前，这一次的倒数日就按过期样式 —— 循环的那条也算，`countdown_expired` 只判不循环的那条，循环的按设计永远等下一次、它判不出来；天数一律按**所看那天 − 今天**算 —— 正数还有几天、负数已过几天、0 就是今天，**中段和下段共用这一个数**（过期时中段写「N 天前」、下段写「已过期 N 天」，连状态色都是同一档灰），不能靠 `next_occurrence` 反推，那会推到还在未来的下一次去、天数成负的）；空态「这天没有待办事项」
 - 弹窗高度**按内容的多少来**：够矮时贴着内容收缩，只有量出来超过 `DIALOG_BODY_MAX_HEIGHT`（330）才把正文钉在这个高度上、打开滚动（`ScrollMode.HIDDEN`，不画滚动条）；第一帧先按 `estimate_day_height` 估的高度撑起来（**估高不估矮**），量到真高度再收回去 —— 内容多的那些天点开时不会先按全部内容闪一下、把弹窗撑高。粗算漏掉的是字体行高、标签高度这些固定量，所以「一条差多少」会摊到条数上记进页面 `state`（`DAY_HEIGHT_SLACK_KEY`），下一次估的时候补上：点开两三次之后第一帧就是最终高度，弹窗不再有那一下上下撑开 / 收回
 - 弹窗里**日期行和右上角「×」钉在顶上**：它们放在 `AlertDialog` 的标题槽里、弹窗 `scrollable=False`，滚的只有正文那一个 `Column`
-- 右上角齿轮 → 设置二级页
+- 右上角齿轮图标（内置 `SETTINGS_OUTLINED`，22px）→ 设置二级页
 
 ### 数据（二级页，从待办页右上角进入）
 - 顶部左边「‹ 返回」回到待办页，标题「数据」居中
@@ -72,11 +72,11 @@
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `src/main.py` | 21 | 入口：`db.init_db()` 建库 → `app_settings.ensure_defaults()` 补默认设置项 → **`register_app_services(page)`** 注册 Service（剪贴板 / 文件选择器，**必须赶在页面首次发给客户端之前**）→ `build_navigation(page)` |
+| `src/main.py` | 24 | 入口：`db.init_db()` 建库 → `app_settings.ensure_defaults()` 补默认设置项 → **`register_app_services(page)`** 注册 Service（剪贴板 / 文件选择器，**必须赶在页面首次发给客户端之前**）→ `build_navigation(page)`；`ft.run(main, assets_dir=ASSETS_DIR)` 显式给出资源目录（见约定 11） |
 | `src/pages/navigation.py` | 297 | 底部毛玻璃菜单 + 3 个 Tab 切换 + 二级页（数据 / 设置）跳转；按页面名保管选择状态；二级 / 三级页各压一层真 `ft.View`（`show_layer`），`nav_stack` 记楼层，返回按钮 / 左滑 / 真机的系统返回（`on_view_pop`）共用 `go_back`；页面动画用 `PAGE_TRANSITION`（横向推拉，不留残影） |
-| `src/pages/home.py` | 689 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」面板（新增待办 / 新增倒数日）、右上角「数据」入口 |
+| `src/pages/home.py` | 730 | 待办页：日期条、按天列表、完成切换、毛玻璃「+」面板（新增待办 / 新增倒数日）、右上角「数据」入口（内置 `BAR_CHART`） |
 | `src/pages/countdown.py` | 250 | 倒数日页：通栏 + 两列卡片列表 + 底部「已过期 N」开关（过期卡片全部双列；没有「+」，新增入口在待办页） |
-| `src/pages/calendar.py` | 1016 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（月份与选中日期跨 Tab 保留） |
+| `src/pages/calendar.py` | 983 | 日历页：月历卡片网格、当天详情弹窗、右上角设置入口（内置 `SETTINGS_OUTLINED`；月份与选中日期跨 Tab 保留） |
 | `src/pages/data.py` | 621 | 「数据」二级页：数据统计 + 分类占比（**两张同款小卡并排**）/ 待办趋势三张卡（年/月/周 保留） |
 | `src/pages/preferences.py` | 811 | 设置二级页：三档卡片 —— 通知设置（通知提醒开关、通知渠道）、数据设置（导出 / 导入 JSON、云端开关）、通用设置（检查新版本、联系方式、清除缓存），末尾一行署名 |
 | `src/tools/db.py` | 709 | 数据层：建表 / 迁移 / 待办与倒数日 CRUD / 循环展开（含工作日 / 非工作日）/ settings / 读全部两张表（`list_all_todos`、`list_settings`，导出用）/ `replace_data()`（导入用：一个事务里清空重写，**原样存、不展开**） |
@@ -160,7 +160,19 @@ main.py
 8. **页面选择状态存在 `pages/navigation.py`**：切页时页面控件是重建的（待办数据要现从 db 读），但「在看哪个月 / 选了哪一档」这类选择必须留住，所以 `build_navigation` 里有一份按页面名索引的 `state_store`，由 `page_state(name)` 按名字取（没有就现建一个空的）；页面把它当自己的草稿本 —— 日历页存 `month` / `day`，数据页存三张卡各自的 年/月/周，只有热重载重跑 `main()` 才会回到初始值。
 9. **日历弹窗的高度是「先估后量」**：正文的真高度由 `open_day_dialog` 里那层探针（`on_size_change`）量出来，量一次得等一帧（客户端是 post-frame 回调），所以第一帧先用 `estimate_day_height()` 把 `body.height` / `scroll` 定上。估算**估高不估矮**：估高了下一帧就收回，估矮了弹窗会先按全部内容撑高一下再弹回来 —— 就是「点日期先闪一下全部数据」的样子。
 10. **`ft.Service`（`Clipboard`、`FilePicker` 这些）统一走 `tools/services.py`，而且必须由 `main.py` 的 `register_app_services(page)` 在**启动时**注册**（页面里只用 `ensure_service(page, 类型)` 取）。三个坑：① **`page.services.append(...)` 不算注册** —— `page.services` 拿到的是根 `View` 上那个**普通 list**（连 `register_service` 都没有），append 只是往清单里塞个对象，客户端什么都收不到。② **注册必须赶在页面首次发给客户端之前**：真正会把服务送出去的是注册表的 `register_service()`，可注册表是 `Page` 的一个字段、并不挂在控件树上，它的 `parent` 恒为 `None`，那段 `__internal_update()` 直接返回 —— 新增的服务只能等「随页面首次发出」。设置页这类二级页构建时页面早发过了，那时再注册客户端**永远**收不到，之后调用它的方法就是干等 10 秒然后抛 `TimeoutException: Timeout waiting for invoke method listener for Clipboard(xxx).set`。③ 改用 `ft.CopyToClipboard` 这类客户端动作**绕不过这一点**：它内部的 `shared_service(Clipboard)` 走的是同一个注册路径（它的好处只在 iOS/Safari 的手势时效上，跟注册无关）。
-11. **页面的上下层关系只认 `navigation.py` 的 `nav_stack` + `page.views`**（`tools/swipe_back.py` 把左滑接到它上面）：进一层时把「上一层怎么画」压进 `nav_stack`（`render_data` / `render_preferences` 那类只重画、不动栈的函数），`go_back()` 只弹一层 —— 同时弹掉 `page.views` 顶上那层真 View。所以**别在页面里自己写 `show_page(0)` 当返回**，也别在栈里压一个会再压栈的 `show_xxx`；另外别把子页塞回 `content.content`（那样真机的返回就又没有层可弹、直接退出 App 了）。层数多深都按这个来。
+11. **`assets`（`src/assets`）：App 图标与启动图摆在**根目录**，其余按用途分两个文件夹**：
+    ```
+    src/assets/
+    ├── icon.png              # App 图标 —— 只能在这儿，别挪
+    ├── splash_android.png    # 启动图 —— 同上
+    ├── icons/                # 三方图标（外面下载来的图，如 Always Allowed.png、区域柱状图.png）
+    └── images/               # App 内用到的图片
+    ```
+    - **`icon.png` / `splash_android.png` 不能挪进子文件夹**：`flet build` 只在 assets **根目录**找它们，而且没有参数可以改这个位置（`flet_cli/commands/build_base.py` 里就是 `glob("icon.*")` / `glob("splash.*")`，非递归；查了一圈也没有 `--icon` 这类选项，那个参数只属于 `flet pack`）。挪进去的后果是**悄无声息地回退成 Flet 模板自带的图标 / 启动图** —— 构建不报错，装到手机上才发现图标不对。它还认带平台后缀的近亲：`icon_<平台>.png`（`icon_android.png`、`icon_ios.png`…）优先于通用的 `icon.png`，启动图同理（`splash_<平台>.png` → `splash.png` → 最后退回用 App 图标当启动图）。
+    - **图片在代码里的引用路径 = 相对 assets 目录**：`ft.Image(src="icons/区域柱状图.png")` —— **子目录照写**，但不带 `assets/` 前缀、也不带前导斜杠。Flet 把这个 assets 目录**挂在 App 的根路径上**，所以文件是 `/icons/区域柱状图.png`；写成 `assets/icons/xx.png` **会 404**（实测：`/Always Allowed.png` → 200、`/assets/Always Allowed.png` → 404，后者命中的是 Flet 自己那套 web 资源）。文件名里的空格不用管，客户端会把 URL 转义成 `%20`；中文名同理。
+    - **目录要自己指到**：`flet run` 会自动认脚本目录下的 `assets`（`--assets` 默认值，导成 `FLET_ASSETS_DIR` 给 App），但 `ft.run()` 在没给 `assets_dir` 时是按**当前工作目录**拼默认的 `assets` —— 从项目根跑 `python src/main.py` 就拼到不存在的 `DailyList/assets`，图全白。所以 `main.py` 里写死 `ASSETS_DIR = Path(__file__).parent / "assets"` 传给 `ft.run`（`flet run` 的 `FLET_ASSETS_DIR` 会覆盖它，两边不冲突）。**想验证某张图到底通没通**：起一个 web 视图数一下状态码最快（`flet_web.fastapi.serve_fastapi_web_app` + `urllib`），比在真机上看图猜省事。
+    - **现在代码里没有引用任何 assets 图**：两个入口都回到了内置图标（`SETTINGS_OUTLINED` / `BAR_CHART`），`icons/` 里那两张是留着备用的；`images/` 先空着（放一个 `.gitkeep`，否则 git 不会保留空目录）。
+12. **页面的上下层关系只认 `navigation.py` 的 `nav_stack` + `page.views`**（`tools/swipe_back.py` 把左滑接到它上面）：进一层时把「上一层怎么画」压进 `nav_stack`（`render_data` / `render_preferences` 那类只重画、不动栈的函数），`go_back()` 只弹一层 —— 同时弹掉 `page.views` 顶上那层真 View。所以**别在页面里自己写 `show_page(0)` 当返回**，也别在栈里压一个会再压栈的 `show_xxx`；另外别把子页塞回 `content.content`（那样真机的返回就又没有层可弹、直接退出 App 了）。层数多深都按这个来。
 
 ---
 
