@@ -63,6 +63,13 @@ CHANNEL_ICON_GAP = 8
 CHANNEL_ICON_COLOR = "#475569"
 # 通知地址那一格的高度：输入框和「平时显示的那行文字」共用，点开时高度不跳。
 URL_FIELD_HEIGHT = 40
+# 通知提醒总开关那两行小字（跟着开关换：关着的时候说清「填了也不发」，别让人只看见
+# 一串地址以为提醒是活的）+ 拨动时的一句提示。文案放一起，免得两边对不上。
+# （开关存哪个键、值是什么，见 tools/notifications.py。）
+NOTIFY_ON_LABEL = "有新提醒时按下面的渠道推送"
+NOTIFY_OFF_LABEL = "关着的时候不推送提醒"
+NOTIFY_ON_TOAST = "已开启通知提醒"
+NOTIFY_OFF_TOAST = "已关闭通知提醒"
 # 云端数据的两种状态：一行小字说明 + 开关时的一句提示。文案放一起，免得两边对不上。
 # （开关存哪个键、值是什么，见 tools/app_settings.py。）
 CLOUD_ON_LABEL = "本地数据会同步到云端"
@@ -350,6 +357,59 @@ def build_preferences_page(
             db.get_setting(notifications.URL_SETTING, ""),
         )
 
+    # 「通知提醒」总开关：它管「发不发」，所以摆在**卡片里自己一行**，不藏进「通知
+    # 渠道」那个弹窗 —— 弹窗里那两项管的是「怎么发」（往哪个渠道、地址是什么）。
+    # 拨一下就落库（和云端那个开关一个做法），下回来还是这档。
+    notify_switch = ft.Switch(
+        value=(
+            db.get_setting(
+                notifications.ENABLED_SETTING, notifications.ENABLED_OFF
+            )
+            == notifications.ENABLED_ON
+        ),
+        active_color="#FFFFFF",
+        active_track_color=SKY_BLUE,
+        inactive_thumb_color="#FFFFFF",
+        inactive_track_color="#E2E8F0",
+    )
+
+    notify_state_summary = ft.Text(
+        "",
+        size=11,
+        color=MUTED_COLOR,
+        # 和上面那行一个道理：只放一句话，放不下就省略，别折行把卡片顶高。
+        no_wrap=True,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+
+    def refresh_notify_state() -> None:
+        """那行小字跟着开关走（关着时说清「填了也不发」）。"""
+        notify_state_summary.value = (
+            NOTIFY_ON_LABEL if notify_switch.value else NOTIFY_OFF_LABEL
+        )
+
+    def toggle_notify_enabled(_: ft.Event[ft.Switch]) -> None:
+        """拨一下：立刻落库、换掉自己那行小字，并弹一句提示。
+
+        **不动「通知渠道」那行**：它的摘要只说渠道和地址配没配好，和总开关是两码事
+        （联动的话，关掉提醒会让这一行看不出地址到底填了没有）。
+        """
+        db.set_setting(
+            notifications.ENABLED_SETTING,
+            notifications.ENABLED_ON
+            if notify_switch.value
+            else notifications.ENABLED_OFF,
+        )
+        refresh_notify_state()
+        notify_state_summary.update()
+        notify(
+            NOTIFY_ON_TOAST if notify_switch.value else NOTIFY_OFF_TOAST
+        )
+
+    # 和云端那个开关一样：先建控件、再挂处理函数 —— `ft.Switch(on_change=...)` 是
+    # **构建时**求值，写在处理函数之前会直接 `UnboundLocalError`。
+    notify_switch.on_change = toggle_notify_enabled
+
     def close_notify_settings() -> None:
         """Dismiss the 通知渠道 dialog and bring the menu bar back."""
         page.pop_dialog()
@@ -598,6 +658,13 @@ def build_preferences_page(
             ],
         )
 
+    def notify_enabled_row() -> ft.Control:
+        """通知设置卡片里的第一行：通知提醒总开关。
+
+        拨一下就落库（见 `toggle_notify_enabled`），不跟「通知渠道」那个弹窗绑在一起。
+        """
+        return setting_row("通知提醒", notify_state_summary, notify_switch)
+
     def notify_row() -> ft.Control:
         """通知设置那一行：通知渠道 —— 点开弹窗改渠道和推送地址。"""
         return ft.Container(
@@ -757,6 +824,7 @@ def build_preferences_page(
             overflow=ft.TextOverflow.ELLIPSIS,
         )
 
+    refresh_notify_state()
     refresh_notify_summary()
     refresh_cloud_summary()
 
@@ -786,7 +854,8 @@ def build_preferences_page(
                             controls=[
                                 # 三档设置，各一张卡片，条目摆在自己那张里。
                                 settings_section(
-                                    "通知设置", [notify_row()]
+                                    "通知设置",
+                                    [notify_enabled_row(), notify_row()],
                                 ),
                                 settings_section(
                                     "数据设置",

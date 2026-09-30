@@ -26,6 +26,12 @@ CHANNEL_ICONS = {
 
 CHANNEL_SETTING = "notify_channel"
 URL_SETTING = "notify_url"
+# 通知提醒的总开关。和云端那个开关一样：值是字符串（这张表只有 name/value 两列），
+# 默认**关**着 —— 通知是这个 App 唯一会「往外发东西」的能力，不该在用户还没表态时
+# 替他打开（渠道和地址备好了也得他点一下才生效）。
+ENABLED_SETTING = "notify_enabled"
+ENABLED_ON = "1"
+ENABLED_OFF = "0"
 
 
 def channel_icon(name: str) -> ft.IconData:
@@ -34,7 +40,11 @@ def channel_icon(name: str) -> ft.IconData:
 
 
 def summary(channel: str, url: str) -> str:
-    """One-line state of the configuration, shown under 通知渠道."""
+    """One-line state of the configuration, shown under 通知渠道.
+
+    只说这两项**自己**的状态（渠道 + 地址），**不看「通知提醒」那个总开关** ——
+    开关是另一行的事，两处联动的话，关掉提醒会让这一行看不出渠道和地址配没配好。
+    """
     if not url:
         return f"{channel} · 未设置通知地址"
     return f"{channel} · {url}"

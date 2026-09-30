@@ -19,7 +19,8 @@ CLOUD_ON = "1"
 def defaults() -> tuple[tuple[str, str], ...]:
     """当前该有的设置项与默认值：`(键, 默认值)`。"""
     return (
-        # 通知渠道 + 推送地址
+        # 通知渠道 + 推送地址 + 通知提醒总开关
+        (notifications.ENABLED_SETTING, notifications.ENABLED_OFF),
         (notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL),
         (notifications.URL_SETTING, ""),
         # 云端数据开关：默认关着（云端同步是后加的能力，不在用户还没表态时就替他打开）
