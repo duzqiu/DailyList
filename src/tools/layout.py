@@ -9,6 +9,17 @@ BACKGROUND_COLORS = ("#FFFFFF", "#EEF2FF")
 # Solid colour behind the gradient: the native page background.
 PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 
+# assets 里那几张图的路径（都在 `src/assets/icons/`）。集中在这儿，免得同一个文件名在
+# 几个页面里各写一遍 —— 日历那一张就有三处共用（底部菜单、倒数日卡片、空态提示）。
+# 这里写的是**相对 assets 目录**的路径：不带 `assets/` 前缀、也不带前导斜杠（Flet 把
+# assets 目录挂在 App 的根路径下，写成 `assets/icons/xx.png` 反而 404）。详见 README
+# 约定 11；引用时配 `ft.Image(..., width/height/fit=CONTAIN)`，尺寸各页自己定。
+ADD_ICON_SRC = "icons/add.png"
+DATA_ICON_SRC = "icons/data.png"
+CALENDAR_ICON_SRC = "icons/calendar.png"
+SETTINGS_ICON_SRC = "icons/settings.png"
+CHECK_ICON_SRC = "icons/check.png"
+
 # An open todo takes the colour of its category (see tools/categories.py) and
 # keeps the same neutral card as a completed one - no fill either way. Only the
 # done state changes the text: grey, struck through, behind a green check.

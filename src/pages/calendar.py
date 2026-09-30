@@ -25,12 +25,13 @@ from tools.countdown_card import (
 from tools.countdown_form import open_countdown_form
 from tools.layout import (
     BOTTOM_MENU_INSET,
+    CALENDAR_ICON_SRC,
+    CHECK_ICON_SRC,
     # 选中日期的那圈圆形底色：和首页日期条、数据页日期选择器同一个蓝。
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
-    # 待办全部完成时那枚对勾用的绿：和首页列表里的完成标记同一个色。
-    TODO_MARK_DONE_BG,
+    SETTINGS_ICON_SRC,
     TODO_TEXT_SIZE,
     TODO_TIME_SIZE,
     dialog_button_style,
@@ -59,14 +60,21 @@ LUNAR_SIZE = 7
 # 画几个点，从左往右排；一格横里摆不下时点自己换到下一行，不硬凑也不省略。
 DOT_SIZE = 6
 DOT_GAP = 2
-# 当天的待办全打完勾：格子下面不再一颗颗摆淡掉的点，改成一枚居中的绿色对勾
-# （见 item_lines）。对勾比一颗点大，格子的高度也按它留（见 cell_height）。
+# 当天的待办全打完勾：格子下面不再一颗颗摆淡掉的点，改成居中一枚对勾图
+# （`CHECK_ICON_SRC`，见 item_lines）。它比一颗点大，格子的高度也按它留（见
+# cell_height）。原来这儿是内置图标 `Icons.CHECK` + 一档绿（`TODO_MARK_DONE_BG`），
+# 换成图之后那档绿跟着没了 —— 图的颜色就是它自己的。
 DONE_MARK_SIZE = 14
-DONE_MARK_COLOR = TODO_MARK_DONE_BG
 # 过了的日子里还挂着没做完的待办：格子上画一枚红色的「×」—— 它和「全做完」那枚
-# 绿色对勾是一对（同样的大小、同样的摆法），所以尺寸直接用 DONE_MARK_SIZE，不再
+# 对勾图是一对（同样的大小、同样的摆法），所以尺寸直接用 DONE_MARK_SIZE，不再
 # 另起一套。
 OVERDUE_MARK_COLOR = "#DC2626"
+# 右上角进设置页用的图标：不是内置图标的齿轮，而是「三方图标」里的一张图
+# （`SETTINGS_ICON_SRC`，在 tools/layout.py 里统一给出路径）。原图 256×256，缩到 22
+# （和原来那枚齿轮一样大），正方形里居中、不拉伸。
+SETTINGS_ICON_SIZE = 22
+# 当天弹窗里空态那枚图（「这天没有待办事项」）：和待办页的空态、底部菜单同一张。
+EMPTY_HINT_ICON_SIZE = 20
 # 点月份标题弹出的日期滚轮：能滚到所选年份往前 / 往后多少年，以及滚轮自己多高
 # （Cupertino 滚轮是 LayoutControl，自己不定高度；216 是这一款在 Flutter 里的
 # 常用高度，正好 6 行 × item_extent 32 多一点）。
@@ -131,7 +139,7 @@ def cell_height(rows: int) -> float:
     点少的格子空一点不要紧，点多的那天绝不会被格子切掉半截。
     """
     dots = rows * DOT_SIZE + (rows - 1) * DOT_GAP
-    # 只摆一行的那天可能只画一枚对勾（当天待办全完成，见 item_lines），对勾比
+    # 只摆一行的那天可能只画一枚对勾图（当天待办全完成，见 item_lines），它比
     # 一颗点高，格子的高度按它留 —— 否则对勾会顶到格子边框上。
     content = max(dots, DONE_MARK_SIZE)
     return (
@@ -391,10 +399,11 @@ def build_calendar_page(
             content=ft.Row(
                 spacing=10,
                 controls=[
-                    ft.Icon(
-                        ft.Icons.EVENT_AVAILABLE,
-                        size=20,
-                        color="#94A3B8",
+                    ft.Image(
+                        src=CALENDAR_ICON_SRC,
+                        width=EMPTY_HINT_ICON_SIZE,
+                        height=EMPTY_HINT_ICON_SIZE,
+                        fit=ft.BoxFit.CONTAIN,
                     ),
                     ft.Text("这天没有待办事项", size=12, color="#64748B"),
                 ],
@@ -640,8 +649,8 @@ def build_calendar_page(
     def overdue_mark(height: float) -> ft.Control:
         """过了的日子还挂着没做完的：日期行下面那块空档里，一枚居中的红色「×」。
 
-        和「全做完」那枚绿色对勾（`done_mark`）是一对：大小、摆法都一样（占满日期
-        行下面的空档、上下左右居中），只是颜色和「对 / 错」相反。只要有一条没做完
+        和「全做完」那枚对勾图（`done_mark`）是一对：大小、摆法都一样（占满日期
+        行下面的空档、上下左右居中），只是形色和「对 / 错」相反。只要有一条没做完
         就画这么一枚，不按条数堆。
         """
         slot = max(
@@ -659,10 +668,11 @@ def build_calendar_page(
         )
 
     def done_mark(height: float) -> ft.Control:
-        """待办全做完那天的标记：日期行下面那块空档里，一枚居中的绿色对勾。
+        """待办全做完那天的标记：日期行下面那块空档里，居中一枚对勾图
+        （`CHECK_ICON_SRC`）。
 
-        格子是定高的（见 build_month_view），日期行占掉多少就剩多少给对勾；对勾
-        在这个高度里上下居中，横向由外层 Column 的 STRETCH 拉满整格宽后居中。
+        格子是定高的（见 build_month_view），日期行占掉多少就剩多少给它；它在这个
+        高度里上下居中，横向由外层 Column 的 STRETCH 拉满整格宽后居中。
         """
         slot = max(
             DONE_MARK_SIZE,
@@ -671,10 +681,11 @@ def build_calendar_page(
         return ft.Container(
             height=slot,
             alignment=ft.Alignment.CENTER,
-            content=ft.Icon(
-                ft.Icons.CHECK,
-                size=DONE_MARK_SIZE,
-                color=DONE_MARK_COLOR,
+            content=ft.Image(
+                src=CHECK_ICON_SRC,
+                width=DONE_MARK_SIZE,
+                height=DONE_MARK_SIZE,
+                fit=ft.BoxFit.CONTAIN,
             ),
         )
 
@@ -683,9 +694,10 @@ def build_calendar_page(
     ) -> list[ft.Control]:
         """当天的待办 + 倒数日：有几个画几个实心小圆点，从左往右排。
 
-        两种日子只画**一枚**标记、不再摆点：待办全做完 → 居中的绿色对勾；过了的
-        日子还挂着没做完的 → 居中的红色「×」（`overdue_count` 判定、`overdue_mark`
-        画；它和对勾是一对 —— 一样大、一样摆法，只要有一条没做完就画一枚）。
+        两种日子只画**一枚**标记、不再摆点：待办全做完 → 居中那枚对勾图
+        （`done_mark`）；过了的日子还挂着没做完的 → 居中的红色「×」
+        （`overdue_count` 判定、`overdue_mark` 画；它和对勾是一对 —— 一样大、一样
+        摆法，只要有一条没做完就画一枚）。
         """
         entries = entries_of(day, todos)
         pending = overdue_count(day, todos)
@@ -1031,10 +1043,11 @@ def build_calendar_page(
                                     # 22px 的图标太难点，四周补一圈让手指够得着。
                                     padding=ft.Padding.all(6),
                                     on_click=lambda _: open_settings(),
-                                    content=ft.Icon(
-                                        ft.Icons.SETTINGS_OUTLINED,
-                                        size=22,
-                                        color=TITLE_COLOR,
+                                    content=ft.Image(
+                                        src=SETTINGS_ICON_SRC,
+                                        width=SETTINGS_ICON_SIZE,
+                                        height=SETTINGS_ICON_SIZE,
+                                        fit=ft.BoxFit.CONTAIN,
                                     ),
                                 ),
                             ],

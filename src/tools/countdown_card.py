@@ -23,7 +23,7 @@ import flet as ft
 
 from tools import db
 from tools.categories import category_color
-from tools.layout import date_label, readable_ink
+from tools.layout import CALENDAR_ICON_SRC, date_label, readable_ink
 from tools.lunar import lunar_label
 
 TITLE_COLOR = "#172554"
@@ -297,8 +297,18 @@ def build_countdown_card(
     # 也跟着灰下去。
     header_bg = EXPIRED_HEADER_BG if expired else (item.bgcolor or CARD_BG)
     body_bg = EXPIRED_BODY_BG if expired else CARD_BODY_BG
-    icon_color = EXPIRED_ICON_COLOR if expired else ACCENT_COLOR
     badge_bg = EXPIRED_CHIP_BG if expired else countdown_color(shown_days)
+    # 上段那枚图（`CALENDAR_ICON_SRC`，和底部菜单、空态提示同一张）：平时就摆它本来的
+    # 样子；**过期的卡片压成 `EXPIRED_ICON_COLOR` 那档灰** —— `SRC_IN` 只留图的形状、
+    # 颜色换成给定的这档，于是它和整张灰卡是一套（不然一张灰卡上顶着一枚彩色图很跳）。
+    icon = ft.Image(
+        src=CALENDAR_ICON_SRC,
+        width=ICON_SIZE,
+        height=ICON_SIZE,
+        fit=ft.BoxFit.CONTAIN,
+        color=EXPIRED_ICON_COLOR if expired else None,
+        color_blend_mode=ft.BlendMode.SRC_IN if expired else None,
+    )
     card = ft.Container(
         key=f"countdown-{item.id}",
         border_radius=ft.BorderRadius.all(CARD_RADIUS),
@@ -318,11 +328,7 @@ def build_countdown_card(
                         spacing=6,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Icon(
-                                ft.Icons.EVENT,
-                                size=ICON_SIZE,
-                                color=icon_color,
-                            ),
+                            icon,
                             ft.Text(
                                 item.content,
                                 size=TITLE_SIZE,

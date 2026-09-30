@@ -8,6 +8,7 @@ from pages.data import build_data_page
 from pages.home import build_home_page
 from pages.preferences import build_preferences_page
 from tools.layout import (
+    CALENDAR_ICON_SRC,
     MENU_BAR_BOTTOM,
     MENU_BAR_HEIGHT,
     MENU_ICON_SIZE,
@@ -232,6 +233,26 @@ def build_navigation(page: ft.Page) -> None:
         nav_stack.append(lambda: show_page(origin))
         render_preferences(update)
 
+    def menu_icon(icon: str, selected_icon: str, selected: bool) -> ft.Control:
+        """一项菜单的图标。
+
+        传内置图标时按「空心 / 实心」换（`IconData` 是 `IntEnum`，所以用 `str` 分辨）；
+        传 assets 里的图（字符串路径，如 `CALENDAR_ICON_SRC`）时只有这一张，选中与否
+        都摆它 —— 那一项的选中状态还剩「文字加粗」在说。
+        """
+        if isinstance(icon, str):
+            return ft.Image(
+                src=icon,
+                width=MENU_ICON_SIZE,
+                height=MENU_ICON_SIZE,
+                fit=ft.BoxFit.CONTAIN,
+            )
+        return ft.Icon(
+            selected_icon if selected else icon,
+            size=MENU_ICON_SIZE,
+            color="#1F2937",
+        )
+
     def menu_item(
         index: int, icon: str, selected_icon: str, label: str, key: str
     ) -> ft.Control:
@@ -247,11 +268,7 @@ def build_navigation(page: ft.Page) -> None:
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=2,
                 controls=[
-                    ft.Icon(
-                        selected_icon if selected_index == index else icon,
-                        size=MENU_ICON_SIZE,
-                        color="#1F2937",
-                    ),
+                    menu_icon(icon, selected_icon, selected_index == index),
                     ft.Text(
                         label,
                         size=MENU_LABEL_SIZE,
@@ -276,10 +293,11 @@ def build_navigation(page: ft.Page) -> None:
                 "倒数日",
                 "countdown-tab",
             ),
+            # 日历那一项用 assets 里的图：两态传同一个路径（那枚图没有空心版）。
             menu_item(
                 2,
-                ft.Icons.CALENDAR_MONTH_OUTLINED,
-                ft.Icons.CALENDAR_MONTH,
+                CALENDAR_ICON_SRC,
+                CALENDAR_ICON_SRC,
                 "日历",
                 "calendar-tab",
             ),

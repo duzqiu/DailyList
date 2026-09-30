@@ -8,23 +8,24 @@ from tools import db
 from tools.categories import CATEGORIES
 from tools.countdown_form import open_countdown_form
 from tools.layout import (
+    ADD_ICON_SRC,
     BOTTOM_MENU_INSET,
-    SKY_BLUE,
+    CALENDAR_ICON_SRC,
+    DATA_ICON_SRC,
     page_gradient,
     text_width,
 )
 from tools.todo_form import open_todo_form
 from tools.todo_timeline import build_todo_row, sorted_todos
 
-# The floating add button is a sky-blue glass tile: no border ring, and a
-# translucent fill (60%) so the blur behind it shows through.
-ADD_BUTTON_BG = "#99" + SKY_BLUE[1:]
-# 毛玻璃那层模糊：右上角「数据」入口用过同一块玻璃，所以两处共用它。
-ADD_BUTTON_BLUR = ft.Blur(20, 20, ft.BlurTileMode.CLAMP)
-# 右上角「数据」图标的色：和「+」那块玻璃同一个天蓝，但要深几档才看得清 ——
-# 直接用 `ADD_BUTTON_BG` 的话是 60% 透明，落在白底上淡得几乎看不见。这一档和倒数日
-# 卡片上的强调色（countdown_card.ACCENT_COLOR）是同一个值。
-DATA_ICON_COLOR = "#0EA5E9"
+# 右下角那颗「+」按钮**没有底色**（`ft.Colors.TRANSPARENT`）：只留中间那枚图标，
+# 落在页面渐变和列表上都不带一块托底。原来是一块天蓝毛玻璃（`#99B2E0F4` 60% 透明 +
+# Blur 20），底色改成透明时连 `blur` 一起去了 —— **光有模糊没有底色并不等于「清玻璃」**：
+# `Container.blur` 是按控件那块**矩形**铺的，不跟着 `shape` 裁圆，压在这块一直在滚动的
+# 列表上就是一块方糊斑，比不加还脏。真要清玻璃，底色和 `clip_behavior`（裁圆）得一起加。
+# 右上角「数据」入口的图标：assets 里的一张图（`src/assets/icons/data.png`，路径见
+# tools/layout.py），缩到 22。
+DATA_ICON_SIZE = 22
 # A round tile, lifted clear of the floating menu bar.
 ADD_BUTTON_SIZE = 52
 ADD_BUTTON_LIFT = 10
@@ -33,8 +34,8 @@ ADD_BUTTON_LIFT = 10
 # （`CHOOSE_ANCHOR`），看起来就是从这个按钮里长出来的。
 CHOOSE_PANEL_GAP = 10
 CHOOSE_PANEL_RADIUS = 16
-# 奶白毛玻璃：半透明白 + Blur 20，和「+」按钮同一套做法；多一条亮边，面板压在
-# 列表上时才看得出边界。
+# 奶白毛玻璃：半透明白 + Blur 20，**面板自己带一条亮边**，压在列表上时才看得出边界。
+# （别再写成「和「+」按钮同一套做法」—— 那颗按钮现在没有底色了，见文件头。）
 CHOOSE_PANEL_BG = "#B3FFFFFF"
 CHOOSE_PANEL_BORDER = "#99FFFFFF"
 CHOOSE_PANEL_PADDING = ft.Padding.symmetric(horizontal=6, vertical=6)
@@ -67,10 +68,18 @@ CHOOSE_STAGGER_MS = 70
 CHOOSE_START_SCALE = 0
 CHOOSE_ANCHOR = ft.Alignment.BOTTOM_RIGHT
 CHOOSE_POP_CURVE = ft.AnimationCurve.EASE_OUT_BACK
-# 「+」就是一个「+」：点之前、点之后都一样，不换成「×」、也不转（试过转一圈变
-# 「×」，动效和图标尺寸都调不准，索性不动）。
-ADD_ICON = ft.Icons.ADD
+# 右下角那颗圆按钮上的图标：assets 里的一张图（`src/assets/icons/add.png`）。点之前、
+# 点之后都是它，不换也不转（试过「转一圈变 ×」，旋转量和图标尺寸都调不准，索性去掉）。
+# `ft.IconButton.icon` 允许直接给一个控件（Flet 1.0 的类型是 `IconData | Control`），
+# 所以按钮本身（圆形墨迹、tooltip、点击区）不用动，只是图标从字形换成图 —— 尺寸也
+# 从 `icon_size` 挪到图自己身上。
 ADD_ICON_SIZE = 24
+# 空态提示（「今天没有待办事项哦」）左边那枚图：和底部菜单、倒数日卡片同一张日历图。
+EMPTY_HINT_ICON_SIZE = 20
+# 「+」按钮那圈**细灰边**：底色透明之后，圆形的边界就靠它交代（和卡片边、空态提示
+# 那圈、倒数日卡片的边同一个灰 `#E2E8F0`；`shape=CIRCLE` 会让这圈边自己走成圆的）。
+ADD_BUTTON_BORDER = "#E2E8F0"
+ADD_BUTTON_BORDER_WIDTH = 1
 # 顶部日期条：今天排第一个，往后连着 7 天（过去的日子不再列出来）。
 DATE_STRIP_DAYS = 7
 # 日期一格不带底色：选中的那天只是把日期**加粗**，选中标记交给日期底下那条黑
@@ -278,10 +287,11 @@ def build_home_page(
             content=ft.Row(
                 spacing=10,
                 controls=[
-                    ft.Icon(
-                        ft.Icons.EVENT_AVAILABLE,
-                        size=20,
-                        color="#94A3B8",
+                    ft.Image(
+                        src=CALENDAR_ICON_SRC,
+                        width=EMPTY_HINT_ICON_SIZE,
+                        height=EMPTY_HINT_ICON_SIZE,
+                        fit=ft.BoxFit.CONTAIN,
                     ),
                     ft.Text("今天没有待办事项哦", size=13, color="#64748B"),
                 ],
@@ -540,11 +550,14 @@ def build_home_page(
     )
 
     add_icon_button = ft.IconButton(
-        # 就是一个「+」：新增入口本身不用再解释，面板里那两条才分工。开着、关着
-        # 都是它，不再换图标也不再转。
-        icon=ADD_ICON,
-        icon_color="#172554",
-        icon_size=ADD_ICON_SIZE,
+        # 就是这一张图（见 ADD_ICON_SIZE 那段注释）：新增入口本身不用再解释，
+        # 面板里那两条才分工。开着、关着都是它，不换图标也不转。
+        icon=ft.Image(
+            src=ADD_ICON_SRC,
+            width=ADD_ICON_SIZE,
+            height=ADD_ICON_SIZE,
+            fit=ft.BoxFit.CONTAIN,
+        ),
         tooltip="新增待办 / 倒数日",
         style=ft.ButtonStyle(shape=ft.CircleBorder()),
         # 点一下弹入口；再点一下（或点空白处）收回去。
@@ -558,8 +571,11 @@ def build_home_page(
         width=ADD_BUTTON_SIZE,
         height=ADD_BUTTON_SIZE,
         shape=ft.BoxShape.CIRCLE,
-        bgcolor=ADD_BUTTON_BG,
-        blur=ADD_BUTTON_BLUR,
+        # 透明底：按钮只留中间那枚图标（见文件头那段「没有底色」的注释）。
+        # `shape` 留着 —— 将来要加回毛玻璃底，填上色再配 `clip_behavior` 就是圆的了。
+        bgcolor=ft.Colors.TRANSPARENT,
+        # 一圈细灰边：没有底色，边界只能靠这条线交代（见 ADD_BUTTON_BORDER）。
+        border=ft.Border.all(ADD_BUTTON_BORDER_WIDTH, ADD_BUTTON_BORDER),
         content=add_icon_button,
     )
 
@@ -759,13 +775,11 @@ def build_home_page(
                                                             # 手指够得着。
                                                             padding=ft.Padding.all(6),
                                                             on_click=lambda _: open_data(),
-                                                            content=ft.Icon(
-                                                                ft.Icons.BAR_CHART,
-                                                                size=22,
-                                                                # 「+」那块玻璃的天蓝，但深
-                                                                # 几档才看得清（见
-                                                                # DATA_ICON_COLOR）。
-                                                                color=DATA_ICON_COLOR,
+                                                            content=ft.Image(
+                                                                src=DATA_ICON_SRC,
+                                                                width=DATA_ICON_SIZE,
+                                                                height=DATA_ICON_SIZE,
+                                                                fit=ft.BoxFit.CONTAIN,
                                                             ),
                                                         ),
                                                     ],
