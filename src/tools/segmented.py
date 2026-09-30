@@ -49,6 +49,16 @@ SEGMENT_DIVIDER_COLOR = "#E2E8F0"
 # 一档只有一个汉字，左右各 10px 就有胶囊的手感了。
 SEGMENT_TILE_PAD = ft.Padding.symmetric(horizontal=10)
 SEGMENT_TEXT_SIZE = 12
+# 紧凑那款（`compact=True`，数据页那张方卡里的 年/月/周 用它）：整条再小一圈 ——
+# 方卡里得和标题并排放下，按原尺寸算标题行还要再多 30px、卡片就方不起来了。
+SEGMENT_COMPACT_TILE_HEIGHT = 16
+SEGMENT_COMPACT_TILE_PAD = ft.Padding.symmetric(horizontal=5)
+SEGMENT_COMPACT_TEXT_SIZE = 8
+# 圆的那款半径取「整条高度的一半」，紧凑款高度更小，半径跟着收。
+SEGMENT_COMPACT_RADIUS = (
+    SEGMENT_COMPACT_TILE_HEIGHT + 2 * SEGMENT_PAD + 2 * SEGMENT_BORDER_WIDTH
+) / 2
+SEGMENT_COMPACT_TILE_RADIUS = SEGMENT_COMPACT_TILE_HEIGHT / 2
 # 胶囊底：从纯白降一档的浅灰白。比「待办」卡片的 #F1F5F9 再亮一格（不然摆在卡片上
 # 的 年/月/周 胶囊会糊进卡面），但也不是刺眼的白。
 SEGMENT_BG = "#F8FAFC"
@@ -72,6 +82,7 @@ def build_segmented(
     on_pick: Callable[[str], None],
     color_of: Callable[[str], str] | None = None,
     square: bool = False,
+    compact: bool = False,
 ) -> ft.Container:
     """横向胶囊开关：`options` 是 `[(key, 标签)]`，`value` 是当前选中项的 key。
 
@@ -83,11 +94,23 @@ def build_segmented(
 
     `square=True` 换方一点的那一款：圆角从「半个高度」收小到 `SEGMENT_SQUARE_RADIUS`
     （选中项同一套圆角），并在两档之间立一条竖线。
+
+    `compact=True` 换**紧凑**那款：一条更矮、字更小、左右内边距更窄（数据页那张方卡
+    用它，好和卡片标题并排放在一行里）。两档之间那条竖线只有方款才画，紧凑款用不到。
     """
-    radius = SEGMENT_SQUARE_RADIUS if square else SEGMENT_RADIUS
-    tile_radius = (
-        SEGMENT_SQUARE_TILE_RADIUS if square else SEGMENT_TILE_RADIUS
+    tile_height = (
+        SEGMENT_COMPACT_TILE_HEIGHT if compact else SEGMENT_TILE_HEIGHT
     )
+    tile_padding = SEGMENT_COMPACT_TILE_PAD if compact else SEGMENT_TILE_PAD
+    text_size = SEGMENT_COMPACT_TEXT_SIZE if compact else SEGMENT_TEXT_SIZE
+    if square:
+        radius = SEGMENT_SQUARE_RADIUS
+        tile_radius = SEGMENT_SQUARE_TILE_RADIUS
+    else:
+        radius = SEGMENT_COMPACT_RADIUS if compact else SEGMENT_RADIUS
+        tile_radius = (
+            SEGMENT_COMPACT_TILE_RADIUS if compact else SEGMENT_TILE_RADIUS
+        )
     # 一档的文字摆两份、叠在一起：一份选中色 + 加粗，一份灰的。切换时两份的透明
     # 度对调（旧的淡出、新的淡入），看上去就是字色自己过了一遍 —— `ft.Text` 的字
     # 色没得动画（Flet 的 Text 没有 `animate`），只能这样交叉着来。
@@ -131,7 +154,7 @@ def build_segmented(
         active_labels[key] = ft.Container(
             content=ft.Text(
                 label,
-                size=SEGMENT_TEXT_SIZE,
+                size=text_size,
                 weight=ft.FontWeight.BOLD,
                 color=active_ink(key),
             ),
@@ -140,15 +163,15 @@ def build_segmented(
         )
         idle_labels[key] = ft.Container(
             content=ft.Text(
-                label, size=SEGMENT_TEXT_SIZE, color=SEGMENT_TEXT_COLOR
+                label, size=text_size, color=SEGMENT_TEXT_COLOR
             ),
             opacity=1,
             animate_opacity=SEGMENT_SWITCH,
         )
         tiles[key] = ft.Container(
-            height=SEGMENT_TILE_HEIGHT,
+            height=tile_height,
             border_radius=ft.BorderRadius.all(tile_radius),
-            padding=SEGMENT_TILE_PAD,
+            padding=tile_padding,
             alignment=ft.Alignment.CENTER,
             # 水波纹要跟着圆角走，所以用 Container 自带的 ink 而不是 IconButton。
             ink=True,
