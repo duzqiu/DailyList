@@ -11,7 +11,6 @@ from tools.layout import (
     ADD_ICON_SRC,
     BOTTOM_MENU_INSET,
     CALENDAR_ICON_SRC,
-    DATA_ICON_SRC,
     page_gradient,
     text_width,
 )
@@ -23,9 +22,6 @@ from tools.todo_timeline import build_todo_row, sorted_todos
 # Blur 20），底色改成透明时连 `blur` 一起去了 —— **光有模糊没有底色并不等于「清玻璃」**：
 # `Container.blur` 是按控件那块**矩形**铺的，不跟着 `shape` 裁圆，压在这块一直在滚动的
 # 列表上就是一块方糊斑，比不加还脏。真要清玻璃，底色和 `clip_behavior`（裁圆）得一起加。
-# 右上角「数据」入口的图标：assets 里的一张图（`src/assets/icons/data.png`，路径见
-# tools/layout.py），缩到 22。
-DATA_ICON_SIZE = 22
 # A round tile, lifted clear of the floating menu bar.
 ADD_BUTTON_SIZE = 52
 ADD_BUTTON_LIFT = 10
@@ -196,7 +192,6 @@ def restore_day_index(dates: list[date], state: dict[str, object]) -> int:
 def build_home_page(
     page: ft.Page,
     set_menu_visible: Callable[[bool], None],
-    open_data: Callable[[], None],
     state: dict[str, object],
 ) -> ft.Control:
     # 今天排在日期条的第一个，往后连着 DATE_STRIP_DAYS 天 —— 待办页只看今天和
@@ -766,22 +761,9 @@ def build_home_page(
                                                             weight=ft.FontWeight.BOLD,
                                                             color="#172554",
                                                         ),
-                                                        # 右上角进「数据」页：数据统计 / 分类占比 /
-                                                        # 待办趋势都在那一页上。
-                                                        ft.Container(
-                                                            ink=True,
-                                                            tooltip="数据",
-                                                            # 22px 的图标太难点，四周补一圈让
-                                                            # 手指够得着。
-                                                            padding=ft.Padding.all(6),
-                                                            on_click=lambda _: open_data(),
-                                                            content=ft.Image(
-                                                                src=DATA_ICON_SRC,
-                                                                width=DATA_ICON_SIZE,
-                                                                height=DATA_ICON_SIZE,
-                                                                fit=ft.BoxFit.CONTAIN,
-                                                            ),
-                                                        ),
+                                                        # 右上角原来是「数据」入口，
+                                                        # 已经挪到日历页的设置按钮左边
+                                                        # （见 pages/calendar.py）。
                                                     ],
                                                 ),
                                                 date_strip,

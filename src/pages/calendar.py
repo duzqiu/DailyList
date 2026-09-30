@@ -27,6 +27,7 @@ from tools.layout import (
     BOTTOM_MENU_INSET,
     CALENDAR_ICON_SRC,
     CHECK_ICON_SRC,
+    DATA_ICON_SRC,
     # 选中日期的那圈圆形底色：和首页日期条、数据页日期选择器同一个蓝。
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
@@ -69,10 +70,15 @@ DONE_MARK_SIZE = 14
 # 对勾图是一对（同样的大小、同样的摆法），所以尺寸直接用 DONE_MARK_SIZE，不再
 # 另起一套。
 OVERDUE_MARK_COLOR = "#DC2626"
+# 右上角进「数据」页用的图标（`DATA_ICON_SRC`，就是原来待在待办页右上角那枚柱状图）：
+# 现在和设置图标并排摆在日历页右上角，**数据在左、设置在右**。尺寸跟设置那枚一致。
+DATA_ICON_SIZE = 22
 # 右上角进设置页用的图标：不是内置图标的齿轮，而是「三方图标」里的一张图
 # （`SETTINGS_ICON_SRC`，在 tools/layout.py 里统一给出路径）。原图 256×256，缩到 22
 # （和原来那枚齿轮一样大），正方形里居中、不拉伸。
 SETTINGS_ICON_SIZE = 22
+# 两枚入口之间不留间距：各自那圈 6px 的点击留白挨在一起，看着就是 12px。
+TOPBAR_ICON_GAP = 0
 # 当天弹窗里空态那枚图（「这天没有待办事项」）：和待办页的空态、底部菜单同一张。
 EMPTY_HINT_ICON_SIZE = 20
 # 点月份标题弹出的日期滚轮：能滚到所选年份往前 / 往后多少年，以及滚轮自己多高
@@ -297,10 +303,15 @@ def build_calendar_page(
     set_menu_visible: Callable[[bool], None],
     state: dict[str, object],
     open_settings: Callable[[], None],
+    open_data: Callable[[], None],
 ) -> ft.Control:
     """日历页。`state` 由调用方保管（见 pages/navigation.py）：翻到哪个月、
     选中了哪一天要能跨 Tab 留住，切走再回来不会被拉回今天。控件本身照旧每次
     重建，所以上面的待办还是现从 db 读的。
+
+    右上角并排两枚入口：**数据在左、设置在右**（`open_data` / `open_settings`）。
+    数据那枚原来挂在待办页的右上角 —— 两个入口分在两张一级页上，想找哪一个都得先
+    猜它挂在谁那儿；现在归到一处，日历页一眼看全。
     """
     today = date.today()
     saved_month = state.get("month")
@@ -1036,19 +1047,40 @@ def build_calendar_page(
                                     weight=ft.FontWeight.BOLD,
                                     color=TITLE_COLOR,
                                 ),
-                                # 右上角进设置页（底部菜单已经不放「我的」入口了）。
-                                ft.Container(
-                                    ink=True,
-                                    tooltip="设置",
-                                    # 22px 的图标太难点，四周补一圈让手指够得着。
-                                    padding=ft.Padding.all(6),
-                                    on_click=lambda _: open_settings(),
-                                    content=ft.Image(
-                                        src=SETTINGS_ICON_SRC,
-                                        width=SETTINGS_ICON_SIZE,
-                                        height=SETTINGS_ICON_SIZE,
-                                        fit=ft.BoxFit.CONTAIN,
-                                    ),
+                                # 右上角两枚入口：数据、设置（底部菜单已经不放
+                                # 「我的」入口了，设置一直在这儿；数据原来挂在待办页
+                                # 的右上角，归拢过来并排摆）。
+                                ft.Row(
+                                    tight=True,
+                                    spacing=TOPBAR_ICON_GAP,
+                                    controls=[
+                                        ft.Container(
+                                            ink=True,
+                                            tooltip="数据",
+                                            # 22px 的图标太难点，四周补一圈让手指够得着。
+                                            padding=ft.Padding.all(6),
+                                            on_click=lambda _: open_data(),
+                                            content=ft.Image(
+                                                src=DATA_ICON_SRC,
+                                                width=DATA_ICON_SIZE,
+                                                height=DATA_ICON_SIZE,
+                                                fit=ft.BoxFit.CONTAIN,
+                                            ),
+                                        ),
+                                        ft.Container(
+                                            ink=True,
+                                            tooltip="设置",
+                                            # 同上：图标小，四周补一圈。
+                                            padding=ft.Padding.all(6),
+                                            on_click=lambda _: open_settings(),
+                                            content=ft.Image(
+                                                src=SETTINGS_ICON_SRC,
+                                                width=SETTINGS_ICON_SIZE,
+                                                height=SETTINGS_ICON_SIZE,
+                                                fit=ft.BoxFit.CONTAIN,
+                                            ),
+                                        ),
+                                    ],
                                 ),
                             ],
                         ),

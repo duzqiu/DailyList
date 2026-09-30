@@ -168,9 +168,7 @@ def build_navigation(page: ft.Page) -> None:
         nav_stack.clear()
         del page.views[1:]
         content.content = (
-            build_home_page(
-                page, set_menu_visible, show_data, page_state("home")
-            )
+            build_home_page(page, set_menu_visible, page_state("home"))
             if index == 0
             else             build_countdown_page(page, set_menu_visible)
             if index == 1
@@ -179,6 +177,7 @@ def build_navigation(page: ft.Page) -> None:
                 set_menu_visible,
                 page_state("calendar"),
                 show_preferences,
+                show_data,
             )
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -202,7 +201,7 @@ def build_navigation(page: ft.Page) -> None:
             page.update()
 
     def show_data(update: bool = True) -> None:
-        """待办页右上角柱状图进来的「数据」页：二级页，进来后底部菜单收起。"""
+        """日历页右上角柱状图进来的「数据」页：二级页，进来后底部菜单收起。"""
         # 记下是从哪一个一级页进来的：退回来时回的也是它（写死 0 的话，从别的页
         # 进来就会被摁回待办页）。
         origin = selected_index
