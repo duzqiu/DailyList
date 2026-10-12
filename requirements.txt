@@ -1,0 +1,10 @@
+# DailyList（每日清单）运行依赖
+# Python >= 3.10
+#
+# 来源：pyproject.toml 的 [project].dependencies
+# 开发工具链（打包 / 桌面与 Web 运行器 / 测试）在 pyproject.toml 的
+# [dependency-groups].dev 里：flet-cli / flet-desktop / flet-web / flet[test]
+
+flet>=1.0.1
+# Flet 1.0 把图表控件拆成了独立包，待办趋势折线图与分类占比饼图依赖它
+flet-charts>=1.0.1
