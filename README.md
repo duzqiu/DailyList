@@ -1,6 +1,6 @@
 # 每日清单（DailyList）
 
-用 [Flet](https://flet.dev/)（Flutter + Python）写的本地**待办 / 倒数日** App：一套代码跑 iOS、Android、桌面和 Web，数据存在本地 SQLite，不需要服务端。界面全中文，配色是白 + 天蓝 + 靛蓝的浅色系。
+用 [Flet](https://flet.dev/)（Flutter + Python）写的本地**待办 / 倒数日** App：一套代码跑 iOS、Android、桌面和 Web，数据存在本地 SQLite，不需要服务端。界面全中文，配色是白 -天蓝 - 靛蓝的浅色系。
 
 ---
 
