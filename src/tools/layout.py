@@ -15,6 +15,10 @@ PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 # assets 目录挂在 App 的根路径下，写成 `assets/icons/xx.png` 反而 404）。详见 README
 # 约定 11；引用时配 `ft.Image(..., width/height/fit=CONTAIN)`，尺寸各页自己定。
 ADD_ICON_SRC = "icons/add.png"
+# 登录 / 注册 / 忘记密码三页的整页背景：`src/assets/images/auth_background.jpg`。
+# 柔和的天蓝 → 淡靛蓝渐变、带一点极淡光斑，低对比度 —— 上面压 70% 白的毛玻璃卡片后
+# 仍读得清字（见 tools/auth_form.py 的 `GLASS_BG`）。
+AUTH_BACKGROUND_SRC = "images/auth_background.jpg"
 DATA_ICON_SRC = "icons/data.png"
 CALENDAR_ICON_SRC = "icons/calendar.png"
 SETTINGS_ICON_SRC = "icons/settings.png"
@@ -220,8 +224,20 @@ def build_back_button(go_back: Callable[[], None]) -> ft.Control:
     )
 
 
-def build_subpage_header(title: str, go_back: Callable[[], None]) -> ft.Row:
-    """二级页顶栏：返回按钮在左，`title` 居中（右侧补等宽占位）。"""
+def build_subpage_header(
+    title: str | None, go_back: Callable[[], None]
+) -> ft.Row:
+    """二级页顶栏：返回按钮在左，`title` 居中（右侧补等宽占位）。
+
+    `title` 传 `None` 就只剩返回按钮 —— 登录 / 注册 / 忘记密码三页走这条：标题已经在
+    卡片上（与页面一一对应，见 tools/auth_form.py 的 `build_card_heading`），顶栏再来
+    一行就重复了。右侧那格占位是为「标题居中」补的，没有标题也就不必留。
+    """
+    if title is None:
+        return ft.Row(
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[build_back_button(go_back)],
+        )
     return ft.Row(
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[

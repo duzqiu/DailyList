@@ -28,7 +28,6 @@ from tools.auth_form import (
     build_card_heading,
     build_code_row,
     build_field_box,
-    build_link_row,
     build_primary_button,
     code_sent_message,
     lock_code_button,
@@ -124,7 +123,6 @@ def build_forgot_password_page(
         ]
     )
 
-    # 只有一个链接：直接返回登录页，不另压一层。
-    links = build_link_row([("想起来了？返回登录", lambda _: go_back())])
-
-    return build_auth_page(page, "忘记密码", go_back, [card, links])
+    # 卡片下面原来还有一条「想起来了？返回登录」：已按需求去掉 —— 「返回登录」在顶栏
+    # 左上角就有（`go_back`），卡片下面再放一条是重复。
+    return build_auth_page(page, go_back, [card])

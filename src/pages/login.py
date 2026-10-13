@@ -137,7 +137,7 @@ def _build_sign_in_form(
     # 「还没有账号？去注册」不跟表单走：交给页面壳的 footer，钉在页面左右居中偏下的位置。
     footer = build_link_row([("还没有账号？去注册", lambda _: open_register())])
 
-    return build_auth_page(page, "登录", go_back, [card], footer=footer)
+    return build_auth_page(page, go_back, [card], footer=footer)
 
 
 # ------------------------------ 已登录：当前用户 ------------------------------
@@ -235,4 +235,4 @@ def _build_signed_in(
     # 进页面就把会员信息拉回来（异步，先显示「加载中…」）。
     page.run_task(load_user)
 
-    return build_auth_page(page, "账号", go_back, [card, links])
+    return build_auth_page(page, go_back, [card, links])

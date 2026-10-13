@@ -116,7 +116,7 @@ def build_register_page(
     card = build_auth_card(
         [
             # 注册页不带头像：头像那张图是「我的」入口的标识，留给登录页。
-            build_card_heading("创建账号"),
+            build_card_heading("注册"),
             build_field_box(email_field),
             code_row,
             build_field_box(password_field),
@@ -128,4 +128,4 @@ def build_register_page(
     # 只有一个链接：直接返回登录页，不另压一层。
     links = build_link_row([("已有账号？去登录", lambda _: go_back())])
 
-    return build_auth_page(page, "注册", go_back, [card, links])
+    return build_auth_page(page, go_back, [card, links])
