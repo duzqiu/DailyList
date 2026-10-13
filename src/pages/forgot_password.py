@@ -23,7 +23,7 @@ from tools.auth_form import (
     build_field_box,
     build_link_row,
     build_primary_button,
-    mark_code_sent,
+    start_code_countdown,
 )
 from tools.toast import build_toast
 
@@ -43,11 +43,11 @@ def build_forgot_password_page(
     confirm_field = build_auth_field("请再次输入新密码", password=True)
 
     def send_code(_: ft.Event[ft.Control]) -> None:
-        """收到账号后发验证码：校验账号 → 换按钮文案 → 提示一句（不真的发）。"""
+        """收到账号后发验证码：校验账号 → 起 60 秒倒计时 → 提示一句（不真的发）。"""
         if not (account_field.value or "").strip():
             notify("请先输入用户名或邮箱")
             return
-        mark_code_sent(send_button)
+        start_code_countdown(page, send_button)
         notify("验证码已发送（演示）")
 
     # 验证码那一行（输入框 + 获取验证码）由 auth_form 给，和注册页同一个长相。

@@ -3,8 +3,8 @@
 字段是邮箱 / 邮箱验证码（右边一枚「获取验证码」）/ 密码 / 确认密码 —— 和忘记密码页
 同一套（那边是账号 / 验证码 / 新密码 / 确认新密码），两页看起来是一回事。点「注册」
 只做「非空 + 邮箱含 @ + 两次密码一致」的校验，通过就 toast 一句 —— 没有写库、没有发
-邮件，所以这一页同样**没有任何 db 调用**；「获取验证码」也只是把按钮文案换成
-「重新发送」+ 提示一句，让人看出点过了。
+邮件，所以这一页同样**没有任何 db 调用**；「获取验证码」点过之后按钮会锁 60 秒、
+每秒报一次剩余时间，归零才能再点（也不真的发）。
 
 卡片下面那行「已有账号？去登录」直接 `go_back()`，回到进来时的登录页（返回走的是
 和别的页同一套 `nav_stack + page.views`，所以顶栏「‹ 返回」、整页左滑、真机返回键
@@ -27,7 +27,7 @@ from tools.auth_form import (
     build_field_box,
     build_link_row,
     build_primary_button,
-    mark_code_sent,
+    start_code_countdown,
 )
 from tools.toast import build_toast
 
@@ -51,11 +51,11 @@ def build_register_page(
         return "@" in (email_field.value or "")
 
     def send_code(_: ft.Event[ft.Control]) -> None:
-        """收到邮箱后发验证码：校验邮箱 → 换按钮文案 → 提示一句（不真的发）。"""
+        """收到邮箱后发验证码：校验邮箱 → 起 60 秒倒计时 → 提示一句（不真的发）。"""
         if not email_filled():
             notify("请先输入正确的邮箱")
             return
-        mark_code_sent(send_button)
+        start_code_countdown(page, send_button)
         notify("邮箱验证码已发送（演示）")
 
     # 验证码那一行（输入框 + 获取验证码）由 auth_form 给，和忘记密码页同一个长相。

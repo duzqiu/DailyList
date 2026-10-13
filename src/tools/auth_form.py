@@ -17,6 +17,7 @@
 深蓝（这个底色够浅，按 `readable_ink` 的判断本来就该配深字）。
 """
 
+import asyncio
 from collections.abc import Callable
 
 import flet as ft
@@ -62,9 +63,13 @@ CARD_RADIUS = 12
 # 比例给得比较小（约等于从顶部 13% 处起），表单整体落在中上偏上的位置。
 FORM_TOP_RATIO = 0.13
 FORM_TOP_MIN = 96.0
-# 「获取验证码」那枚小按钮的两种文案：第一次点过之后换成第二种（见 mark_code_sent）。
+# 「获取验证码」那枚小按钮的三种文案：初始 → 倒计时中（`{n}` 是剩余秒数）→ 可重发。
 CODE_SEND_LABEL = "获取验证码"
 CODE_RESEND_LABEL = "重新发送"
+# 刻意和「获取验证码」差不多长（都是 5-6 个字），倒计时开始 / 结束时按钮不会跳宽。
+CODE_COUNTDOWN_LABEL = "{n}s 后重发"
+# 点一次锁多少秒：期间点了不响应，归零后恢复（见 start_code_countdown）。
+CODE_COUNTDOWN_SECONDS = 60
 
 
 def build_auth_field(hint: str, password: bool = False) -> ft.TextField:
@@ -123,10 +128,20 @@ def build_code_row(
 ) -> tuple[ft.Control, ft.Control]:
     """验证码那一行：输入框占满剩余宽度，右边跟上「获取验证码」。
 
-    返回 `(整行, 那枚按钮)` —— 按钮要留个引用，发送后换文案用（见 `mark_code_sent`）。
+    返回 `(整行, 那枚按钮)` —— 按钮要留个引用，倒计时由 `start_code_countdown` 跑。
     注册页（邮箱验证码）和忘记密码页都用这一行，样式与行为保持一致。
+
+    这枚按钮是 `Container` 画的（不是 Button），没有真的「不可点」状态：倒计时期间
+    拿 `button.data` 当锁，点了直接不理 —— 文案里已经在报剩余秒数，看得出来。
     """
-    button = build_link(CODE_SEND_LABEL, on_send)
+
+    def guarded(event: ft.Event[ft.Control]) -> None:
+        if button.data:
+            return
+        on_send(event)
+
+    button = build_link(CODE_SEND_LABEL, guarded)
+    button.data = False  # False = 没在倒计时，可以点
     row = ft.Row(
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
@@ -137,18 +152,45 @@ def build_code_row(
     return row, button
 
 
-def mark_code_sent(button: ft.Control) -> None:
-    """把「获取验证码」换成「重新发送」：点过一次的痕迹。
+def _set_code_label(button: ft.Control, label: str, color: str) -> bool:
+    """给按钮换文案 / 换字色并推给客户端；控件已经不在树上时返回 False。
 
-    没有倒计时（本来也没真的发），所以不置灰也不用等；再点一次只是重复这一句。
-    控件这时挂在页面上，正常能更；热重载把它卸下来了就当无事发生（和
-    tools/layout.py 的 anchor_dialog_above_keyboard 一个处理）。
+    倒计时期间把字调浅一档（`HINT_COLOR`），和「可以点」那档灰分开。控件被卸下之后
+    `update()` 会抛 RuntimeError —— 页面还在时不会，用户退回上一页才会，这时当成
+    「页面没了」收手就行（和 tools/layout.py 的 anchor_dialog_above_keyboard
+    一个处理）。
     """
-    button.content.value = CODE_RESEND_LABEL
+    button.content.value = label
+    button.content.color = color
     try:
         button.update()
     except RuntimeError:
-        pass
+        return False
+    return True
+
+
+async def _countdown_code(button: ft.Control) -> None:
+    """倒计时本体：写下剩余秒数 → 睡一秒 → 减一，归零后恢复成「重新发送」。"""
+    for remaining in range(CODE_COUNTDOWN_SECONDS, 0, -1):
+        if not _set_code_label(
+            button, CODE_COUNTDOWN_LABEL.format(n=remaining), HINT_COLOR
+        ):
+            button.data = False
+            return
+        await asyncio.sleep(1)
+    _set_code_label(button, CODE_RESEND_LABEL, MUTED_COLOR)
+    button.data = False
+
+
+def start_code_countdown(page: ft.Page, button: ft.Control) -> None:
+    """点过「获取验证码」之后：按钮锁 60 秒、每秒把剩余秒数写上去，归零才恢复可点。
+
+    锁记在 `button.data` 上（点击时由 `build_code_row` 里那层守卫读它）。倒计时用
+    `page.run_task` + `asyncio.sleep(1)` 跑 —— Flet 里跑后台循环的标准做法（设置页
+    的「检查新版本」也是这么发的），不会卡住 UI。
+    """
+    button.data = True
+    page.run_task(_countdown_code, button)
 
 
 def build_primary_button(
