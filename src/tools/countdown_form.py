@@ -1,16 +1,22 @@
 """The 新增/编辑倒数日 dialog, shared by the 倒数日 and 日历 pages.
 
-弹窗里不摆颜色：新增时从 `CARD_COLORS` 那套浅色里**随机**取一个当卡片底色，编辑时
-沿用这条倒数日原来的颜色（见 `open_countdown_form`）。
+弹窗里不摆颜色：卡片底色由 tools/countdown_store.py 按倒数日的 **id** 稳定取一档浅色
+（后端没有颜色字段）。保存走的是后端接口（`/member/countdowns`，见
+api/member_countdowns.py），所以要登录 —— 没登录时点「保存」会给一句提示、弹窗不关。
+
+周期只提供后端支持的那几档（`SUPPORTED_CYCLES`）：后端 `CountdownCycle` 目前只有
+once / daily / weekly / monthly / yearly，App 另外那 5 档（三天 / 工作日 / 非工作日 /
+三月 / 六月）还没有对应取值，选了也存不进去。
 """
 
-import random
 from collections.abc import Callable
 from datetime import date
 
 import flet as ft
 
-from tools import db
+from api.client import ApiError
+from api.member_countdowns import DEFAULT_CYCLE, SUPPORTED_CYCLES
+from tools import countdown_store
 from tools.layout import (
     DIALOG_RADIUS,
     DIALOG_SURFACE,
@@ -25,44 +31,26 @@ from tools.popup_select import (
     build_option_selector,
     build_option_text,
 )
+from tools.toast import build_toast
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
-# The card's own background is picked when the countdown is added; every choice
-# is a pale tint so the card's dark ink stays readable on it.
-CARD_COLORS = (
-    ("冰浅蓝", "#E0F2FE"),
-    ("浅天蓝", "#BAE6FD"),
-    ("莫兰迪灰蓝", "#D1DCE8"),
-    ("青调浅灰蓝", "#C9D7E0"),
-    ("柔和浅紫", "#DDD6FE"),
-    ("奶薄荷浅绿", "#ECFDF5"),
-    ("柔和浅青绿", "#D1FAE5"),
-    ("莫兰迪浅绿", "#E6F4EA"),
-    ("极浅灰粉", "#FDF2F8"),
-    ("莫兰迪裸粉", "#F4E7E9"),
-    ("奶油杏", "#FFF7ED"),
-    ("莫兰迪奶咖", "#F5EBE0"),
-    ("页面底色灰", "#F8FAFC"),
-    ("边框浅灰", "#E2E8F0"),
-)
+
+
 def open_countdown_form(
     page: ft.Page,
     *,
     set_menu_visible: Callable[[bool], None],
     on_saved: Callable[[], None],
-    item: db.Countdown | None = None,
+    item: countdown_store.Countdown | None = None,
 ) -> None:
     """Show the 新增/编辑倒数日 dialog. `item` present means editing."""
     editing = item is not None
     today = date.today()
     start_day = item.due_date if editing else today
-    # 新增的倒数日不让用户挑颜色：从原来那套浅色里**随机**取一个当卡片底色；编辑时
-    # 沿用这条倒数日原来的颜色，不动。
-    start_color = item.bgcolor if editing else random.choice(CARD_COLORS)[1]
-    draft = {"date": start_day, "bgcolor": start_color}
+    draft = {"date": start_day}
     cycle_text = build_option_text(
-        item.cycle if editing else db.DEFAULT_CYCLE
+        item.cycle if editing else DEFAULT_CYCLE
     )
 
     date_text = build_option_text(date_label(start_day))
@@ -87,9 +75,10 @@ def open_countdown_form(
 
     cycle_selector = build_option_selector(
         cycle_text,
-        [(name, name) for name in db.REPEAT_CYCLES],
+        # 只列后端 `CountdownCycle` 认得的这几档（待办那边仍是完整的十档）。
+        [(name, name) for name in SUPPORTED_CYCLES],
         set_cycle,
-        # 周期有十档：面板钉成固定高度，多出来的在里面上下滚。
+        # 面板钉成固定高度：档位再多也不用改这里，多出来的在里面上下滚。
         menu_height=MENU_HEIGHT,
         content_width=90,
     )
@@ -123,24 +112,37 @@ def open_countdown_form(
         set_menu_visible(True)
         page.update()
 
+    def notify(message: str) -> None:
+        """一句话提示：走 tools/toast.py，浮在屏幕正中（弹窗开着也看得见）。"""
+        page.show_dialog(build_toast(page, message))
+
+    async def do_save(text: str) -> None:
+        """带请求的那半：走倒数日仓库（内部调 `/member/countdowns`）。"""
+        try:
+            if editing and item is not None:
+                await countdown_store.update(
+                    item.id, draft["date"], text, cycle_text.value
+                )
+            else:
+                await countdown_store.create(
+                    draft["date"], text, cycle_text.value
+                )
+        except ApiError as error:
+            # 没存成（令牌失效、网络异常、后端校验…）：弹窗留着，人改完再存一次。
+            notify(error.message)
+            return
+        close_dialog()
+        on_saved()
+
     def save(_: ft.Event[ft.Control]) -> None:
+        """「保存」：先判空与登录态，请求丢给 `page.run_task`（别卡住事件循环）。"""
         text = (content_field.value or "").strip()
         if not text:
             return
-        if editing and item is not None:
-            db.update_countdown(
-                item.id,
-                draft["date"],
-                text,
-                cycle_text.value,
-                draft["bgcolor"],
-            )
-        else:
-            db.add_countdown(
-                draft["date"], text, cycle_text.value, draft["bgcolor"]
-            )
-        close_dialog()
-        on_saved()
+        if not countdown_store.logged_in():
+            notify("请先登录后再保存倒数日")
+            return
+        page.run_task(do_save, text)
 
     dialog = ft.AlertDialog(
         modal=True,

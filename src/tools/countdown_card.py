@@ -21,7 +21,7 @@ from typing import Any
 
 import flet as ft
 
-from tools import db
+from tools import countdown_store, db
 from tools.categories import category_color
 from tools.layout import CALENDAR_ICON_SRC, date_label, readable_ink
 from tools.lunar import lunar_label
@@ -83,7 +83,7 @@ EXPIRED_HIDE_AFTER_DAYS = 1
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 
-def countdown_days(item: db.Countdown, today: date | None = None) -> int:
+def countdown_days(item: countdown_store.Countdown, today: date | None = None) -> int:
     """Days left until the next occurrence; negative once a fixed day passed."""
     return (
         db.next_occurrence(item.due_date, item.cycle, today or date.today())
@@ -100,7 +100,7 @@ def countdown_color(days: int) -> str:
     return FUTURE_COLOR
 
 
-def countdown_visible(item: db.Countdown, today: date | None = None) -> bool:
+def countdown_visible(item: countdown_store.Countdown, today: date | None = None) -> bool:
     """不循环的倒数日一过到期日就收进「已过期」；循环的永远等下一次。"""
     if item.cycle in db.REPEAT_CYCLES and item.cycle != db.DEFAULT_CYCLE:
         return True
@@ -108,27 +108,27 @@ def countdown_visible(item: db.Countdown, today: date | None = None) -> bool:
 
 
 def visible_countdowns(
-    items: list[db.Countdown], today: date | None = None
-) -> list[db.Countdown]:
+    items: list[countdown_store.Countdown], today: date | None = None
+) -> list[countdown_store.Countdown]:
     """筛掉已经过期的倒数日；页面列表和日历都先用它过一遍。"""
     today = today or date.today()
     return [item for item in items if countdown_visible(item, today)]
 
 
-def countdown_expired(item: db.Countdown, today: date | None = None) -> bool:
+def countdown_expired(item: countdown_store.Countdown, today: date | None = None) -> bool:
     """这张卡是不是已经过期了（不循环的那种过了到期日就算）。"""
     return not countdown_visible(item, today)
 
 
 def expired_countdowns(
-    items: list[db.Countdown], today: date | None = None
-) -> list[db.Countdown]:
+    items: list[countdown_store.Countdown], today: date | None = None
+) -> list[countdown_store.Countdown]:
     """`visible_countdowns` 筛掉的那一半：倒数日页底部「已过期的倒数日」用它们。"""
     today = today or date.today()
     return [item for item in items if countdown_expired(item, today)]
 
 
-def countdown_date_lunar(item: db.Countdown) -> str:
+def countdown_date_lunar(item: countdown_store.Countdown) -> str:
     """「2026年10月1日 · 八月廿一」- anchor date with its lunar day."""
     return " · ".join(
         part
@@ -140,12 +140,12 @@ def countdown_date_lunar(item: db.Countdown) -> str:
     )
 
 
-def countdown_expired_label(item: db.Countdown, today: date | None = None) -> str:
+def countdown_expired_label(item: countdown_store.Countdown, today: date | None = None) -> str:
     """「已过期 3 天」- 过期卡片下段的日期那一行。"""
     return f"已过期 {-countdown_days(item, today)} 天"
 
 
-def countdown_weekday(item: db.Countdown) -> str:
+def countdown_weekday(item: countdown_store.Countdown) -> str:
     """「-周四-」- the weekday sits above the date, boxed in dashes."""
     return f"-{WEEKDAYS[item.due_date.weekday()]}-"
 
@@ -265,7 +265,7 @@ def dotted_rule() -> ft.Control:
 
 
 def build_countdown_card(
-    item: db.Countdown,
+    item: countdown_store.Countdown,
     *,
     today: date | None = None,
     expired: bool = False,
@@ -396,10 +396,10 @@ def build_countdown_card(
     )
 
 
-def countdowns_on(day: date, items: list[db.Countdown] | None = None) -> list[db.Countdown]:
+def countdowns_on(day: date, items: list[countdown_store.Countdown] | None = None) -> list[countdown_store.Countdown]:
     """The 倒数日 whose next occurrence lands on `day` - one row per day."""
     return [
         item
-        for item in (items if items is not None else db.list_countdowns())
+        for item in (items if items is not None else countdown_store.items())
         if db.next_occurrence(item.due_date, item.cycle, day) == day
     ]

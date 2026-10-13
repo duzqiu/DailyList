@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Callable
 from datetime import date, timedelta
 
@@ -6,13 +5,11 @@ import flet as ft
 
 from tools import db
 from tools.categories import CATEGORIES
-from tools.countdown_form import open_countdown_form
 from tools.layout import (
     ADD_ICON_SRC,
     BOTTOM_MENU_INSET,
     CALENDAR_ICON_SRC,
     page_gradient,
-    text_width,
 )
 from tools.todo_form import open_todo_form
 from tools.todo_timeline import build_todo_row, sorted_todos
@@ -25,45 +22,6 @@ from tools.todo_timeline import build_todo_row, sorted_todos
 # A round tile, lifted clear of the floating menu bar.
 ADD_BUTTON_SIZE = 52
 ADD_BUTTON_LIFT = 10
-# 「+」不直接开新增待办：先弹一块毛玻璃小面板，里面是「新增待办 / 新增倒数日」
-# 两条入口，选完才开对应的弹窗。面板右下角对齐按钮、缩放原点也放在那一角
-# （`CHOOSE_ANCHOR`），看起来就是从这个按钮里长出来的。
-CHOOSE_PANEL_GAP = 10
-CHOOSE_PANEL_RADIUS = 16
-# 奶白毛玻璃：半透明白 + Blur 20，**面板自己带一条亮边**，压在列表上时才看得出边界。
-# （别再写成「和「+」按钮同一套做法」—— 那颗按钮现在没有底色了，见文件头。）
-CHOOSE_PANEL_BG = "#B3FFFFFF"
-CHOOSE_PANEL_BORDER = "#99FFFFFF"
-CHOOSE_PANEL_PADDING = ft.Padding.symmetric(horizontal=6, vertical=6)
-CHOOSE_OPTION_HEIGHT = 34
-CHOOSE_OPTION_RADIUS = 10
-CHOOSE_OPTION_PADDING = ft.Padding.symmetric(horizontal=10)
-CHOOSE_OPTION_GAP = 2
-CHOOSE_ICON_SIZE = 18
-CHOOSE_ICON_GAP = 8
-CHOOSE_TEXT_SIZE = 13
-CHOOSE_TEXT_COLOR = "#172554"
-# 面板宽度按最长的一条入口量出来，免得「新增倒数日」贴着面板右边缘。
-CHOOSE_LABELS = ("新增待办", "新增倒数日")
-CHOOSE_PANEL_WIDTH = (
-    CHOOSE_PANEL_PADDING.left
-    + CHOOSE_OPTION_PADDING.left
-    + CHOOSE_ICON_SIZE
-    + CHOOSE_ICON_GAP
-    + max(text_width(label, CHOOSE_TEXT_SIZE) for label in CHOOSE_LABELS)
-    + CHOOSE_OPTION_PADDING.right
-    + CHOOSE_PANEL_PADDING.right
-)
-# 展开 / 收起：面板那层玻璃只淡入淡出，**两条入口是「弹」出来的** —— 各自从按钮
-# 那一角由小撑到原大（`EASE_OUT_BACK` 带一点过冲，像弹出菜单那样顿一下），第二条
-# 比第一条晚 CHOOSE_STAGGER_MS 起步，所以看着是一条一条弹出来的。收起就是回到起
-# 点（不做错峰，一下收掉才跟手）。
-CHOOSE_GROW_MS = 220
-CHOOSE_FADE_MS = 160
-CHOOSE_STAGGER_MS = 70
-CHOOSE_START_SCALE = 0
-CHOOSE_ANCHOR = ft.Alignment.BOTTOM_RIGHT
-CHOOSE_POP_CURVE = ft.AnimationCurve.EASE_OUT_BACK
 # 右下角那颗圆按钮上的图标：assets 里的一张图（`src/assets/icons/add.png`）。点之前、
 # 点之后都是它，不换也不转（试过「转一圈变 ×」，旋转量和图标尺寸都调不准，索性去掉）。
 # `ft.IconButton.icon` 允许直接给一个控件（Flet 1.0 的类型是 `IconData | Control`），
@@ -498,17 +456,6 @@ def build_home_page(
             default_date=max(dates[selected_index], date.today()),
         )
 
-    def open_add_countdown() -> None:
-        """「+」面板的第二条：新增倒数日。
-
-        倒数日不在待办页上展示，所以存完不用重排列表。
-        """
-        open_countdown_form(
-            page,
-            set_menu_visible=set_bottom_controls_visible,
-            on_saved=lambda: None,
-        )
-
     def edit_todo(todo_id: int) -> None:
         todo = db.get_todo(todo_id)
         if todo is None:
@@ -545,18 +492,18 @@ def build_home_page(
     )
 
     add_icon_button = ft.IconButton(
-        # 就是这一张图（见 ADD_ICON_SIZE 那段注释）：新增入口本身不用再解释，
-        # 面板里那两条才分工。开着、关着都是它，不换图标也不转。
+        # 就是这一张图（见 ADD_ICON_SIZE 那段注释）：这一页只剩「新增待办」一件事，
+        # 不用再解释，也不换图标（换页也不转）。
         icon=ft.Image(
             src=ADD_ICON_SRC,
             width=ADD_ICON_SIZE,
             height=ADD_ICON_SIZE,
             fit=ft.BoxFit.CONTAIN,
         ),
-        tooltip="新增待办 / 倒数日",
+        tooltip="新增待办",
         style=ft.ButtonStyle(shape=ft.CircleBorder()),
-        # 点一下弹入口；再点一下（或点空白处）收回去。
-        on_click=lambda _: toggle_choose(),
+        # 直接开新增待办弹窗 —— 新增倒数日不在这儿了，挪到倒数日页右下角那枚「+」。
+        on_click=lambda _: open_add_todo(),
     )
 
     add_button = ft.Container(
@@ -574,142 +521,11 @@ def build_home_page(
         content=add_icon_button,
     )
 
-    choose_open = False
-    # 面板开着时铺满页面的遮罩：点空白处收面板。1/255 的不透明度是为了让这块空白
-    # 也吃得到点击 —— 完全透明（或不填色）的 Container 收不到。
-    scrim = ft.Container(
-        expand=True,
-        bgcolor="#01000000",
-        visible=False,
-        on_click=lambda _: close_choose(),
-    )
-
-    def choose_option(
-        label: str, icon: str, open_form: Callable[[], None]
-    ) -> ft.Container:
-        """面板上的一条入口：图标 + 文案，点一下先收面板再开弹窗。
-
-        收起时是「缩到按钮那一角 + 全透明」，展开时由 `pop_options` 把它弹回来。
-        控件一直留在树上，缩放和淡入才有起点可插值（就是「从按钮里弹出来」的动
-        效）；缩到 0 之后既看不见也不吃点击，所以不必再用 `visible` 开关它。
-        """
-        return ft.Container(
-            height=CHOOSE_OPTION_HEIGHT,
-            border_radius=ft.BorderRadius.all(CHOOSE_OPTION_RADIUS),
-            padding=CHOOSE_OPTION_PADDING,
-            ink=True,
-            on_click=lambda _: start_add(open_form),
-            scale=ft.Scale(CHOOSE_START_SCALE, alignment=CHOOSE_ANCHOR),
-            opacity=0,
-            animate_scale=ft.Animation(CHOOSE_GROW_MS, CHOOSE_POP_CURVE),
-            animate_opacity=ft.Animation(
-                CHOOSE_FADE_MS, ft.AnimationCurve.EASE_OUT
-            ),
-            content=ft.Row(
-                tight=True,
-                spacing=CHOOSE_ICON_GAP,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(
-                        icon, size=CHOOSE_ICON_SIZE, color=CHOOSE_TEXT_COLOR
-                    ),
-                    ft.Text(
-                        label, size=CHOOSE_TEXT_SIZE, color=CHOOSE_TEXT_COLOR
-                    ),
-                ],
-            ),
-        )
-
-    def start_add(open_form: Callable[[], None]) -> None:
-        """选好一条：先收面板，紧接着开对应的新增弹窗。"""
-        close_choose()
-        open_form()
-
-    # 两条入口：要一条一条弹出来（见 pop_options），所以先留一份引用。
-    choose_options = [
-        choose_option("新增待办", ft.Icons.EDIT_NOTE, open_add_todo),
-        choose_option(
-            "新增倒数日", ft.Icons.HOURGLASS_BOTTOM, open_add_countdown
-        ),
-    ]
-    choose_options_column = ft.Column(
-        tight=True,
-        spacing=CHOOSE_OPTION_GAP,
-        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-        controls=choose_options,
-    )
-
-    choose_panel = ft.Container(
-        right=24,
-        # 面板落在按钮正上方，中间留 `CHOOSE_PANEL_GAP` 的缝。
-        bottom=(
-            BOTTOM_MENU_INSET
-            + ADD_BUTTON_LIFT
-            + ADD_BUTTON_SIZE
-            + CHOOSE_PANEL_GAP
-        ),
-        width=CHOOSE_PANEL_WIDTH,
-        padding=CHOOSE_PANEL_PADDING,
-        border_radius=ft.BorderRadius.all(CHOOSE_PANEL_RADIUS),
-        bgcolor=CHOOSE_PANEL_BG,
-        blur=ft.Blur(20, 20, ft.BlurTileMode.CLAMP),
-        border=ft.Border.all(1, CHOOSE_PANEL_BORDER),
-        # 这一层是玻璃底：只淡入淡出（两条入口自己弹，见 pop_options）。控件一直
-        # 留在树上，淡入才有起点可插值。
-        opacity=0,
-        animate_opacity=ft.Animation(CHOOSE_FADE_MS, ft.AnimationCurve.EASE_OUT),
-        content=choose_options_column,
-    )
-
-    async def pop_options(open_panel: bool) -> None:
-        """把两条入口一条一条弹出来（收起时一起收回）。
-
-        第二条晚 CHOOSE_STAGGER_MS 起步，所以点「+」看到的是「先弹出新增待办、接
-        着弹出新增倒数日」，而不是一整块面板同时现形。收起不必错峰 —— 一下收掉才
-        跟手。
-        """
-        for order, option in enumerate(
-            choose_options if open_panel else reversed(choose_options)
-        ):
-            if open_panel and order:
-                await asyncio.sleep(CHOOSE_STAGGER_MS / 1000)
-            option.scale = ft.Scale(
-                1 if open_panel else CHOOSE_START_SCALE,
-                alignment=CHOOSE_ANCHOR,
-            )
-            option.opacity = 1 if open_panel else 0
-            page.update()
-
-    def set_panel_open(open_panel: bool) -> bool:
-        """开 / 收面板本身：玻璃底淡入淡出，两条入口从按钮那一角依次弹出。
-
-        返回「状态真的变了」—— 没变就说明面板本来就是收着的，不必白刷一遍
-        （`set_bottom_controls_visible` 每次弹窗都会叫一次收）。
-        """
-        nonlocal choose_open
-        if open_panel == choose_open:
-            return False
-        choose_open = open_panel
-        scrim.visible = open_panel
-        choose_panel.opacity = 1 if open_panel else 0
-        page.update()
-        page.run_task(pop_options, open_panel)
-        return True
-
-    def close_choose() -> None:
-        """收：把入口和遮罩收掉（面板本来就是关的就不做什么）。"""
-        set_panel_open(False)
-
-    def toggle_choose() -> None:
-        """「+」被点：开着就收，关着就弹。按钮自己不变样。"""
-        set_panel_open(not choose_open)
-
     def set_bottom_controls_visible(visible: bool) -> None:
+        """弹窗（输入框弹键盘）时，底部菜单和这枚「+」一起退场。"""
         set_menu_visible(visible)
         add_button.visible = visible
         add_button.update()
-        # 弹窗（输入框弹键盘）时，「+」上的小面板也跟着退场。
-        close_choose()
 
     return ft.Stack(
         expand=True,
@@ -784,9 +600,6 @@ def build_home_page(
                     ),
                 ),
             ),
-            # 遮罩压在按钮底下、面板底下：点空白处收面板，但不挡「+」自己。
-            scrim,
             add_button,
-            choose_panel,
         ],
     )

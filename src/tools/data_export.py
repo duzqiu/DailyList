@@ -11,7 +11,7 @@ Flet 那边只管把一串字节交出去（`FilePicker.save_file` 的 `src_byte
 import json
 from datetime import datetime
 
-from tools import db
+from tools import countdown_store, db
 
 # 文件里写明的格式标记：以后要加 CSV、或改结构，靠这两个字段分辨是什么、哪一版。
 EXPORT_FORMAT = "json"
@@ -56,7 +56,7 @@ def build_payload(now: datetime | None = None) -> dict:
                 "content": item.content,
                 "bgcolor": item.bgcolor,
             }
-            for item in db.list_countdowns()
+            for item in countdown_store.items()
         ],
         "settings": db.list_settings(),
     }

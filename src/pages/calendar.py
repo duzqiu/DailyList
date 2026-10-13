@@ -13,7 +13,8 @@ from datetime import date, datetime
 
 import flet as ft
 
-from tools import db
+from api.client import ApiError
+from tools import countdown_store, db
 from tools.categories import category_color
 from tools.countdown_card import (
     ACCENT_COLOR as COUNTDOWN_COLOR,
@@ -32,16 +33,17 @@ from tools.layout import (
     DATE_SELECTED_BG,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
-    PERSON_ICON_SRC,
     SETTINGS_ICON_SRC,
     TODO_TEXT_SIZE,
     TODO_TIME_SIZE,
     dialog_button_style,
+    is_attached,
     page_gradient,
     text_width,
 )
 from tools.lunar import lunar_label
 from tools.pickers import local_day
+from tools.toast import build_toast
 from tools.todo_timeline import (
     SPINE_MIN_HEIGHT,
     build_todo_timeline,
@@ -72,16 +74,13 @@ DONE_MARK_SIZE = 14
 # 另起一套。
 OVERDUE_MARK_COLOR = "#DC2626"
 # 右上角进「数据」页用的图标（`DATA_ICON_SRC`，就是原来待在待办页右上角那枚柱状图）：
-# 现在和设置、登录并排摆在日历页右上角，顺序是**数据、设置、登录**。尺寸跟设置那枚一致。
+# 现在和设置并排摆在日历页右上角，顺序是**数据、设置**。尺寸跟设置那枚一致。
 DATA_ICON_SIZE = 22
 # 右上角进设置页用的图标：不是内置图标的齿轮，而是「三方图标」里的一张图
 # （`SETTINGS_ICON_SRC`，在 tools/layout.py 里统一给出路径）。原图 256×256，缩到 22
 # （和原来那枚齿轮一样大），正方形里居中、不拉伸。
 SETTINGS_ICON_SIZE = 22
-# 右上角进「登录」页用的图标（`PERSON_ICON_SRC`，icons/person.png）：三枚里最右那枚，
-# 尺寸和上面两枚一致。底部菜单撤掉「我的」之后，登录就落在这儿。
-PERSON_ICON_SIZE = 22
-# 三枚入口之间不留间距：各自那圈 6px 的点击留白挨在一起，看着就是 12px。
+# 两枚入口之间不留间距：各自那圈 6px 的点击留白挨在一起，看着就是 12px。
 TOPBAR_ICON_GAP = 0
 # 当天弹窗里空态那枚图（「这天没有待办事项」）：和待办页的空态、底部菜单同一张。
 EMPTY_HINT_ICON_SIZE = 20
@@ -308,17 +307,15 @@ def build_calendar_page(
     state: dict[str, object],
     open_settings: Callable[[], None],
     open_data: Callable[[], None],
-    open_login: Callable[[], None],
 ) -> ft.Control:
     """日历页。`state` 由调用方保管（见 pages/navigation.py）：翻到哪个月、
     选中了哪一天要能跨 Tab 留住，切走再回来不会被拉回今天。控件本身照旧每次
     重建，所以上面的待办还是现从 db 读的。
 
-    右上角并排三枚入口：**数据、设置、登录**（`open_data` / `open_settings` /
-    `open_login`）。数据那枚原来挂在待办页的右上角 —— 两个入口分在两张一级页上，
-    想找哪一个都得先猜它挂在谁那儿；现在归到一处，日历页一眼看全。登录那枚是最右
-    一枚，补的是底部菜单撤掉「我的」之后空出来的位置（页面见 pages/login.py，
-    目前是 Demo，没有接鉴权）。
+    右上角并排两枚入口：**数据、设置**（`open_data` / `open_settings`）。数据那枚
+    原来挂在待办页的右上角 —— 两个入口分在两张一级页上，想找哪一个都得先猜它挂在
+    谁那儿；现在归到一处，日历页一眼看全。登录页的入口不在这儿了：挪到设置页的
+    「账号」卡片里（见 pages/preferences.py）。
     """
     today = date.today()
     saved_month = state.get("month")
@@ -368,11 +365,26 @@ def build_calendar_page(
             todo=todo,
         )
 
-    def remove_countdown(item: db.Countdown, refresh: Callable[[], None]) -> None:
-        db.delete_countdown(item.id)
+    async def do_remove_countdown(
+        countdown_id: int, refresh: Callable[[], None]
+    ) -> None:
+        """真删在后端（`DELETE /member/countdowns/{id}`），删完再刷新这一格。"""
+        try:
+            await countdown_store.remove(countdown_id)
+        except ApiError as error:
+            page.show_dialog(build_toast(page, error.message))
+            return
         refresh()
 
-    def edit_countdown(item: db.Countdown, refresh: Callable[[], None]) -> None:
+    def remove_countdown(
+        item: countdown_store.Countdown, refresh: Callable[[], None]
+    ) -> None:
+        """左滑删除：请求丢给 `page.run_task`（别卡住事件循环）。"""
+        page.run_task(do_remove_countdown, item.id, refresh)
+
+    def edit_countdown(
+        item: countdown_store.Countdown, refresh: Callable[[], None]
+    ) -> None:
         open_countdown_form(
             page,
             set_menu_visible=set_menu_visible,
@@ -459,7 +471,7 @@ def build_calendar_page(
         # 已经过期的倒数日也照常列出来：卡片整张置灰（见 countdown_card.py）。
         countdowns = countdowns_on(day)
 
-        def countdown_card(item: db.Countdown) -> ft.Control:
+        def countdown_card(item: countdown_store.Countdown) -> ft.Control:
             """当天这一条倒数日的卡片。
 
             天数一律按「所看那天 − 今天」给：正数还有几天、负数已经过了几天、0 就
@@ -904,6 +916,12 @@ def build_calendar_page(
         )
 
     def update_calendar() -> None:
+        """重画整月网格（翻月、增删改之后都来一次）。
+
+        会被**异步回调**调到（左滑删除、弹窗保存后刷新），那时这一页可能已经被换掉了
+        （切走就重建）：内容照常备好，但脱了页面就不再刷屏 —— 否则 `update()` 会抛
+        「Control must be added to the page first」。
+        """
         nonlocal selected_day
         if (
             selected_day.month != visible_month.month
@@ -913,6 +931,8 @@ def build_calendar_page(
         remember()
         month_view.content = build_month_view()
         month_title.value = f"{visible_month.year}年{visible_month.month}月"
+        if not is_attached(month_title):
+            return
         month_title.update()
         month_view.update()
 
@@ -1027,6 +1047,26 @@ def build_calendar_page(
 
     month_view.content = build_month_view()
 
+    async def load_countdowns() -> None:
+        """进日历页顺手拉一次倒数日（格子的圆点、当天弹窗都要用）。
+
+        失败就静默：这一页的主体是待办，倒数日拉不到不该弹一堆提示 —— 要提示是倒数日
+        页那边的事（那一页的主体就是它）。拉到了重画整月网格，圆点跟着刷新。
+
+        但拉回来时这一页可能已经被换掉了（切走就重建），而 `update_calendar` 会刷一批
+        控件 —— 先问一句还在不在页面上，不在就只留缓存、不碰界面。
+        """
+        try:
+            await countdown_store.reload()
+        except ApiError:
+            return
+        if not is_attached(month_title):
+            return
+        update_calendar()
+
+    # 倒数日现在来自后端：先按空缓存渲染，拉到之后再补上圆点。
+    page.run_task(load_countdowns)
+
     return ft.Container(
         expand=True,
         gradient=page_gradient(),
@@ -1054,9 +1094,10 @@ def build_calendar_page(
                                     weight=ft.FontWeight.BOLD,
                                     color=TITLE_COLOR,
                                 ),
-                                # 右上角三枚入口：数据、设置、登录（底部菜单已经不放
-                                # 「我的」入口了，设置一直在这儿、登录补在最右；数据原来
-                                # 挂在待办页的右上角，归拢过来并排摆）。
+                                # 右上角两枚入口：数据、设置（底部菜单已经不放「我的」
+                                # 入口了，设置一直在这儿；数据原来挂在待办页的右上角，
+                                # 归拢过来并排摆）。登录页的入口从这儿撤了，现在在
+                                # 设置页的「账号」卡片里（见 pages/preferences.py）。
                                 ft.Row(
                                     tight=True,
                                     spacing=TOPBAR_ICON_GAP,
@@ -1084,19 +1125,6 @@ def build_calendar_page(
                                                 src=SETTINGS_ICON_SRC,
                                                 width=SETTINGS_ICON_SIZE,
                                                 height=SETTINGS_ICON_SIZE,
-                                                fit=ft.BoxFit.CONTAIN,
-                                            ),
-                                        ),
-                                        ft.Container(
-                                            ink=True,
-                                            tooltip="登录",
-                                            # 同上：图标小，四周补一圈。
-                                            padding=ft.Padding.all(6),
-                                            on_click=lambda _: open_login(),
-                                            content=ft.Image(
-                                                src=PERSON_ICON_SRC,
-                                                width=PERSON_ICON_SIZE,
-                                                height=PERSON_ICON_SIZE,
                                                 fit=ft.BoxFit.CONTAIN,
                                             ),
                                         ),

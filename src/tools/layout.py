@@ -19,9 +19,6 @@ DATA_ICON_SRC = "icons/data.png"
 CALENDAR_ICON_SRC = "icons/calendar.png"
 SETTINGS_ICON_SRC = "icons/settings.png"
 CHECK_ICON_SRC = "icons/check.png"
-# 日历页右上角进「登录」页用的那张（icons/person.png）：路径只写相对 assets 的一段，
-# 尺寸 / 是否压色由引用方定（和上面几张一个规矩）。
-PERSON_ICON_SRC = "icons/person.png"
 
 # An open todo takes the colour of its category (see tools/categories.py) and
 # keeps the same neutral card as a completed one - no fill either way. Only the
@@ -155,6 +152,31 @@ def track_keyboard(page: ft.Page, dialog: ft.AlertDialog) -> Callable[[], None]:
             page.on_media_change = previous
 
     return detach
+
+
+def is_attached(control: ft.Control) -> bool:
+    """这个控件还挂在页面上吗？
+
+    页面是**每次切过去都重建**的（见 pages/navigation.py），而拉数据的任务得等网络
+    回来 —— 回来时那一页可能已经被换掉了。这时 `control.update()` 会抛
+    `RuntimeError: ... must be added to the page first`，所以刷界面之前先问一句。
+    """
+    try:
+        control.page
+    except RuntimeError:
+        return False
+    return True
+
+
+def safe_update(*controls: ft.Control) -> None:
+    """把控件刷到界面上；已经被卸载（页面切走 / 重建）的那些就安静跳过。
+
+    等价于 `control.update()`，区别只是不会因为「这一页已经不在了」把异步任务炸掉
+    —— 那次结果丢掉即可，下次进这一页会重新拉。
+    """
+    for control in controls:
+        if is_attached(control):
+            control.update()
 
 
 def page_gradient() -> ft.LinearGradient:

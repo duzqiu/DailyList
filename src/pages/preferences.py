@@ -1,8 +1,8 @@
 """设置页：日历页右上角齿轮进来的二级页。
 
-三档设置卡片，每档一张：**通知设置**（通知渠道）、**数据设置**（导出 JSON、云端
-数据）、**通用设置**（当前版本、联系方式、清除缓存）—— 档名是卡片上的小标题，
-条目都摆在自己那张卡片里
+四档卡片，每档一张：**账号**（未登录给个登录入口 / 登录了显示当前用户）、
+**通知设置**（通知渠道）、**数据设置**（导出 JSON、云端数据）、**通用设置**（当前版本、
+联系方式、清除缓存）—— 档名是卡片上的小标题，条目都摆在自己那张卡片里
 （见 settings_section）。顶栏用 tools/layout.py 的 build_subpage_header：左边是
 「‹ 返回」，标题「设置」落在页面正中（左边返回按钮有多宽，右边就留多宽的空位撑
 着）。
@@ -14,6 +14,8 @@ from collections.abc import Callable
 
 import flet as ft
 
+from api import member_auth, session
+from api.client import ApiError
 from tools import (
     contacts,
     data_export,
@@ -86,7 +88,13 @@ def build_preferences_page(
     page: ft.Page,
     set_menu_visible: Callable[[bool], None],
     go_back: Callable[[], None],
+    open_login: Callable[[], None],
 ) -> ft.Control:
+    """设置页。
+
+    `open_login` 由 pages/navigation.py 给：「账号」那张卡片里点「登录」/「管理」时
+    调用它 —— 登录页压在设置页之上，返回回到这一页。
+    """
     def notify(message: str) -> None:
         """一句话的提示：走 `tools/toast.py`，浮在**屏幕中间**（不再是底部那条）。"""
         page.show_dialog(build_toast(page, message))
@@ -811,30 +819,121 @@ def build_preferences_page(
             ),
         )
 
-    def device_label() -> ft.Control:
-        """页面顶部那一行：当前设备的 ID。
+    # ---------------------- 账号：未登录 / 当前用户 ----------------------
 
-        待办和倒数日就是按它存取的（见 tools/db.py 的 `data_owner`），所以摊开写在
-        最上面 —— 换机之后"数据怎么都不见了"，第一个要核对的就是这一行。拿不到设备
-        标识的平台（Android / Web）退回"默认一份"，这里照实说，不假装有个 id。
+    def account_section() -> ft.Control:
+        """「账号」这一档：没登录给个登录入口，登录了显示当前用户。
 
-        **只显示冒号后面那截**：`ios:` / `windows:` 这些前缀是设备层自己加的
-        （tools/device.py 的 `_compose`，防止两个平台的标识恰好撞上），摆给人看没有
-        意义 —— 显示时去掉它，存储里那份照旧带着。
+        两种情况共用同一块 `account_body`（就是卡片里的内容），拉到数据后只换这一块
+        —— 不重画整页，也不惊动下面那几档卡片。
+
+        用户信息来自后端 `GET /member/auth/me`（见 api/member_auth.py）；本地令牌已
+        失效（401）时把令牌清掉、退回未登录形态，免得一直停在拉不到数据的样式上。
         """
-        owner = db.data_owner()
-        identifier = owner.split(":", 1)[-1] if owner else ""
-        return ft.Text(
-            f"设备 ID：{identifier}"
-            if identifier
-            else "设备 ID：未获取到（数据按默认一份存取）",
-            size=11,
-            color=MUTED_COLOR,
-            # id 是 UUID 那种没空格的长串：一号字号也放不下时宁可省略，别折行把它
-            # 断成两截、还把下面的卡片顶下去。
-            no_wrap=True,
-            overflow=ft.TextOverflow.ELLIPSIS,
+        avatar_size = 40
+        account_body = ft.Column(
+            tight=True,
+            spacing=10,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[],
         )
+
+        def render_signed_out(message: str = "", update: bool = True) -> None:
+            """未登录：一行「未登录 + 登录按钮」；`message` 用来报拉取失败的原因。"""
+            account_body.controls = [
+                setting_row(
+                    "未登录",
+                    ft.Text(
+                        message or "登录后可查看账号信息",
+                        size=11,
+                        color=PENDING_COLOR if message else MUTED_COLOR,
+                    ),
+                    ft.OutlinedButton(
+                        "登录",
+                        on_click=lambda _: open_login(),
+                        style=compact_button_style(),
+                    ),
+                )
+            ]
+            if update:
+                page.update()
+
+        def render_user(user: dict) -> None:
+            """已登录：头像 + 昵称 / 邮箱 / 会员号，右边一个「管理」进账号页。"""
+            email = str(user.get("email") or "").strip()
+            # 昵称依次退：显示名 → 昵称 → 邮箱（和后端 MemberOut 的字段一致）。
+            nickname = str(
+                user.get("display_name") or user.get("nickname") or email
+            ).strip()
+            member_no = str(user.get("member_no") or "").strip()
+            lines = [
+                ft.Text(
+                    nickname or "会员",
+                    size=13,
+                    weight=ft.FontWeight.BOLD,
+                    color=TITLE_COLOR,
+                ),
+                ft.Text(email, size=11, color=MUTED_COLOR),
+            ]
+            if member_no:
+                lines.append(
+                    ft.Text(f"会员号 {member_no}", size=11, color=MUTED_COLOR)
+                )
+            account_body.controls = [
+                ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        # 头像用 Flet 内置图标，和登录页那张卡片同一个做法。
+                        ft.Container(
+                            width=avatar_size,
+                            height=avatar_size,
+                            alignment=ft.Alignment.CENTER,
+                            border_radius=ft.BorderRadius.all(avatar_size / 2),
+                            border=ft.Border.all(1, CARD_BORDER),
+                            content=ft.Icon(
+                                ft.Icons.PERSON,
+                                size=avatar_size * 0.55,
+                                color=MUTED_COLOR,
+                            ),
+                        ),
+                        ft.Column(
+                            tight=True, spacing=2, expand=True, controls=lines
+                        ),
+                        ft.OutlinedButton(
+                            "管理",
+                            on_click=lambda _: open_login(),
+                            style=compact_button_style(),
+                        ),
+                    ],
+                )
+            ]
+            page.update()
+
+        async def load_user() -> None:
+            """进页面就把当前会员拉回来；401 说明令牌过期，清掉并退回未登录。"""
+            try:
+                user = await member_auth.me()
+            except ApiError as error:
+                if error.status == 401:
+                    session.clear()
+                    render_signed_out()
+                    return
+                render_signed_out(error.message)
+                return
+            render_user(user)
+
+        if session.access_token():
+            # 有令牌：先摆「加载中…」，拉回来再换成用户信息。
+            account_body.controls = [
+                ft.Text("加载中…", size=11, color=MUTED_COLOR)
+            ]
+            page.run_task(load_user)
+        else:
+            # 建页面时这一格就定好，不用再 update 一次。
+            render_signed_out(update=False)
+
+        return settings_section("账号", [account_body])
 
     def app_info() -> ft.Control:
         """页面最下方那行署名：App 名 + 版本 + 版权，居中一行灰字。
@@ -880,10 +979,8 @@ def build_preferences_page(
                             scroll=ft.ScrollMode.HIDDEN,
                             padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
                             controls=[
-                                # 设备 ID 是三档卡片**上面**的一行，但和它们一起滚
-                                # （不进卡片）：它是这些数据归谁的第一线索，不常看，
-                                # 没必要钉住占着版面。
-                                device_label(),
+                                # 账号摆最上面：这台设备上「人」的身份，比设置项更该先看见。
+                                account_section(),
                                 # 三档设置，各一张卡片，条目摆在自己那张里。
                                 settings_section(
                                     "通知设置",

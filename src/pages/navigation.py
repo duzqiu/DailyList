@@ -181,7 +181,6 @@ def build_navigation(page: ft.Page) -> None:
                 page_state("calendar"),
                 show_preferences,
                 show_data,
-                show_login,
             )
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -222,6 +221,8 @@ def build_navigation(page: ft.Page) -> None:
                 # 二级页没有底部菜单：输入框弹键盘、弹窗收起时都不要把它叫回来。
                 set_menu_visible=lambda _visible: None,
                 go_back=go_back,
+                # 「账号」卡片里点「登录」/「管理」→ 登录页压在设置页之上（第 2 层）。
+                open_login=show_login_from_settings,
             ),
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -235,18 +236,28 @@ def build_navigation(page: ft.Page) -> None:
         nav_stack.append(lambda: show_page(origin))
         render_preferences(update)
 
-    def render_login(update: bool = True) -> None:
-        """只重画「登录」页那**一层**，不动页面栈（同上）。"""
+    def render_login(depth: int = 1, update: bool = True) -> None:
+        """只重画「登录」页那**一层**，不动页面栈（同上）。
+
+        `depth` 是它压在 `page.views` 的第几层：从日历页进来是第 1 层（默认），
+        从**设置页**进来时压在设置页之上，是第 2 层（见 `show_login_from_settings`）。
+        注册页 / 忘记密码页跟着再深一层，返回才能逐层退回去。
+        """
         show_layer(
-            1,
+            depth,
             "/login",
             lambda: build_login_page(
                 page,
                 go_back=go_back,
-                # 卡片底下那两个链接：各自再往下压一层（第 2 层），见下面的
+                # 卡片底下那两个链接：各自再往下压一层，见下面的
                 # show_register / show_forgot。
-                open_register=show_register,
-                open_forgot=show_forgot,
+                open_register=lambda: show_register(depth + 1),
+                open_forgot=lambda: show_forgot(depth + 1),
+                # 登录成功 → 待办页（一级页第 0 个 Tab）：`show_page` 会把上面压的层
+                # 全撤掉，所以跳过去之后就是干净的一级页。
+                open_todo=lambda: show_page(0),
+                # 退出登录 / 令牌失效 → 重画本层，使它回到未登录形态。
+                reload_login=lambda: render_login(depth),
             ),
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -254,20 +265,19 @@ def build_navigation(page: ft.Page) -> None:
         if update:
             page.update()
 
-    def show_login(update: bool = True) -> None:
-        """日历页右上角 person 图标进来的登录页：二级页，进来后底部菜单收起。
+    def show_login_from_settings(update: bool = True) -> None:
+        """设置页「账号」卡片里点「登录」/「管理」：登录页压在**设置页之上**（第 2 层）。
 
-        和设置页走同一套层机制：压进 `page.views` 的真 View，所以左滑 / 真机返回
-        都能退回进来时所在的那个一级页。页面本身是个 Demo（见 pages/login.py）。
+        回一层回的是设置页那一层（`render_preferences`）—— 在那儿登录完再退回来，设置页
+        整层重画，账号卡片也就跟着刷成「已登录」。
         """
-        origin = selected_index
-        nav_stack.append(lambda: show_page(origin))
-        render_login(update)
+        nav_stack.append(lambda: render_preferences())
+        render_login(2, update)
 
-    def render_register(update: bool = True) -> None:
-        """只重画「注册」页那一层（**第 2 层**），不动页面栈（同上）。"""
+    def render_register(depth: int = 2, update: bool = True) -> None:
+        """只重画「注册」页那一层（默认**第 2 层**），不动页面栈（同上）。"""
         show_layer(
-            2,
+            depth,
             "/register",
             lambda: build_register_page(page, go_back=go_back),
         )
@@ -276,20 +286,20 @@ def build_navigation(page: ft.Page) -> None:
         if update:
             page.update()
 
-    def show_register(update: bool = True) -> None:
+    def show_register(depth: int = 2, update: bool = True) -> None:
         """登录页「注册新账号」进来的三级页。
 
-        回一层回的是**登录页那一层**、不是一级页：所以这里压的是 `render_login`
-        （只重画第 1 层）。登录页自己压的那层「回一级页」还留在栈里 —— 从这一页连按
-        两次返回，才会回到进来时的那个 Tab。
+        回一层回的是**登录页那一层**、不是一级页：所以这里压的是 `render_login(depth-1)`
+        （只重画登录页那一层）。登录页自己压的那层「回上一页」还留在栈里 —— 从这一页连按
+        两次返回，才会回到进来时的地方（日历页那个 Tab / 设置页）。
         """
-        nav_stack.append(lambda: render_login())
-        render_register(update)
+        nav_stack.append(lambda: render_login(depth - 1))
+        render_register(depth, update)
 
-    def render_forgot(update: bool = True) -> None:
-        """只重画「忘记密码」页那一层（**第 2 层**），不动页面栈（同上）。"""
+    def render_forgot(depth: int = 2, update: bool = True) -> None:
+        """只重画「忘记密码」页那一层（默认**第 2 层**），不动页面栈（同上）。"""
         show_layer(
-            2,
+            depth,
             "/forgot",
             lambda: build_forgot_password_page(page, go_back=go_back),
         )
@@ -298,10 +308,10 @@ def build_navigation(page: ft.Page) -> None:
         if update:
             page.update()
 
-    def show_forgot(update: bool = True) -> None:
+    def show_forgot(depth: int = 2, update: bool = True) -> None:
         """登录页「忘记密码」进来的三级页（同上，回一层回登录页）。"""
-        nav_stack.append(lambda: render_login())
-        render_forgot(update)
+        nav_stack.append(lambda: render_login(depth - 1))
+        render_forgot(depth, update)
 
     def menu_item(
         index: int, icon: str, selected_icon: str, label: str, key: str
