@@ -111,8 +111,7 @@ def _build_sign_in_form(
 
     card = build_auth_card(
         [
-            # 只有登录页这张卡片带头像：用 Flet 内置的 person 图标（不再用自定义图片）。
-            build_card_heading("欢迎回来", icon=ft.Icons.PERSON),
+            build_card_heading("登录"),
             build_field_box(email_field),
             # 密码框与「忘记密码？」是一对：这一小块自己把间距收到 `FIELD_HINT_GAP`，
             # 不用卡片统一的 `CARD_SPACING` —— 那一行要贴着密码框的**右下角**。
@@ -217,7 +216,7 @@ def _build_signed_in(
 
     card = build_auth_card(
         [
-            build_card_heading("已登录", icon=ft.Icons.PERSON),
+            build_card_heading("已登录"),
             name_text,
             email_text,
             member_text,

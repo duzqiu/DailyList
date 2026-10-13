@@ -115,7 +115,7 @@ def build_register_page(
 
     card = build_auth_card(
         [
-            # 注册页不带头像：头像那张图是「我的」入口的标识，留给登录页。
+            # 三页的标题都不带头像，统一贴在卡片左上角（见 tools/auth_form.py）。
             build_card_heading("注册"),
             build_field_box(email_field),
             code_row,

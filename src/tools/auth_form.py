@@ -42,11 +42,15 @@ from tools.layout import (
 # ① **底色要有，而且必须半透明** —— `blur` 糊的是背后那层，全透明（或不填色）等于没糊；
 # ② **`clip_behavior`** —— `blur` 按控件那块**矩形**铺、不跟圆角裁，圆角卡片不裁就会在
 #    四角漏出一块方糊斑（真机上翻过这个车）。
-GLASS_BG = "#A6FFFFFF"
+# 底下两位是 alpha（00 = 全透、FF = 不透明）：卡片给 `#78`（≈47% 的白，**放得更透**才能
+# 看出它糊的是背后那张背景图），`blur` 跟着**往大调** —— 这两样是一对：越透就得糊得越
+# 狠，只把底色变透而模糊不变，底下的图案会直接穿上来，卡片上的字是清楚了、磨砂感却没了。
+GLASS_BG = "#78FFFFFF"
 GLASS_BORDER = "#99FFFFFF"
-GLASS_BLUR = ft.Blur(20, 20, ft.BlurTileMode.CLAMP)
+GLASS_BLUR = ft.Blur(32, 32, ft.BlurTileMode.CLAMP)
 # 输入框那层比卡片再透一点：卡片是「一块玻璃」，字段是「玻璃上又压一层」，靠深浅分层。
-FIELD_GLASS_BG = "#80FFFFFF"
+# `#66` ≈ 40%，跟着卡片一起往下调，**仍是更透的那一层**（两者的深浅关系别反过来）。
+FIELD_GLASS_BG = "#66FFFFFF"
 # 字段前方那枚图标：尺寸、与文字之间的距离，以及「带图标时」的左内边距。
 # 带图标后左内边距要收窄一点，让「图标 + 文字」整体看着仍然居中。
 FIELD_ICON_SIZE = 16
@@ -77,13 +81,9 @@ MUTED_COLOR = "#64748B"
 FIELD_COLOR = "#334155"
 HINT_COLOR = "#94A3B8"
 PAGE_SIDE_PADDING = 24
-# 卡片顶上那枚头像（只有登录页用）：给图片时缩到圆的 0.6（四周留一圈才像头像）；
-# 给 Flet 内置图标（`ft.Icons.*`）时按 `AVATAR_GLYPH_*` 直接给像素。
-AVATAR_SIZE = 56
-AVATAR_ICON_RATIO = 0.6
-AVATAR_GLYPH_SIZE = 30
-AVATAR_GLYPH_COLOR = MUTED_COLOR
-TITLE_SIZE = 15
+# 卡片标题：摆在卡片**左上角**，字号比正文大出一截（15 → 22）—— 它是这一页要说
+# 的头一件事，不该和下面 13pt 的字段挤在同一档。
+TITLE_SIZE = 22
 SUBTITLE_SIZE = 11
 FIELD_TEXT_SIZE = 13
 # 所有输入框都是这个高度：外层小框和里面的输入框同高（见 build_field_box），
@@ -107,11 +107,17 @@ FIELD_TEXT_INSET_BOTTOM = 9
 FIELD_TRAILING_INSET = 0
 BUTTON_HEIGHT = 42
 BUTTON_TEXT_SIZE = 14
-# 卡片里图片与文字之间、字段与按钮之间的统一间距。
-CARD_SPACING = 12
-# 字段下面那行小提示（登录页的「忘记密码？」）与字段之间的距离：比 `CARD_SPACING`
-# 紧得多，因为它俩是一对，要紧贴在这一格的右下角。
-FIELD_HINT_GAP = 2
+# 卡片内元素的统一间距（字段之间、字段与主按钮之间、卡片之间）：比原先宽一档
+# （12 → 14），字段挨得太挤时看不出一格是一格。
+CARD_SPACING = 14
+# 标题**额外**多出的那一截下间距：加在 `CARD_SPACING` 之上，所以标题到下面第一个
+# 输入框是 `CARD_SPACING + HEADING_BOTTOM_GAP`（26）。字号放大到 22 之后，标题跟
+# 字段用同一个间距会把两件事糊成一团，留出这一截才看得出它是块标题。
+HEADING_BOTTOM_GAP = 12
+# 字段下面那行小提示（登录页的「忘记密码？」）与字段之间的距离：**与 `CARD_SPACING`
+# 同档** —— 上面挨着密码框、下面是主按钮，两处留白相等时这枚链接才在它们之间的空档
+# 里**上下居中**。原先给 2（紧贴右下角）时明显偏上，看着像挂在密码框上的一行尾巴。
+FIELD_HINT_GAP = CARD_SPACING
 CARD_PADDING_X = 16
 CARD_PADDING_Y = 14
 CARD_RADIUS = 12
@@ -124,10 +130,19 @@ LINK_SIDE_PADDING = 6
 # 比例给得比较小（约等于从顶部 13% 处起），表单整体落在中上偏上的位置。
 FORM_TOP_RATIO = 0.13
 FORM_TOP_MIN = 96.0
-# 「贴页面下方」那件（登录页的「注册新账号」）离底边的距离：同样按窗口高度取比例，
-# 落在页面的下 1/8 处 —— 是「偏下」，但不贴边。
-FOOTER_BOTTOM_RATIO = 0.12
-FOOTER_BOTTOM_MIN = 72.0
+# 「不跟表单走」那件（登录页的「还没有账号？去注册」）的位置：**从内容区的顶边往下量**
+# （`top`），而不是从底边往上量（`bottom`）。
+#
+# ⚠️ 别改成 `bottom`：那一行原本拿来做参照的是「按整屏高排版的那一屏」（见
+# `build_auth_page`），而它的底边伸在**可见区之外** —— 顶部状态栏、24 的内边距已经把
+# 真正看得见的那块往里缩了一截，iOS 底部那条小横条再吃掉一点。于是用 `bottom` 时这个
+# 距离必须大于被吃掉的那一截才看得见：给 0.12H（iPhone 上约 101px）时它正好卡在可见
+# 边界上、看着偏低，收到 0.08H（约 67px）就整行被裁掉 —— 一个字都不剩。从顶边往下量
+# 没有这个坑：顶边是稳的，量出来的位置和设备底部那一圈 inset 无关。
+# 0.74 ≈ 落在页面的下 1/4；表单占到大约 `0.13H + 260px`，小屏上也不会跟它撞上。
+FOOTER_TOP_RATIO = 0.74
+# 量不到屏高（`page.height` 为 0）时的兜底：这一档是从顶边往下量，给小一点没关系。
+FOOTER_TOP_MIN = 300.0
 # 「获取验证码」那枚小按钮的三种文案：初始 → 倒计时中（`{n}` 是剩余秒数）→ 可重发。
 CODE_SEND_LABEL = "获取验证码"
 CODE_RESEND_LABEL = "重新发送"
@@ -137,13 +152,25 @@ CODE_COUNTDOWN_LABEL = "{n}s 后重发"
 CODE_COUNTDOWN_SECONDS = 60
 # 「获取验证码」那枚按钮的形态：底取主按钮同一档蓝（`DATE_SELECTED_BG`），字用深蓝，
 # 和左边输入框**同高**并排 —— 它是个「能点的动作」，不该像其它小字链接那样只剩一行灰字。
-# 倒计时期间字色仍用 `HINT_COLOR`（故意调浅，表示这会儿点不动），底色不动。
 CODE_BUTTON_BG = DATE_SELECTED_BG
 CODE_BUTTON_TEXT = TITLE_COLOR
 CODE_BUTTON_HEIGHT = FIELD_HEIGHT
+# 字比其它小字链接（11pt）大一档，和输入框里的 13pt 同档 —— 它跟输入框**同高并排**，
+# 字号也一致才像一对。倒计时期间只换字色、不换字号。
+CODE_BUTTON_TEXT_SIZE = 13
 CODE_BUTTON_SIDE_PADDING = 12
 # 与左边输入框之间的距离：给了底色之后不能贴在一起，会糊成一块。
 CODE_BUTTON_GAP = 8
+# 这枚按钮只有**两种配色**（互切的过渡是 `CODE_BUTTON_ANIMATION`）：
+#   ① 可以点（默认）    蓝底深蓝字 —— **按下去的那一段也用这副配色**
+#   ② 冷却中·倒计时      灰底浅字，一眼看出这会儿点不了
+# 按下 / 请求在飞这段时间**只缩一点点**（`CODE_BUTTON_PRESSED_SCALE`）、不换配色：颜色变了
+# 容易被误读成「已经发出去了」，而它表达的其实是「手指按住了」。文案在这段也「故意一个
+# 字都不改」（理由见 `lock_code_button`），所以这段唯一的反馈就是那一下缩放。
+CODE_BUTTON_PRESSED_SCALE = 0.96
+CODE_BUTTON_COOLDOWN_BG = CARD_BORDER
+CODE_BUTTON_COOLDOWN_TEXT = MUTED_COLOR
+CODE_BUTTON_ANIMATION = ft.Animation(120, ft.AnimationCurve.EASE_OUT)
 
 
 def icon_for(hint: str) -> str | None:
@@ -254,9 +281,12 @@ def build_code_row(
     返回 `(整行, 那枚按钮)` —— 按钮要留个引用，倒计时由 `start_code_countdown` 跑。
     注册页（邮箱验证码）和忘记密码页都用这一行，样式与行为保持一致。
 
-    这枚按钮是 `Container` 画的（不是 Button），没有真的「不可点」状态：倒计时期间
-    拿 `button.data` 当锁（上锁见 `lock_code_button`），点了直接不理 —— 文案里已经
-    在报剩余秒数，看得出来。
+    这枚按钮是 `Container` 画的（不是 Button），没有真的「不可点」状态：拿了
+    `button.data` 当锁（上锁见 `lock_code_button`），锁着的时候点了直接不理 ——
+    配色只有两套（可以点 / 冷却中，见 `CODE_BUTTON_*` 常量），按时序由
+    `lock_code_button` / `release_code_button` / `start_code_countdown` 切换，灰的那套
+    只在倒计时期间出现；按下到响应回来那一段只把按钮缩一点点（`CODE_BUTTON_PRESSED_SCALE`）、
+    配色不动。文案也**故意不动**，等响应回来才跟着一起变。
     """
 
     def guarded(event: ft.Event[ft.Control]) -> None:
@@ -273,10 +303,14 @@ def build_code_row(
         padding=ft.Padding.symmetric(horizontal=CODE_BUTTON_SIDE_PADDING),
         ink=True,
         on_click=guarded,
+        # 「按下去」那一下是缩一点点：给了 `animate_scale` 才有缓动，硬切看着像闪。
+        # 样子怎么切（配色 + 缩放）统一交给 `_paint_code_button`。
+        scale=1.0,
+        animate_scale=CODE_BUTTON_ANIMATION,
         # 文案与字色都要能就地改（倒计时每秒换一次），所以留在 `button.content` 上
         # —— `_set_code_label` 直接写它的 `value` / `color`。
         content=ft.Text(
-            CODE_SEND_LABEL, size=SUBTITLE_SIZE, color=CODE_BUTTON_TEXT
+            CODE_SEND_LABEL, size=CODE_BUTTON_TEXT_SIZE, color=CODE_BUTTON_TEXT
         ),
     )
     button.data = False  # False = 没在倒计时，可以点
@@ -292,10 +326,30 @@ def build_code_row(
     return row, button
 
 
+def _paint_code_button(
+    button: ft.Control, *, bgcolor: str, color: str, scale: float
+) -> None:
+    """给按钮换底色 / 字色 / 缩放 —— 三样一起改，它们是同一个「样子」的三面。
+
+    分开改要多推几次界面，还可能中间那一瞬三者错位（底色已经灰了、字还是深蓝）。控件
+    不在树上时 `update()` 抛 RuntimeError —— 页面还在时不会，用户退回
+    上一页才会，这时当作「页面没了」收手就行（和 tools/layout.py 的
+    anchor_dialog_above_keyboard 一个处理）。
+    """
+    button.bgcolor = bgcolor
+    button.scale = scale
+    button.content.color = color
+    try:
+        button.update()
+    except RuntimeError:
+        pass
+
+
 def _set_code_label(button: ft.Control, label: str, color: str) -> bool:
     """给按钮换文案 / 换字色并推给客户端；控件已经不在树上时返回 False。
 
-    倒计时期间把字调浅一档（`HINT_COLOR`），和「可以点」那档灰分开。控件被卸下之后
+    冷却期的字色由调用方给（`CODE_BUTTON_COOLDOWN_TEXT`）—— 那时候按钮整体是灰的，
+    和「可以点」那档深蓝分开。控件被卸下之后
     `update()` 会抛 RuntimeError —— 页面还在时不会，用户退回上一页才会，这时当成
     「页面没了」收手就行（和 tools/layout.py 的 anchor_dialog_above_keyboard
     一个处理）。
@@ -312,36 +366,59 @@ def _set_code_label(button: ft.Control, label: str, color: str) -> bool:
 async def _countdown_code(button: ft.Control, seconds: int) -> None:
     """倒计时本体：写下剩余秒数 → 睡一秒 → 减一，归零后恢复成「重新发送」。
 
-    倒计时期间的字色用 `MUTED_COLOR` 而不是更浅的 `HINT_COLOR`：这枚按钮现在有底色，
-    浅灰压在上面几乎看不见（对比度不到 2:1）。
+    倒计时期间整枚按钮是灰的（见 `start_code_countdown`），字色跟着浅一档 —— 这么浅的
+    灰压在蓝底上几乎看不见（对比度不到 2:1），压在灰底上才读得清。
     """
     for remaining in range(seconds, 0, -1):
         if not _set_code_label(
-            button, CODE_COUNTDOWN_LABEL.format(n=remaining), MUTED_COLOR
+            button,
+            CODE_COUNTDOWN_LABEL.format(n=remaining),
+            CODE_BUTTON_COOLDOWN_TEXT,
         ):
             button.data = False
             return
         await asyncio.sleep(1)
+    # 归零 → 弹回「可以点」那副样子（文案 + 底色 + 缩放一起换）。
+    _paint_code_button(
+        button, bgcolor=CODE_BUTTON_BG, color=CODE_BUTTON_TEXT, scale=1.0
+    )
     _set_code_label(button, CODE_RESEND_LABEL, CODE_BUTTON_TEXT)
     button.data = False
 
 
 def lock_code_button(button: ft.Control) -> None:
-    """点下「获取验证码」的**那一刻**先上锁 —— 必须在请求发出之前。
+    """点下「获取验证码」的**那一刻**先上锁 —— 必须在请求发出之前，但**只置锁、不动文案**。
 
     send-code 要走网络，等响应回来才上锁的话，这几百毫秒里连点几下就会发出几次请求
-    （每点一次都得等一次响应，看着像没点上）。上锁先按默认秒数报数，真正按后端
-    `resend_after` 倒计时的是 `start_code_countdown`。
+    （每点一次都得等一次响应，看着像没点上）。
+
+    所以上锁只写 `button.data`，文案**留给响应回来之后**再定：发成了由
+    `start_code_countdown` 改成「Ns 后重发」，没发成由 `release_code_button` 写回
+    「获取验证码」。请求还在路上就把字改掉的话，一旦后端报错还得再改回来 —— 文案先跳
+    一下、再跳回去，看着像闪屏，而且给人「已经发出去了」的错觉。
+
+    文案不动不代表没反馈：紧接着那句 `_paint_code_button` 让按钮缩一点点，像被手指按住
+    —— **只动缩放，配色不动**（一直是「可以点」那副蓝）：这会儿还没发成，换深色会被读成
+    「已经发出去了」。响应回来才决定下一步的样子。
     """
     button.data = True
-    _set_code_label(
-        button, CODE_COUNTDOWN_LABEL.format(n=CODE_COUNTDOWN_SECONDS), MUTED_COLOR
+    _paint_code_button(
+        button,
+        bgcolor=CODE_BUTTON_BG,
+        color=CODE_BUTTON_TEXT,
+        scale=CODE_BUTTON_PRESSED_SCALE,
     )
 
 
 def release_code_button(button: ft.Control) -> None:
-    """没发成（本地校验没过 / 后端报错）时解锁：按钮放回「获取验证码」，能再试一次。"""
+    """没发成（本地校验没过 / 后端报错）时解锁：按钮弹回「可以点」那副样子，能再试一次。"""
     button.data = False
+    _paint_code_button(
+        button,
+        bgcolor=CODE_BUTTON_BG,
+        color=CODE_BUTTON_TEXT,
+        scale=1.0,
+    )
     _set_code_label(button, CODE_SEND_LABEL, CODE_BUTTON_TEXT)
 
 
@@ -364,6 +441,14 @@ def start_code_countdown(
         if isinstance(raw, int) and raw > 0:
             seconds = raw
     button.data = True
+    # 发成功了 → 从「被按住」换成「冷却中」：灰底浅字，倒计时期间一直是这副样子，
+    # 归零才 `_countdown_code` 把它弹回「可以点」。
+    _paint_code_button(
+        button,
+        bgcolor=CODE_BUTTON_COOLDOWN_BG,
+        color=CODE_BUTTON_COOLDOWN_TEXT,
+        scale=1.0,
+    )
     page.run_task(_countdown_code, button, seconds)
 
 
@@ -410,17 +495,11 @@ def build_primary_button(
     )
 
 
-def build_card_heading(
-    title: str,
-    hint: str | None = None,
-    icon_src: str | None = None,
-    icon: str | None = None,
-) -> ft.Control:
-    """卡片顶部的标题区：标题 + 可选的一行小字说明 + 可选一枚圆头像。
+def build_card_heading(title: str, hint: str | None = None) -> ft.Control:
+    """卡片顶部的标题区：标题 + 可选的一行小字说明，**贴在卡片左上角**。
 
-    头像两种给法，都不给就只留标题（注册页 / 忘记密码页就是这样）：
-    - `icon_src`：assets 里的图片路径（见 tools/layout.py 的 *_ICON_SRC）；
-    - `icon`：Flet 内置图标名（`ft.Icons.*`）—— 登录页用 `ft.Icons.PERSON`。
+    三页都不再摆头像：原来登录页顶上那枚 `ft.Icons.PERSON` 圆头像已经去掉，标题自己
+    说明这一页是干什么的就够了。
     """
     lines = [
         ft.Text(
@@ -428,45 +507,30 @@ def build_card_heading(
             size=TITLE_SIZE,
             weight=ft.FontWeight.BOLD,
             color=TITLE_COLOR,
+            text_align=ft.TextAlign.START,
         )
     ]
     if hint:
-        lines.append(ft.Text(hint, size=SUBTITLE_SIZE, color=MUTED_COLOR))
-    heading = ft.Column(
-        tight=True,
-        spacing=2,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=lines,
-    )
-    if icon_src is None and icon is None:
-        return heading
-    if icon_src is not None:
-        glyph: ft.Control = ft.Image(
-            src=icon_src,
-            width=AVATAR_SIZE * AVATAR_ICON_RATIO,
-            height=AVATAR_SIZE * AVATAR_ICON_RATIO,
-            fit=ft.BoxFit.CONTAIN,
+        lines.append(
+            ft.Text(
+                hint,
+                size=SUBTITLE_SIZE,
+                color=MUTED_COLOR,
+                text_align=ft.TextAlign.START,
+            )
         )
-    else:
-        glyph = ft.Icon(icon, size=AVATAR_GLYPH_SIZE, color=AVATAR_GLYPH_COLOR)
-    return ft.Column(
-        tight=True,
-        spacing=CARD_SPACING,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        controls=[
-            # 头像也是一小块玻璃（比卡片更透一点），一圈更亮的细边示意那个圆。
-            ft.Container(
-                width=AVATAR_SIZE,
-                height=AVATAR_SIZE,
-                alignment=ft.Alignment.CENTER,
-                border_radius=ft.BorderRadius.all(AVATAR_SIZE / 2),
-                bgcolor=FIELD_GLASS_BG,
-                border=ft.Border.all(1, GLASS_BORDER),
-                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                content=glyph,
-            ),
-            heading,
-        ],
+    return ft.Container(
+        # 标题与下面第一个输入框拉开一截：`HEADING_BOTTOM_GAP` 是**额外**加的，卡片
+        # 自己的 `CARD_SPACING` 照旧排在它下面，两者相加才是标题到输入框的距离。
+        padding=ft.Padding.only(bottom=HEADING_BOTTOM_GAP),
+        content=ft.Column(
+            tight=True,
+            spacing=2,
+            # 靠左摆：标题是这一页的第一句话，贴着卡片左上角比居中更明朗，也和下面
+            # 左对齐的字段同一条起笔线。
+            horizontal_alignment=ft.CrossAxisAlignment.START,
+            controls=lines,
+        ),
     )
 
 
@@ -514,7 +578,14 @@ def build_link(
         border_radius=ft.BorderRadius.all(6),
         padding=ft.Padding.symmetric(horizontal=side_padding, vertical=2),
         on_click=on_click,
-        content=ft.Text(label, size=SUBTITLE_SIZE, color=MUTED_COLOR),
+        content=ft.Text(
+            label,
+            size=SUBTITLE_SIZE,
+            # 加粗：这几枚是「换一页」的入口（去注册 / 去登录 / 忘记密码），和正文同号
+            # 的细字会被当成说明文字，看不出它们能点。
+            weight=ft.FontWeight.BOLD,
+            color=MUTED_COLOR,
+        ),
     )
 
 
@@ -546,7 +617,7 @@ def build_auth_page(
     """三页共用的页面壳：整页背景图 + 一层白纱 + SafeArea + 左右 24 的边距。
 
     **顶栏只留返回按钮**：标题不摆在这儿了 —— 它已经在卡片上，而且三页的卡片标题与页面
-    一一对应（欢迎回来 / 创建账号 / 重置密码），顶栏再来一行是重复。给
+    一一对应（登录 / 注册 / 重置密码），顶栏再来一行是重复。给
     `build_subpage_header` 传 `None` 就是这条形态。
 
     版式用 `Stack` 摆两块，都横跨整行：顶栏钉在顶上（`top=0`），表单从 `form_top`
@@ -555,10 +626,10 @@ def build_auth_page(
     「整页往上挤」；Stack 默认裁掉超出部分，所以真要放不下也只是下半截被裁掉，
     不会挤出布局报错。
 
-    `footer` 是**不跟表单走**的那一件（登录页的「还没有账号？去注册」）：单独钉在离底
-    `FOOTER_BOTTOM_RATIO` 处，左右横跨整行、内容自己居中；它被夹在一个高度等于
-    「构建时那一屏」的容器里，所以**键盘弹起也不会被顶上去**（超出视口的部分被裁掉，
-    松键盘即回原位）。
+    `footer` 是**不跟表单走**的那一件（登录页的「还没有账号？去注册」）：单独钉在从顶边
+    往下 `FOOTER_TOP_RATIO` 处（为什么不用「离底边多远」见那两个常量的注释），左右横跨
+    整行、内容自己居中。它是一个**绝对像素的 `top`**，所以键盘弹起也不会被顶上去（超出
+    视口的部分由 Stack 裁掉，松键盘即回原位）。
 
     需要 `page` 只是为了取 `page.height`（构建这一页时键盘还没升起，拿到的是整屏
     高度）。
@@ -592,31 +663,16 @@ def build_auth_page(
         # 压在下面时：footer 那一带只有它，照样点得到；卡片那一带由上面的表单层接管。
         layers.insert(
             0,
-            # 关键：把 footer 夹在一个「高度 = 构建时那一屏」的容器里。
-            # 键盘弹起时视口会变矮，`bottom` 是相对视口算的 —— 直接贴底就会被顶上去；
-            # 钉住这块的高度之后，footer 仍按原来那一屏的位置排版，超出的部分由 Stack
-            # 裁掉（看不见但不会跳），松键盘即回原位。思路与表单那块固定像素的 `top` 一致。
-            # 量不到屏高（`page.height` 为 0）时退化成不设高度，跟旧行为一样跟着视口走。
+            # 位置给的是**绝对像素的 `top`**（取值见 `FOOTER_TOP_RATIO`）：Stack 里的
+            # `top` 从顶边往下数是固定的，键盘弹起、视口被压矮时它不会跟着往上跑 ——
+            # 和表单那块同一个办法，所以外面不必再裹一层「钉成整屏高」的容器。
             ft.Container(
                 left=0,
                 right=0,
-                top=0,
-                height=height or None,
-                content=ft.Stack(
-                    expand=True,
-                    controls=[
-                        ft.Container(
-                            left=0,
-                            right=0,
-                            bottom=max(
-                                FOOTER_BOTTOM_MIN, height * FOOTER_BOTTOM_RATIO
-                            ),
-                            # 容器横跨整行，内容自己居中（Row 只有内容那么宽）。
-                            alignment=ft.Alignment.CENTER,
-                            content=footer,
-                        )
-                    ],
-                ),
+                top=max(FOOTER_TOP_MIN, height * FOOTER_TOP_RATIO),
+                # 容器横跨整行，内容自己居中（footer 那一行只有内容那么宽）。
+                alignment=ft.Alignment.CENTER,
+                content=footer,
             )
         )
     return ft.Container(
