@@ -5,8 +5,11 @@ import flet as ft
 from pages.calendar import build_calendar_page
 from pages.countdown import build_countdown_page
 from pages.data import build_data_page
+from pages.forgot_password import build_forgot_password_page
 from pages.home import build_home_page
+from pages.login import build_login_page
 from pages.preferences import build_preferences_page
+from pages.register import build_register_page
 from tools.layout import (
     MENU_BAR_BOTTOM,
     MENU_BAR_HEIGHT,
@@ -178,6 +181,7 @@ def build_navigation(page: ft.Page) -> None:
                 page_state("calendar"),
                 show_preferences,
                 show_data,
+                show_login,
             )
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -230,6 +234,74 @@ def build_navigation(page: ft.Page) -> None:
         origin = selected_index
         nav_stack.append(lambda: show_page(origin))
         render_preferences(update)
+
+    def render_login(update: bool = True) -> None:
+        """只重画「登录」页那**一层**，不动页面栈（同上）。"""
+        show_layer(
+            1,
+            "/login",
+            lambda: build_login_page(
+                page,
+                go_back=go_back,
+                # 卡片底下那两个链接：各自再往下压一层（第 2 层），见下面的
+                # show_register / show_forgot。
+                open_register=show_register,
+                open_forgot=show_forgot,
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_login(update: bool = True) -> None:
+        """日历页右上角 person 图标进来的登录页：二级页，进来后底部菜单收起。
+
+        和设置页走同一套层机制：压进 `page.views` 的真 View，所以左滑 / 真机返回
+        都能退回进来时所在的那个一级页。页面本身是个 Demo（见 pages/login.py）。
+        """
+        origin = selected_index
+        nav_stack.append(lambda: show_page(origin))
+        render_login(update)
+
+    def render_register(update: bool = True) -> None:
+        """只重画「注册」页那一层（**第 2 层**），不动页面栈（同上）。"""
+        show_layer(
+            2,
+            "/register",
+            lambda: build_register_page(page, go_back=go_back),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_register(update: bool = True) -> None:
+        """登录页「注册新账号」进来的三级页。
+
+        回一层回的是**登录页那一层**、不是一级页：所以这里压的是 `render_login`
+        （只重画第 1 层）。登录页自己压的那层「回一级页」还留在栈里 —— 从这一页连按
+        两次返回，才会回到进来时的那个 Tab。
+        """
+        nav_stack.append(lambda: render_login())
+        render_register(update)
+
+    def render_forgot(update: bool = True) -> None:
+        """只重画「忘记密码」页那一层（**第 2 层**），不动页面栈（同上）。"""
+        show_layer(
+            2,
+            "/forgot",
+            lambda: build_forgot_password_page(page, go_back=go_back),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_forgot(update: bool = True) -> None:
+        """登录页「忘记密码」进来的三级页（同上，回一层回登录页）。"""
+        nav_stack.append(lambda: render_login())
+        render_forgot(update)
 
     def menu_item(
         index: int, icon: str, selected_icon: str, label: str, key: str

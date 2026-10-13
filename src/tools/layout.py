@@ -19,6 +19,9 @@ DATA_ICON_SRC = "icons/data.png"
 CALENDAR_ICON_SRC = "icons/calendar.png"
 SETTINGS_ICON_SRC = "icons/settings.png"
 CHECK_ICON_SRC = "icons/check.png"
+# 日历页右上角进「登录」页用的那张（icons/person.png）：路径只写相对 assets 的一段，
+# 尺寸 / 是否压色由引用方定（和上面几张一个规矩）。
+PERSON_ICON_SRC = "icons/person.png"
 
 # An open todo takes the colour of its category (see tools/categories.py) and
 # keeps the same neutral card as a completed one - no fill either way. Only the
