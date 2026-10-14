@@ -1,14 +1,14 @@
 """倒数日 page: 底部菜单第二格。
 
 数据源是**后端**（`/member/countdowns`，按登录会员隔离）：进页面拉一次，缓存在
-tools/countdown_store.py 里，页面（以及日历页那几处）同步读缓存 —— 所以「拉数据」是
-异步的，而渲染仍是同步的、一行都不用改成 async。
+tools/countdown_store.py 里，渲染时同步读缓存 —— 所以「拉数据」是异步的，而渲染仍是
+同步的、一行都不用改成 async。
 
 未登录时这一页只显示一句「登录后可同步倒数日」（登录入口在设置页的「账号」卡片里），
 右下角那枚「+」照常在，点了会提示先登录。
 
-Every entry keeps the anchor date plus an optional 周期 (the same choices a
-repeating 待办 uses). A repeating anchor walks forward to its next occurrence, so
+Every entry keeps the anchor date plus an optional 周期 (the cycle vocabulary in
+db.REPEAT_CYCLES). A repeating anchor walks forward to its next occurrence, so
 a birthday written down years ago still counts down to the coming one, while 不循环
 counts down to the fixed day - or shows how long ago it passed.
 """
@@ -258,7 +258,7 @@ def build_countdown_page(
             return
         open_countdown_form(
             page,
-            # 输入框弹键盘时收起底部菜单（和待办弹窗用的是同一套回调）。
+            # 输入框弹键盘时收起底部菜单。
             set_menu_visible=set_bottom_controls_visible,
             on_saved=refresh,
             item=item,

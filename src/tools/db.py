@@ -1,3 +1,9 @@
+"""SQLite 数据层：建表 / 迁移、按设备隔离，以及倒数日与设置的读写。
+
+待办（todos）那一版已经整体删掉了：`init_db` 会把老库里遗留的 `todos` 表删掉
+（见 LEGACY_TABLES），代码里不再有任何待办相关的表、字段与读写。
+"""
+
 import calendar
 import os
 import sqlite3
@@ -15,25 +21,10 @@ DB_PATH = (
     else Path(__file__).resolve().parents[2] / "dailylist.db"
 )
 
-# 待办和倒数日都带一列 `owner`：**这份数据属于哪台设备**（值就是设备主键，见
-# `data_owner`）。读写一律带 `owner = 当前设备` —— 换台设备就是另一份清单。settings
-# 不带 owner：通知渠道这些是**这台设备**的配置，本来就只有一份。
+# 倒数日带一列 `owner`：**这份数据属于哪台设备**（值就是设备主键，见 `data_owner`）。
+# 读写一律带 `owner = 当前设备` —— 换台设备就是另一份清单。settings 不带 owner：
+# 通知渠道这些是**这台设备**的配置，本来就只有一份。
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS todos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    due_date TEXT NOT NULL,
-    due_time TEXT NOT NULL DEFAULT '',
-    end_time TEXT NOT NULL DEFAULT '',
-    category TEXT NOT NULL,
-    content TEXT NOT NULL,
-    done INTEGER NOT NULL DEFAULT 0,
-    repeat_cycle TEXT NOT NULL DEFAULT '不循环',
-    owner TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos (due_date);
-
 CREATE TABLE IF NOT EXISTS settings (
     name TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -50,11 +41,14 @@ CREATE TABLE IF NOT EXISTS countdowns (
 );
 """
 
-# 带上 owner 的索引**不能写在 SCHEMA 里**：老库的 `todos` 还没有这一列，`executescript`
-# 会在建索引那句上直接报 `no such column: owner`。等 `_add_missing_columns` 把列补齐
-# 之后再建。
+# 待办那版建过一张 `todos` 表（连同它的索引），代码里已经没有待办了 —— 启动时把
+# 它们删掉，别让没人在读的数据留在库里。`DROP TABLE` 会连它自己的索引一起带走。
+LEGACY_TABLES = ("todos",)
+
+# 带上 owner 的索引**不能写在 SCHEMA 里**：老库的 `countdowns` 还没有这一列，
+# `executescript` 会在建索引那句上直接报 `no such column: owner`。等
+# `_add_missing_columns` 把列补齐之后再建。
 OWNER_INDEXES = (
-    "CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos (owner, due_date)",
     "CREATE INDEX IF NOT EXISTS idx_countdowns_owner ON countdowns (owner)",
 )
 
@@ -66,10 +60,12 @@ _owner = {"value": ""}
 # "老数据已经认领过了"的标记：见 set_data_owner —— 认领只能做一次。
 _ADOPTED_SETTING = "owner_adopted"
 
-# 待办的循环周期: the value stored in `todos.repeat_cycle`.
+# 倒数日的循环周期: the value stored in `countdowns.cycle`. 后端只认其中 5 档，
+# 收发两端的映射见 api/member_countdowns.py；`next_occurrence` 拿这个元组判断
+# 一条倒数日是不是循环的。
 DEFAULT_CYCLE = "不循环"
 # 两个「跳着来」的周期：工作日只落在周一..周五，非工作日只落在周六 / 周日。
-# 它们不是「隔几天一次」，所以由 `_weekday_dates` / `_keeps_weekday` 处理。
+# 它们不是「隔几天一次」，所以由 `_keeps_weekday` 处理。
 WORKDAY_CYCLE = "工作日"
 WEEKEND_CYCLE = "非工作日"
 SKIP_CYCLES = (WORKDAY_CYCLE, WEEKEND_CYCLE)
@@ -85,27 +81,14 @@ REPEAT_CYCLES = (
     "六月",
     "一年",
 )
-# A repeating todo is materialised one cycle at a time up to this far ahead, so
-# the home and calendar windows always have their rows without a background job.
-REPEAT_HORIZON_DAYS = 365
-# Safety net for denser cycles: 每天 needs 366 rows for the whole horizon.
-MAX_OCCURRENCES = 400
 
-# Columns added after the todos table shipped. `init_db` adds any that a database
-# is still missing, so an existing dailylist.db keeps up with SCHEMA without a
-# separate migration step.
+# Columns added after the countdowns table shipped. `init_db` adds any that a
+# database is still missing, so an existing dailylist.db keeps up with SCHEMA
+# without a separate migration step.
 ADDED_COLUMNS = (
-    ("todos", "repeat_cycle", "TEXT NOT NULL DEFAULT '不循环'"),
-    ("todos", "due_time", "TEXT NOT NULL DEFAULT ''"),
-    ("todos", "end_time", "TEXT NOT NULL DEFAULT ''"),
-    ("todos", "owner", "TEXT NOT NULL DEFAULT ''"),
     ("countdowns", "bgcolor", "TEXT NOT NULL DEFAULT '#F1F5F9'"),
     ("countdowns", "owner", "TEXT NOT NULL DEFAULT ''"),
 )
-
-# The dialog opens on the current clock, rounded down to this many minutes so the
-# default reads as a round number.
-DEFAULT_TIME_STEP_MINUTES = 5
 
 _MONTH_STEPS = {"一月": 1, "三月": 3, "六月": 6, "一年": 12}
 _DAY_STEPS = {"每天": 1, "三天": 3, "一周": 7}
@@ -114,10 +97,10 @@ _DAY_STEPS = {"每天": 1, "三天": 3, "一周": 7}
 def next_occurrence(start: date, cycle: str, on_or_after: date) -> date:
     """First date of `start`'s cycle series that is not before `on_or_after`.
 
-    倒数日 reuse the todo cycles: 不循环 keeps its single date (even a past one),
-    while 每天/一周/每年… walk forward from the anchor so a birthday stays a
-    birthday every year. The step count is estimated first, then nudged, so an
-    anchor decades old still resolves in a couple of iterations.
+    不循环 keeps its single date (even a past one), while 每天/一周/每年… walk
+    forward from the anchor so a birthday stays a birthday every year. The step
+    count is estimated first, then nudged, so an anchor decades old still
+    resolves in a couple of iterations.
     """
     if cycle not in REPEAT_CYCLES or cycle == DEFAULT_CYCLE:
         return start
@@ -145,64 +128,17 @@ def next_occurrence(start: date, cycle: str, on_or_after: date) -> date:
     return _shift(start, cycle, steps)
 
 
-def default_time(now: datetime | None = None) -> str:
-    """The 时间 the add-todo dialog starts on: the clock rounded down a step."""
-    moment = now or datetime.now()
-    minute = moment.minute - moment.minute % DEFAULT_TIME_STEP_MINUTES
-    return f"{moment.hour:02d}:{minute:02d}"
-
-
-def occurrence_dates(
-    start: date, repeat_cycle: str, horizon_days: int = REPEAT_HORIZON_DAYS
-) -> list[date]:
-    """Every 待办 date of a repeating todo: `start`, then one row per cycle.
-
-    `不循环` is a single date. Longer steps stop at the last occurrence that still
-    falls within `horizon_days` of the start. 工作日 / 非工作日 walk the calendar
-    day by day and keep only the days that cycle covers.
-    """
-    if repeat_cycle == DEFAULT_CYCLE or repeat_cycle not in REPEAT_CYCLES:
-        return [start]
-    if repeat_cycle in SKIP_CYCLES:
-        return _weekday_dates(start, repeat_cycle, horizon_days)
-    last = start + timedelta(days=horizon_days)
-    dates = [start]
-    steps = 0
-    while True:
-        steps += 1
-        current = _shift(start, repeat_cycle, steps)
-        if current > last or len(dates) >= MAX_OCCURRENCES:
-            return dates
-        dates.append(current)
-
-
 def _keeps_weekday(cycle: str, day: date) -> bool:
     """工作日 keeps 周一..周五, 非工作日 keeps 周六 / 周日."""
     return day.weekday() < 5 if cycle == WORKDAY_CYCLE else day.weekday() >= 5
 
 
-def _weekday_dates(start: date, cycle: str, horizon_days: int) -> list[date]:
-    """工作日 / 非工作日 的序列：从锚点起一天天走，只留下属于这个周期的那几天。
-
-    锚点自己不在周期里时（比如「工作日」挑了个周六），序列从它之后第一个符合的
-    日子开始 —— 周日不算「工作日」，所以序列里永远不会出现周末。
-    """
-    last = start + timedelta(days=horizon_days)
-    dates: list[date] = []
-    day = start
-    while day <= last and len(dates) < MAX_OCCURRENCES:
-        if _keeps_weekday(cycle, day):
-            dates.append(day)
-        day += timedelta(days=1)
-    return dates
-
-
 def _shift(start: date, repeat_cycle: str, steps: int) -> date:
     """The day `steps` cycles after `start`.
 
-    Month steps count from `start` rather than from the previous occurrence, so a
-    todo on the 31st stays on the 31st (clamping only in short months) instead of
-    drifting to the 28th for good.
+    Month steps count from `start` rather than from the previous occurrence, so
+    a countdown on the 31st stays on the 31st (clamping only in short months)
+    instead of drifting to the 28th for good.
     """
     day_step = _DAY_STEPS.get(repeat_cycle)
     if day_step:
@@ -218,23 +154,12 @@ def _shift(start: date, repeat_cycle: str, steps: int) -> date:
 
 
 @dataclass(frozen=True)
-class Todo:
-    id: int
-    due_date: date
-    category: str
-    content: str
-    done: bool
-    repeat_cycle: str
-    # "HH:MM" 起止时间: `due_time` is the 开始时间 the timeline shows, `end_time`
-    # the optional 结束时间 the card prints above its text. Empty on rows created
-    # before the 时间 fields existed.
-    due_time: str = ""
-    end_time: str = ""
-
-
-@dataclass(frozen=True)
 class Countdown:
-    """一个倒数日: the anchor date, the repeat cycle and what it counts down to."""
+    """一个倒数日: the anchor date, the repeat cycle and what it counts down to.
+
+    页面上真正读的是 tools/countdown_store.py 里那个同名字段结构的 dataclass
+    （数据来自后端）；这一个描述的是库里那一行。
+    """
 
     id: int
     due_date: date
@@ -255,6 +180,7 @@ def init_db() -> None:
     connection = connect()
     try:
         connection.executescript(SCHEMA)
+        _drop_legacy_tables(connection)
         _add_missing_columns(connection)
         _create_owner_indexes(connection)
         connection.commit()
@@ -263,7 +189,7 @@ def init_db() -> None:
 
 
 def data_owner() -> str:
-    """这份数据属于哪台设备：全 App 的待办和倒数日都按它隔开。"""
+    """这份数据属于哪台设备：本机的倒数日都按它隔开。"""
     return _owner["value"]
 
 
@@ -271,7 +197,7 @@ def set_data_owner(key: str) -> int:
     """记下当前设备的键，返回**认领了几行老数据**。
 
     加 `owner` 这一版之前存下来的行，`owner` 是空串 —— 第一次用这个版本打开库时把它们
-    认过来（不认领的话，升级之后那些待办一条都看不见）。
+    认过来（不认领的话，升级之后那些倒数日一条都看不见）。
 
     **认领只做一次**，靠 `owner_adopted` 这个标记把门。空串除了表示"还没迁移的老数据"，
     还兼着 Android / Web 那份数据的键（那两个平台拿不到设备标识，见 tools/device.py）：
@@ -286,11 +212,10 @@ def set_data_owner(key: str) -> int:
     try:
         adopted = 0
         if key:
-            for table in ("todos", "countdowns"):
-                cursor = connection.execute(
-                    f"UPDATE {table} SET owner = ? WHERE owner = ''", (key,)
-                )
-                adopted += max(0, int(cursor.rowcount))
+            cursor = connection.execute(
+                "UPDATE countdowns SET owner = ? WHERE owner = ''", (key,)
+            )
+            adopted += max(0, int(cursor.rowcount))
         connection.execute(
             "INSERT INTO settings (name, value) VALUES (?, '1')"
             " ON CONFLICT(name) DO UPDATE SET value = '1'",
@@ -302,170 +227,16 @@ def set_data_owner(key: str) -> int:
         connection.close()
 
 
+def _drop_legacy_tables(connection: sqlite3.Connection) -> None:
+    """删掉上一版留下的表（见 LEGACY_TABLES）。老库里没有就是空转。"""
+    for table in LEGACY_TABLES:
+        connection.execute(f"DROP TABLE IF EXISTS {table}")
+
+
 def _create_owner_indexes(connection: sqlite3.Connection) -> None:
     """补建 owner 上的索引 —— 得等列补齐之后才建（见 OWNER_INDEXES）。"""
     for statement in OWNER_INDEXES:
         connection.execute(statement)
-
-
-def add_todo(
-    due_date: date,
-    category: str,
-    content: str,
-    repeat_cycle: str = DEFAULT_CYCLE,
-    due_time: str = "",
-    end_time: str = "",
-) -> int:
-    """Add a todo and return the id of its first row.
-
-    A repeating `repeat_cycle` also schedules the follow-ups: one row per cycle
-    from `due_date` up to `REPEAT_HORIZON_DAYS` ahead, each carrying the same
-    cycle and 起止时间, so the series stays recognisable.
-    """
-    created_at = _now()
-    owner = data_owner()
-    connection = connect()
-    try:
-        first_id = 0
-        for day in occurrence_dates(due_date, repeat_cycle):
-            cursor = connection.execute(
-                "INSERT INTO todos (due_date, due_time, end_time, category,"
-                " content, repeat_cycle, owner, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    day.isoformat(),
-                    due_time,
-                    end_time,
-                    category,
-                    content,
-                    repeat_cycle,
-                    owner,
-                    created_at,
-                ),
-            )
-            if not first_id:
-                first_id = int(cursor.lastrowid)
-        connection.commit()
-        return first_id
-    finally:
-        connection.close()
-
-
-def get_todo(todo_id: int) -> Todo | None:
-    """按 id 取一条（**本模块内部在用**：`todo_series` 与 `update_todo` 都靠它）。"""
-    connection = connect()
-    try:
-        row = connection.execute(
-            "SELECT id, due_date, due_time, end_time, category, content, done,"
-            " repeat_cycle FROM todos WHERE id = ? AND owner = ?",
-            (todo_id, data_owner()),
-        ).fetchone()
-    finally:
-        connection.close()
-    return _to_todo(row) if row else None
-
-
-def todo_series(todo_id: int) -> list[Todo]:
-    """Every row of the repeating series `todo_id` belongs to, oldest first.
-
-    A repeating 待办 materialises one row per occurrence; the rows of one series
-    were inserted in the same call, so they share `created_at`, `repeat_cycle`
-    and content. A 不循环 todo is a series of one.
-    """
-    todo = get_todo(todo_id)
-    if todo is None:
-        return []
-    owner = data_owner()
-    connection = connect()
-    try:
-        row = connection.execute(
-            "SELECT created_at FROM todos WHERE id = ? AND owner = ?",
-            (todo_id, owner),
-        ).fetchone()
-        if todo.repeat_cycle == DEFAULT_CYCLE:
-            return [todo]
-        rows = connection.execute(
-            "SELECT id, due_date, due_time, end_time, category, content, done,"
-            " repeat_cycle FROM todos WHERE created_at = ? AND repeat_cycle = ?"
-            " AND content = ? AND owner = ? ORDER BY due_date, id",
-            (row["created_at"], todo.repeat_cycle, todo.content, owner),
-        ).fetchall()
-    finally:
-        connection.close()
-    return [_to_todo(r) for r in rows]
-
-
-def update_todo(
-    todo_id: int,
-    due_date: date,
-    category: str,
-    content: str,
-    repeat_cycle: str = DEFAULT_CYCLE,
-    due_time: str = "",
-    end_time: str = "",
-) -> int:
-    """Edit one 待办, keeping its whole cycle in step. Returns rows written.
-
-    The edited row may be any occurrence of a repeating series, so the series is
-    rebuilt from its own anchor shifted by however far the edited day moved -
-    editing the 5th of a daily series to the 6th moves the whole series by one
-    day. Occurrences that were already done stay done (matched by their place in
-    the series, so a shift keeps the ticks), and a 不循环 todo simply becomes its
-    single edited row.
-    """
-    todo = get_todo(todo_id)
-    if todo is None:
-        return 0
-    series = todo_series(todo_id) or [todo]
-    done_places = {index for index, item in enumerate(series) if item.done}
-    anchor = min(item.due_date for item in series)
-    start = due_date - (todo.due_date - anchor)
-    ids = [item.id for item in series]
-    created_at = _now()
-    owner = data_owner()
-    connection = connect()
-    try:
-        placeholders = ", ".join("?" for _ in ids)
-        connection.execute(
-            f"DELETE FROM todos WHERE id IN ({placeholders}) AND owner = ?",
-            [*ids, owner],
-        )
-        written = 0
-        for place, day in enumerate(occurrence_dates(start, repeat_cycle)):
-            connection.execute(
-                "INSERT INTO todos (due_date, due_time, end_time, category,"
-                " content, done, repeat_cycle, owner, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    day.isoformat(),
-                    due_time,
-                    end_time,
-                    category,
-                    content,
-                    1 if place in done_places else 0,
-                    repeat_cycle,
-                    owner,
-                    created_at,
-                ),
-            )
-            written += 1
-        connection.commit()
-        return written
-    finally:
-        connection.close()
-
-
-def clear_todos() -> int:
-    """Delete every todo row **of this device**, returning how many went."""
-    connection = connect()
-    try:
-        cursor = connection.execute(
-            "DELETE FROM todos WHERE owner = ?", (data_owner(),)
-        )
-        connection.commit()
-        return int(cursor.rowcount)
-    finally:
-        connection.close()
 
 
 def clear_countdowns() -> int:
@@ -482,22 +253,20 @@ def clear_countdowns() -> int:
 
 
 def replace_data(
-    todos: list[dict],
     countdowns: list[dict],
     settings: dict[str, str] | None = None,
-) -> tuple[int, int, int]:
-    """导入用：清空待办与倒数日，再把这批记录写进去。
+) -> tuple[int, int]:
+    """导入用：清空倒数日，再把这批记录写进去。
 
     三个要点：
-    - 记录是**原样**写的：`repeat_cycle` 直接存、**不按周期展开**。导入的每一行本来
-      就是循环铺开后的结果（见 occurrence_dates），再展开一次一天就变一年 —— 所以
-      这里不能用 `add_todo`。
+    - 记录是**原样**写的：`cycle` 直接存、不做任何推算。导入的每一行本来就是结果行，
+      展开一次就不再是原来那条。
     - `settings` 是逐条覆盖、**不清空**：那张表里还放着通知渠道之类的配置，导入文件
       里没有的键不该被抹掉。
-    - 全程一个连接、一个事务：几千行逐条 `add_*` 要开几千次连接，而且中途出错会留下
-      半截数据；这里要么全进、要么全不进。
+    - 全程一个连接、一个事务：几千行逐条写要开几千次连接，而且中途出错会留下半截
+      数据；这里要么全进、要么全不进。
 
-    返回 `(写了几条待办, 写了几个倒数日, 覆盖了几个设置)`。
+    返回 `(写了几个倒数日, 覆盖了几个设置)`。
 
     **只动本机的那些行**：导入是"把这批记录换进我这台设备的清单"，别人那边的数据一条
     都不能碰。
@@ -506,25 +275,7 @@ def replace_data(
     owner = data_owner()
     connection = connect()
     try:
-        connection.execute("DELETE FROM todos WHERE owner = ?", (owner,))
         connection.execute("DELETE FROM countdowns WHERE owner = ?", (owner,))
-        for todo in todos:
-            connection.execute(
-                "INSERT INTO todos (due_date, due_time, end_time, category,"
-                " content, done, repeat_cycle, owner, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    todo["due_date"],
-                    todo.get("due_time", ""),
-                    todo.get("end_time", ""),
-                    todo["category"],
-                    todo["content"],
-                    1 if todo.get("done") else 0,
-                    todo.get("repeat_cycle", DEFAULT_CYCLE),
-                    owner,
-                    created_at,
-                ),
-            )
         for item in countdowns:
             connection.execute(
                 "INSERT INTO countdowns (due_date, cycle, content, bgcolor,"
@@ -552,7 +303,7 @@ def replace_data(
         raise
     finally:
         connection.close()
-    return len(todos), len(countdowns), written_settings
+    return len(countdowns), written_settings
 
 
 def add_countdown(
@@ -665,27 +416,6 @@ def update_countdown(
         connection.close()
 
 
-def list_all_todos() -> list[Todo]:
-    """本机所有的待办 —— 导出数据用。
-
-    注意给的是**物化之后**的全部行：循环待办是新增 / 编辑时按周期一次性铺开的
-    （见 occurrence_dates），库里没有「模板 + 规则」这种存法。
-    """
-    connection = connect()
-    try:
-        rows = connection.execute(
-            "SELECT id, due_date, due_time, end_time, category, content, done,"
-            " repeat_cycle"
-            " FROM todos"
-            " WHERE owner = ?"
-            " ORDER BY due_date, id",
-            (data_owner(),),
-        ).fetchall()
-    finally:
-        connection.close()
-    return [_to_todo(row) for row in rows]
-
-
 def get_setting(name: str, default: str = "") -> str:
     """One stored setting, or `default` when it was never saved."""
     connection = connect()
@@ -724,21 +454,8 @@ def list_settings() -> dict[str, str]:
     return {row["name"]: row["value"] for row in rows}
 
 
-def _to_todo(row: sqlite3.Row) -> Todo:
-    return Todo(
-        id=row["id"],
-        due_date=date.fromisoformat(row["due_date"]),
-        due_time=row["due_time"],
-        end_time=row["end_time"],
-        category=row["category"],
-        content=row["content"],
-        done=bool(row["done"]),
-        repeat_cycle=row["repeat_cycle"],
-    )
-
-
 def _add_missing_columns(connection: sqlite3.Connection) -> None:
-    """Bring an already-created todos table up to SCHEMA, column by column."""
+    """Bring an already-created countdowns table up to SCHEMA, column by column."""
     for table, column, definition in ADDED_COLUMNS:
         existing = {
             row["name"] for row in connection.execute(f"PRAGMA table_info({table})")

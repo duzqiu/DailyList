@@ -1,6 +1,6 @@
-"""Option selector shared by the 数据 pickers and the add-todo dialog.
+"""Option selector shared by the countdown dialog and the settings page.
 
-The 年/月/周 selector and the dialog's 日期/类别 pickers must look and behave the
+The 周期 / 日期 pickers and the settings rows' dropdowns must look and behave the
 same, so they are built here once instead of being styled twice.
 
 Material anchors a popup menu strictly outside its button (`menu_position=UNDER`

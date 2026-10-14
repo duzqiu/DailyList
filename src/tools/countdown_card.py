@@ -1,4 +1,4 @@
-"""The 倒数日 card, shared by the 倒数日 page and the 日历 day dialog.
+"""The 倒数日 card used by the 倒数日 page.
 
 一张卡片分上中下三段：上段是图标 + 倒数日事项，底色就是这张卡自己选的颜色；
 中段是放大后的天数，「天后」贴在数字右上角；中段高度钉死成「有数字那一行」的高度，
@@ -8,9 +8,8 @@
 的那种一过到期日就整张收起。
 
 收起来的那些没有消失：倒数日页把它们收进列表底部的开关里，展开时用 `expired=True` 再
-渲染同一张卡；日历页也照常在当天格子里把它们列出来 —— 而且只要所看的那天在今天
-之前，这一次的倒数日就照 `expired=True` 显示（循环的那条也算：`countdown_expired`
-只判不循环的那条，循环的按设计永远等下一次）。`expired=True` 的卡片整张置灰 ——
+渲染同一张卡（`countdown_expired` 只判不循环的那条，循环的按设计永远等下一次）。
+`expired=True` 的卡片整张置灰 ——
 上段丢掉自选色、中下段丢掉白底，图标和「天前」那块小底也不留状态色，只有天数本身
 照旧，下段的日期那行换成「已过期 N 天」。
 """
@@ -22,8 +21,14 @@ from typing import Any
 import flet as ft
 
 from tools import countdown_store, db
-from tools.categories import category_color
-from tools.layout import CALENDAR_ICON_SRC, date_label, readable_ink
+from tools.layout import (
+    CALENDAR_ICON_SRC,
+    FUTURE_COLOR,
+    SOON_COLOR,
+    URGENT_COLOR,
+    date_label,
+    readable_ink,
+)
 from tools.lunar import lunar_label
 
 TITLE_COLOR = "#172554"
@@ -32,10 +37,10 @@ MUTED_COLOR = "#64748B"
 CARD_BG = "#F1F5F9"
 CARD_BODY_BG = "#FFFFFF"
 # 过期卡片整张置灰：上段不再用这张卡自选的颜色，中下段也不再是白底，两段各降一档
-# 灰（上段比中下段深，三段的分界还看得出来）；图标、「天前」那块小底、以及日历页
-# 当天格里那条小标签，统统用下面这档灰，不留一点状态色。
+# 灰（上段比中下段深，三段的分界还看得出来）；图标和「天前」那块小底统统用下面这档
+# 灰，不留一点状态色。
 #
-# 上段这档灰还必须比日历弹窗的底色（`layout.DIALOG_SURFACE` = #E4E9EF）深出一截：
+# 上段这档灰还必须比弹窗底色（`layout.DIALOG_SURFACE` = #E4E9EF）深出一截：
 # 早先用的 #E2E8F0 和它只差一两个色阶，过期卡片一放进弹窗，上段就跟弹窗底色融成
 # 一片，看着像是根本没画背景（倒数日页是白底渐变，所以那里看得出来、这儿看不出）。
 EXPIRED_HEADER_BG = "#D5DBE4"
@@ -70,11 +75,8 @@ DOT_COLOR = CARD_BORDER
 DOT_ROW_ESTIMATE = 133
 # 再窄也留这么几个，免得算出 0 或 1 个看着不像一条线。
 DOT_MIN_COUNT = 4
-# 天数徽标的三档状态色直接借待办类别的三色：红 = 重要、黄 = 一般、绿 = 可选，天数
-# 越近越像「重要」。三张卡都取同一份色值（tools/categories.py），别再手写十六进制。
-URGENT_COLOR = category_color("重要")
-SOON_COLOR = category_color("一般")
-FUTURE_COLOR = category_color("可选")
+# 天数徽标的三档状态色：红 = 三天内、黄 = 一周内、绿 = 更远，天数越近越扎眼。三档色值
+# 都在 tools/layout.py 里定义（全 App 一份），这儿只用不定义。
 SOON_DAYS = 3
 FUTURE_DAYS = 7
 # 不循环的倒数日过期后还挂几天：到期当天算第 0 天、还留在正列表里，第二天起收进底部开关。
@@ -110,7 +112,7 @@ def countdown_visible(item: countdown_store.Countdown, today: date | None = None
 def visible_countdowns(
     items: list[countdown_store.Countdown], today: date | None = None
 ) -> list[countdown_store.Countdown]:
-    """筛掉已经过期的倒数日；页面列表和日历都先用它过一遍。"""
+    """筛掉已经过期的倒数日；页面列表先用它过一遍。"""
     today = today or date.today()
     return [item for item in items if countdown_visible(item, today)]
 
@@ -275,15 +277,12 @@ def build_countdown_card(
 ) -> ft.Control:
     """One 倒数日 card; wrapped in the swipe row when callbacks are given.
 
-    `expired=True`（倒数日页底部展开的那些、日历页当天格里的过期项）只动外观：
-    整张卡片连同图标、「天前」那块小底一并置灰，下段的日期换成「已过期 N 天」，
-    卡片本身还是同一张。
+    `expired=True`（倒数日页底部展开的那些）只动外观：整张卡片连同图标、「天前」
+    那块小底一并置灰，下段的日期换成「已过期 N 天」，卡片本身还是同一张。
 
     `days` 是「这张卡片讲的那一天」相对今天的天数：正数还有几天、负数已经过了几天、
     0 就是今天。给了就用它，不给则卡片按这条倒数日自己推。**中段和下段共用这一个
     数**，所以过期卡片中段写的天数和下段「已过期 N 天」永远是同一个数、同一个状态。
-    日历里必须给：那儿一张卡讲的是「所看的那天」，而循环倒数日的 `next_occurrence`
-    只会往前找下一次，推不出这一天已经过去了（会推到还在未来的下一次去）。
     """
     # 中段和下段共用这一个数，两处永远同步。
     shown_days = days if days is not None else countdown_days(item, today)
@@ -394,12 +393,3 @@ def build_countdown_card(
             on_edit,
         ),
     )
-
-
-def countdowns_on(day: date, items: list[countdown_store.Countdown] | None = None) -> list[countdown_store.Countdown]:
-    """The 倒数日 whose next occurrence lands on `day` - one row per day."""
-    return [
-        item
-        for item in (items if items is not None else countdown_store.items())
-        if db.next_occurrence(item.due_date, item.cycle, day) == day
-    ]

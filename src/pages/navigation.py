@@ -2,14 +2,12 @@ from collections.abc import Callable
 
 import flet as ft
 
-from datetime import date
-
 from pages.background import build_background_page
 from pages.messages import build_messages_page
 from pages.my import build_my_page
-# 占位页要页面渐变 + 底栏那一段留白；底栏中间那颗「+」在这儿弹「新增待办」。
+# 占位页要页面渐变 + 底栏那一段留白。
 from tools.layout import safe_update
-from tools.todo_form import open_todo_form
+from tools.toast import build_toast
 from pages.countdown import build_countdown_page
 from pages.edit_profile import build_edit_profile_page
 from pages.forgot_password import build_forgot_password_page
@@ -101,9 +99,9 @@ def build_navigation(page: ft.Page) -> None:
     )
     selected_index = 0
 
-    # 各页的「选择状态」，按页面名保管。切页时页面控件是重建的（待办数据要现从
-    # db 读），但「在看哪个月 / 选了哪一档」这类选择不该跟着回到默认值：切走再
-    # 切回来还停在原处，只有热重载重新跑 main() 才回到初始值。
+    # 各页的「选择状态」，按页面名保管。切页时页面控件是重建的（数据要现从库里
+    # 读），但「选了哪一档」这类选择不该跟着回到默认值：切走再切回来还停在原处，
+    # 只有热重载重新跑 main() 才回到初始值。
     state_store: dict[str, dict[str, object]] = {}
 
     def page_state(name: str) -> dict[str, object]:
@@ -177,8 +175,7 @@ def build_navigation(page: ft.Page) -> None:
     # 挂着 `animate_scale` 才插得出「选中放大」那段动画（见 `refresh_menu_items`）。
     menu_label_texts: list[tuple[int, ft.Text]] = []
 
-    # 底栏配色：白底、**不描边**；项只有文字，中间那颗红「+」是小红书最显眼的一笔
-    # （在这个 App 里它 = 新增待办，见 `menu_plus`）。
+    # 底栏配色：白底、**不描边**；项只有文字，中间那颗红「+」是小红书最显眼的一笔。
     MENU_BAR_BG = "#FFFFFF"
     MENU_LABEL_IDLE = "#9CA3AF"
     MENU_LABEL_SELECTED = "#111827"
@@ -252,8 +249,9 @@ def build_navigation(page: ft.Page) -> None:
                 # 「账号」卡片里点「登录」/「管理」→ 登录页压在**这个 Tab 之上**（第 1
                 # 层），返回回到这个 Tab。
                 show_login_from_settings,
-                # 内容板上那个红色胶囊「去添加」= 新增待办（和底栏那颗「+」同一件事）。
-                add_todo,
+                # 内容板上那个红色胶囊「去发布」：和底栏那颗「+」走同一个回调 ——
+                # 两处目前都没接功能，点了给一句提示（见 `notify_unavailable`）。
+                notify_unavailable,
                 # 背景区里点空白处 → 换背景图那一页。
                 show_background,
                 # 顶栏那枚胶囊「编辑主页」→「编辑资料」页（复刻小红书那一版）。
@@ -361,7 +359,7 @@ def build_navigation(page: ft.Page) -> None:
             page.update()
 
     def show_preferences(update: bool = True) -> None:
-        """日历页右上角齿轮进来的设置页：二级页，进来后底部菜单收起。"""
+        """「我的」页左上角那枚 ☰ 进来的设置页：二级页，进来后底部菜单收起。"""
         origin = selected_index
         nav_stack.append(lambda: show_page(origin))
         render_preferences(update)
@@ -369,7 +367,7 @@ def build_navigation(page: ft.Page) -> None:
     def render_login(depth: int = 1, update: bool = True) -> None:
         """只重画「登录」页那**一层**，不动页面栈（同上）。
 
-        `depth` 是它压在 `page.views` 的第几层：从日历页进来是第 1 层（默认），
+        `depth` 是它压在 `page.views` 的第几层：从「我的」页进来是第 1 层（默认），
         从**设置页**进来时压在设置页之上，是第 2 层（见 `show_login_from_settings`）。
         注册页 / 忘记密码页跟着再深一层，返回才能逐层退回去。
         """
@@ -425,7 +423,7 @@ def build_navigation(page: ft.Page) -> None:
 
         回一层回的是**登录页那一层**、不是一级页：所以这里压的是 `render_login(depth-1)`
         （只重画登录页那一层）。登录页自己压的那层「回上一页」还留在栈里 —— 从这一页连按
-        两次返回，才会回到进来时的地方（日历页那个 Tab / 设置页）。
+        两次返回，才会回到进来时的地方（「我的」页那个 Tab / 设置页）。
         """
         nav_stack.append(lambda: render_login(depth - 1))
         render_register(depth, update)
@@ -490,24 +488,19 @@ def build_navigation(page: ft.Page) -> None:
             content=text,
         )
 
-    def add_todo() -> None:
-        """开「新增待办」弹窗（存完跳回首页）。
+    def notify_unavailable() -> None:
+        """底栏那颗「+」和「我的」页那个红胶囊：两处目前都没接功能，点了给一句提示。
 
-        底栏那颗红「+」和「我的」页内容板上那个红色胶囊「去添加」，两处都走这一个 ——
-        同一件事只有一处写法。
+        「新增待办」整块已经删掉，这两个按钮先留着小红书那一笔红色视觉 —— 底栏
+        那颗「+」和我的页的胶囊都走这一个回调。新增倒数日不在这儿，它在倒数日页
+        右下角自己那枚「+」上。
         """
-        open_todo_form(
-            page,
-            set_menu_visible=set_menu_visible,
-            on_saved=lambda _day: show_page(0),
-            default_date=date.today(),
-        )
+        page.show_dialog(build_toast(page, "该功能暂未开放"))
 
     def menu_plus() -> ft.Control:
         """中间那颗「+」（小红书最显眼的一笔）：**扁椭圆**的红按钮 + 白加号。
 
-        在这个 App 里它 = **新增待办**（见 `add_todo`）。新增倒数日不在这儿 —— 它在
-        倒数日页右下角自己那枚「+」上。
+        照旧摆在底栏正中，但暂时没接功能（见 `notify_unavailable`）。
         """
         return ft.Container(
             expand=True,
@@ -520,7 +513,7 @@ def build_navigation(page: ft.Page) -> None:
                 border_radius=ft.BorderRadius.all(MENU_PLUS_RADIUS),
                 bgcolor=MENU_PLUS_BG,
                 ink=True,
-                on_click=lambda _: add_todo(),
+                on_click=lambda _: notify_unavailable(),
                 content=ft.Icon(ft.Icons.ADD, size=22, color="#FFFFFF"),
             ),
         )

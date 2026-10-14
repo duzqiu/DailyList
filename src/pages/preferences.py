@@ -1,11 +1,12 @@
-"""设置页：日历页右上角齿轮进来的二级页。
+"""设置页：「我的」页左上角那枚 ☰ 进来的二级页。
 
-四档卡片，每档一张：**账号**（未登录给个登录入口 / 登录了显示当前用户）、
-**通知设置**（通知渠道）、**数据设置**（导出 JSON、云端数据）、**通用设置**（当前版本、
-联系方式、清除缓存）—— 档名是卡片上的小标题，条目都摆在自己那张卡片里
-（见 settings_section）。顶栏用 tools/layout.py 的 build_subpage_header：左边是
-「‹ 返回」，标题「设置」落在页面正中（左边返回按钮有多宽，右边就留多宽的空位撑
-着）。
+三档卡片，每档一张：**通知设置**（通知渠道）、**数据设置**（导出 / 导入 JSON、云端开关）、
+**通用设置**（当前版本、联系方式、清除缓存、退出登录）—— 档名是卡片上的小标题，条目都
+摆在自己那张卡片里（见 settings_section）。原来那张「账号」卡片已经搬去「我的」页
+（pages/my.py），两页共用 tools/settings_card.py 里的同一套零件。
+
+顶栏用 tools/layout.py 的 build_subpage_header：左边是「‹ 返回」，标题「设置」落在页面
+正中（左边返回按钮有多宽，右边就留多宽的空位撑着）。
 """
 
 import asyncio
@@ -115,8 +116,8 @@ def build_preferences_page(
         return ft.AlertDialog(
             modal=True,
             shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-            # Same surface as the add-todo dialog, so the option panels opening
-            # inside a settings dialog can be painted the same colour too.
+            # Same surface as the add-countdown dialog, so the option panels
+            # opening inside a settings dialog can be painted the same colour too.
             bgcolor=DIALOG_SURFACE,
             elevation=0,
             inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
@@ -136,11 +137,10 @@ def build_preferences_page(
 
     def clear_data(_: ft.Event[ft.Control]) -> None:
         page.pop_dialog()
-        # 待办和倒数日一起清：「清除缓存」的意思是"把我这份数据倒空"，只清一半会让人
-        # 以为倒数日删不掉、再点一次还是删不掉。
-        todos = db.clear_todos()
+        # 「清除缓存」的意思是"把我这份数据倒空"。本地现在只剩倒数日这一份数据
+        # （待办整块已经删掉了）。
         countdowns = db.clear_countdowns()
-        notify(f"已清除 {todos} 条待办、{countdowns} 个倒数日")
+        notify(f"已清除 {countdowns} 个倒数日")
 
     def confirm_clear(_: ft.Event[ft.Control]) -> None:
         # iOS-style dialog, the one Cupertino control Flet offers: the whole
@@ -157,7 +157,7 @@ def build_preferences_page(
                 content=ft.Container(
                     padding=ft.Padding.only(top=6),
                     content=ft.Text(
-                        "将删除当前所有的待办与倒数日，且无法恢复。",
+                        "将删除当前所有的倒数日，且无法恢复。",
                         size=13,
                         color=TITLE_COLOR,
                     ),
@@ -227,7 +227,7 @@ def build_preferences_page(
             notify("已导出 JSON 数据")
 
     def confirm_import(_: ft.Event[ft.Control]) -> None:
-        """导入前的二次确认 —— 它会把现在的待办与倒数日整表换掉，不能点错就进去。"""
+        """导入前的二次确认 —— 它会把现在的倒数日整表换掉，不能点错就进去。"""
         page.show_dialog(
             ft.CupertinoAlertDialog(
                 modal=True,
@@ -240,7 +240,7 @@ def build_preferences_page(
                 content=ft.Container(
                     padding=ft.Padding.only(top=6),
                     content=ft.Text(
-                        "会用 JSON 文件里的内容替换现在的待办与倒数日，且无法撤销。",
+                        "会用 JSON 文件里的内容替换现在的倒数日，且无法撤销。",
                         size=13,
                         color=TITLE_COLOR,
                     ),
@@ -503,7 +503,7 @@ def build_preferences_page(
             # 地址很长，这一格必须是**单行**：长地址在格子里横向滚，别折成两行
             # （`multiline` 默认就是 False，这里写出来是防止以后被改成 True）。
             multiline=False,
-            # Same as the 待办内容 field: the keyboard would cover the floating
+            # Same as the 倒数日事项 field: the keyboard would cover the floating
             # menu bar, so the bar steps out of the way and the dialog parks just
             # above the keyboard while typing.
             on_focus=lambda _: url_focus_changed(True),
@@ -605,7 +605,7 @@ def build_preferences_page(
             ],
         )
         # 键盘一升一落都把弹窗挪到键盘上方 / 回到正中（见 track_keyboard）。
-        # 挂在 media 事件上而不是焦点上 —— 和新增待办、新增倒数日那两个弹窗一个做法。
+        # 挂在 media 事件上而不是焦点上 —— 和新增倒数日那个弹窗一个做法。
         unwatch_keyboard = track_keyboard(page, dialog)
         page.show_dialog(dialog)
 
@@ -746,11 +746,11 @@ def build_preferences_page(
         )
 
     def clear_row() -> ft.Control:
-        """通用设置那一行：清除缓存（**待办和倒数日一起清**，见 clear_data）。"""
+        """通用设置那一行：清除缓存（见 clear_data）。"""
         return setting_row(
             "清除缓存",
             ft.Text(
-                "删除当前所有的待办与倒数日", size=11, color=MUTED_COLOR
+                "删除当前所有的倒数日", size=11, color=MUTED_COLOR
             ),
             ft.OutlinedButton(
                 "清除",
@@ -781,7 +781,7 @@ def build_preferences_page(
             row.visible = False
             # 走 safe_update：退出是**异步**做完的（等后端应一声），回来时这一页可能
             # 已经被换掉了（切走就重建），硬 update 会抛「must be added to the page
-            # first」—— 和倒数日页、日历页那两处同一个道理。
+            # first」—— 和倒数日页那处同一个道理。
             safe_update(row)
             notify("已退出登录")
             refresh_cloud_summary()

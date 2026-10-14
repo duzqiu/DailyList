@@ -222,16 +222,16 @@ def build_my_page(
     state: dict[str, object],
     open_settings: Callable[[], None],
     open_login: Callable[[], None],
-    open_add_todo: Callable[[], None],
+    on_publish: Callable[[], None],
     open_background: Callable[[], None],
     open_edit_profile: Callable[[], None],
 ) -> ft.Control:
     """「我的」页。
 
     `open_settings` 是顶栏左上角那枚 ☰；`open_login` 是账号那块里点「登录」；
-    `open_add_todo` 是内容板上那个红胶囊；`open_background` 是账号卡片里那块空白
-    （换背景图）；`open_edit_profile` 是顶栏胶囊「编辑主页」（进去是「编辑资料」二级页，
-    见 pages/edit_profile.py）。
+    `on_publish` 是内容板上那个红胶囊（目前没接功能，点了给提示）；`open_background`
+    是账号卡片里那块空白（换背景图）；`open_edit_profile` 是顶栏胶囊「编辑主页」
+    （进去是「编辑资料」二级页，见 pages/edit_profile.py）。
 
     顶栏右上角原来还有一枚「数据」（柱状图）图标，**按用户要求去掉了** —— 那一格现在只有
     「编辑主页」。
@@ -421,7 +421,7 @@ def build_my_page(
                                 spacing=10,
                                 controls=[
                                     _pill("更多灵感"),
-                                    _pill("去发布", open_add_todo, primary=True),
+                                    _pill("去发布", on_publish, primary=True),
                                 ],
                             ),
                         ],

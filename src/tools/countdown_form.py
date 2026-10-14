@@ -1,4 +1,4 @@
-"""The 新增/编辑倒数日 dialog, shared by the 倒数日 and 日历 pages.
+"""The 新增/编辑倒数日 dialog used by the 倒数日 page.
 
 弹窗里不摆颜色：卡片底色由 tools/countdown_store.py 按倒数日的 **id** 稳定取一档浅色
 （后端没有颜色字段）。保存走的是后端接口（`/member/countdowns`，见
@@ -75,7 +75,7 @@ def open_countdown_form(
 
     cycle_selector = build_option_selector(
         cycle_text,
-        # 只列后端 `CountdownCycle` 认得的这几档（待办那边仍是完整的十档）。
+        # 只列后端 `CountdownCycle` 认得的这几档（App 内部另几档见 db.REPEAT_CYCLES）。
         [(name, name) for name in SUPPORTED_CYCLES],
         set_cycle,
         # 面板钉成固定高度：档位再多也不用改这里，多出来的在里面上下滚。
@@ -93,8 +93,7 @@ def open_countdown_form(
         hint_text="请输入倒数日事项",
         hint_style=ft.TextStyle(size=13, color=MUTED_COLOR),
         # Typing opens the keyboard, so the floating menu bar steps out of the
-        # way and the dialog parks just above the keyboard, exactly as it does in
-        # the 新增待办 dialog.
+        # way and the dialog parks just above the keyboard.
         on_focus=lambda _: focus_changed(True),
         on_blur=lambda _: focus_changed(False),
         filled=False,
@@ -103,7 +102,7 @@ def open_countdown_form(
         text_style=ft.TextStyle(size=13, color="#334155"),
         dense=True,
         # 事项就是一行字，输入框也保持单行 —— 不设 `multiline`，它就没有会长高的
-        # 余地（和 新增待办 的输入框一个做法）。
+        # 余地。
     )
 
     def close_dialog(_: ft.Event[ft.Control] | None = None) -> None:

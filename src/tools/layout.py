@@ -9,24 +9,29 @@ BACKGROUND_COLORS = ("#FFFFFF", "#EEF2FF")
 # Solid colour behind the gradient: the native page background.
 PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 
-# assets 里那几张图的路径（都在 `src/assets/icons/`）。集中在这儿，免得同一个文件名在
-# 几个页面里各写一遍 —— 日历那一张就有三处共用（底部菜单、倒数日卡片、空态提示）。
+# assets 里那几个图的路径（`src/assets/icons/` 与 `src/assets/images/`，分目录见 README
+# 开发约定 4）。集中在这儿，免得同一个文件名在几个页面里各写一遍。
 # 这里写的是**相对 assets 目录**的路径：不带 `assets/` 前缀、也不带前导斜杠（Flet 把
 # assets 目录挂在 App 的根路径下，写成 `assets/icons/xx.png` 反而 404）。详见 README
-# 约定 11；引用时配 `ft.Image(..., width/height/fit=CONTAIN)`，尺寸各页自己定。
+# 开发约定 5；引用时配 `ft.Image(..., width/height/fit=CONTAIN)`，尺寸各页自己定。
 ADD_ICON_SRC = "icons/add.png"
 # 登录 / 注册 / 忘记密码三页的整页背景：`src/assets/images/auth_background.jpg`。
 # 柔和的天蓝 → 淡靛蓝渐变、带一点极淡光斑，低对比度 —— 上面压 70% 白的毛玻璃卡片后
 # 仍读得清字（见 tools/auth_form.py 的 `GLASS_BG`）。
 AUTH_BACKGROUND_SRC = "images/auth_background.jpg"
 CALENDAR_ICON_SRC = "icons/calendar.png"
-SETTINGS_ICON_SRC = "icons/settings.png"
 
 SKY_BLUE = "#B2E0F4"
 # Surface colour of an unselected card（不选中的卡片底色）。
 UNSELECTED_CARD_BG = "#F1F5F9"
 # The picked day's blue（选中的那一天）。
 DATE_SELECTED_BG = "#B5D7EA"
+
+# 倒数日天数徽标的三档状态色：天数越近越扎眼 —— 红 = 三天内、黄 = 一周内、绿 = 更远。
+# 全 App 只在这里定义一次（原来的分类色模块已随待办一起删掉），别再手写十六进制。
+URGENT_COLOR = "#DC2626"
+SOON_COLOR = "#EAB308"
+FUTURE_COLOR = "#16A34A"
 
 # 底栏贴着屏幕底：不留那条缝（`keep_menu_off_keyboard` 仍按 `media.view_insets` 顶键盘）。
 MENU_BAR_BOTTOM = 0

@@ -3,7 +3,7 @@
 
 这三块零件原本长在设置页（pages/preferences.py）里；「账号」卡片现在挂在「我的」页
 （pages/my.py），两边都要用同一套卡片外壳 —— 所以一并搬到这儿，设置页反过来 import 它们
-（一处实现，两处用；README 约定 12）。
+（一处实现、两处用；见 README 开发约定 2）。
 
 `build_account_card` 自己只依赖 `page` 与 `open_login`，不碰设置页的任何局部状态。
 

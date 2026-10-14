@@ -1,4 +1,4 @@
-"""导出数据：把库里的待办 / 倒数日 / 设置拍成一份 JSON。
+"""导出数据：把库里的倒数日 / 设置拍成一份 JSON。
 
 选 JSON 是因为它和 SQLite 结构最贴 —— 一张表一个数组，字段名和列名一一对上，将来
 要「导入回填」不用再拍平一层。写文件时 `ensure_ascii=False`，中文在文件里仍是原文，
@@ -27,7 +27,7 @@ def export_file_name(now: datetime | None = None) -> str:
 def build_payload(now: datetime | None = None) -> dict:
     """库里的全部数据拍成一个可 JSON 序列化的 dict。
 
-    三张表各一数组，`settings` 是键值对（它本来就是 name/value 两列）。
+    两张表各一数组，`settings` 是键值对（它本来就是 name/value 两列）。
     """
     moment = now or datetime.now()
     return {
@@ -35,19 +35,6 @@ def build_payload(now: datetime | None = None) -> dict:
         "format": EXPORT_FORMAT,
         "version": EXPORT_VERSION,
         "exported_at": moment.isoformat(timespec="seconds"),
-        "todos": [
-            {
-                "id": todo.id,
-                "due_date": todo.due_date.isoformat(),
-                "due_time": todo.due_time,
-                "end_time": todo.end_time,
-                "category": todo.category,
-                "content": todo.content,
-                "done": todo.done,
-                "repeat_cycle": todo.repeat_cycle,
-            }
-            for todo in db.list_all_todos()
-        ],
         "countdowns": [
             {
                 "id": item.id,

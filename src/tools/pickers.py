@@ -1,8 +1,7 @@
-"""The system date and time pickers the 待办 and 倒数日 dialogs share.
+"""The system date picker the 倒数日 and 编辑资料 pages share.
 
-Both are Flet's own controls - the Material date dialog and the time dial - and
-both are point-only: the date picker cannot switch to typing a date and the time
-picker cannot switch to typing a time.
+It is Flet's own Material date dialog, and it is point-only: the picker cannot
+switch to typing a date.
 
 Two details worth keeping in mind:
 
@@ -14,7 +13,7 @@ Two details worth keeping in mind:
 """
 
 from collections.abc import Callable
-from datetime import date, datetime, time
+from datetime import date, datetime
 
 import flet as ft
 
@@ -56,11 +55,6 @@ def local_day(value: date | datetime) -> date:
     return value
 
 
-def midnight(day: date) -> datetime:
-    """`day` as the datetime `first_date`/`last_date` expect."""
-    return datetime.combine(day, time.min)
-
-
 def build_date_picker(
     value: date,
     on_confirm: Callable[[date], None],
@@ -69,9 +63,8 @@ def build_date_picker(
 ) -> ft.DatePicker:
     """Flet's system date picker. 点选 only - the typing mode is not offered.
 
-    `first_date`/`last_date` clamp the range the way each dialog needs: 新增待办
-    keeps past days out, 倒数日 allows them because a birthday usually starts
-    years ago.
+    `first_date`/`last_date` clamp the range the caller needs: 倒数日 allows past
+    days because a birthday usually starts years ago.
     """
     picker = ft.DatePicker(
         value=value,
@@ -91,37 +84,6 @@ def build_date_picker(
     def confirm(e: ft.Event[ft.DatePicker]) -> None:
         picker.open = False
         on_confirm(local_day(e.control.value))
-        if e.page:
-            e.page.update()
-
-    picker.on_change = confirm
-    return picker
-
-
-def build_time_picker(
-    value: time,
-    on_confirm: Callable[[time], None],
-    help_text: str = "选择时间",
-) -> ft.TimePicker:
-    """Flet's system time picker. 点选 only - the dial, no typed input.
-
-    `help_text` is the dial's own headline: it is how the two dials the 待办 dialog
-    chains (先开始、后结束) tell themselves apart.
-    """
-    picker = ft.TimePicker(
-        value=value,
-        # 24-hour dial so the picked value matches the "HH:MM" the app prints.
-        hour_format=ft.TimePickerHourFormat.H24,
-        # Dial only: the mode button that switches to typing a time is hidden.
-        entry_mode=ft.TimePickerEntryMode.DIAL_ONLY,
-        help_text=help_text,
-        cancel_text="取消",
-        confirm_text="确定",
-    )
-
-    def confirm(e: ft.Event[ft.TimePicker]) -> None:
-        picker.open = False
-        on_confirm(e.control.value)
         if e.page:
             e.page.update()
 
