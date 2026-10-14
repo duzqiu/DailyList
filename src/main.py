@@ -1,9 +1,9 @@
 import flet as ft
 from pathlib import Path
 
+from api import session
 from pages.navigation import build_navigation
-from tools import db
-from widgets.services import register_app_services
+from widgets.services import ensure_service, register_app_services
 
 # 静态资源目录（`src/assets`：图标、背景图、App 图标、开屏图）。
 # `ft.run()` 在**不给**这个参数时会拿「当前工作目录」去拼默认的 `assets` —— 从项目根目录
@@ -15,17 +15,14 @@ ASSETS_DIR = str(Path(__file__).parent / "assets")
 
 
 async def main(page: ft.Page):
-    # 本地库现在**只装登录令牌**（api/session.py）—— 其余设置项走内存 mock
-    # （tools/mock_settings.py，背景图路径也在那儿），倒数日数据全在后端。所以启动时既不
-    # 用补默认值、也不用再按设备认领老数据了（见 README「待处理问题」）。
-    db.init_db()
-    # 入口仍留成协程：以后要读设备信息、或等服务端数据回来再装配导航时，不用改签名
-    # （`ft.run` 两种入口都收）。
-    #
-    # 剪贴板、文件选择器这些 Service 必须在页面**首次发给客户端之前**注册好，否则
-    # 客户端不认识它们（等设置页构建时再注册就晚了），调用起来会一直等然后超时。
-    # 见 widgets/services.py 里的 register_app_services()。
+    # 剪贴板、文件选择器、客户端存储（`SharedPreferences`）这些 Service 必须在页面**首次发给
+    # 客户端之前**注册好，否则客户端不认识它们（等设置页构建时再注册就晚了），调用起来会
+    # 一直等然后超时。见 widgets/services.py 里的 register_app_services()。
     register_app_services(page)
+    # 登录令牌存在**客户端存储**里（见 api/session.py）：启动时读一次填进内存镜像，之后各
+    # 页面同步读它。读不到 / 超时就当没登录 —— 这一步不能把首帧拖住，所以入口是协程
+    # （`ft.run` 两种入口都收）。
+    await session.restore(page, ensure_service(page, ft.SharedPreferences))
     build_navigation(page)
 
 

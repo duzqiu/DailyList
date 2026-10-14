@@ -9,7 +9,7 @@
 五个接口都是「按当前登录会员隔离」的：归属由后端从令牌里取，这边**不传** member_id。
 
 只有「发什么、收什么」：出错统一抛 `client.ApiError`，界面提示留在页面里。周期那一栏
-在 App 内部一直用中文（见 tools/db.py 的 `REPEAT_CYCLES`），所以收发两端各做一次映射
+在 App 内部一直用中文（见 tools/cycles.py 的 `REPEAT_CYCLES`），所以收发两端各做一次映射
 （`CYCLE_TO_API` / `CYCLE_FROM_API`）。
 """
 
@@ -22,10 +22,10 @@ from .client import delete, get, post, put
 # 周期映射：App 的中文 ↔ 后端的 `CountdownCycle`。
 #
 # ⚠️ 后端目前只有这 5 档（once / daily / weekly / monthly / yearly），而 App 的
-# `db.REPEAT_CYCLES` 有 10 档 —— 「三天 / 工作日 / 非工作日 / 三月 / 六月」这 5 档
+# `cycles.REPEAT_CYCLES` 有 10 档 —— 「三天 / 工作日 / 非工作日 / 三月 / 六月」这 5 档
 # 后端还没有对应取值，所以**倒数日的表单只提供这 5 档**（见 `SUPPORTED_CYCLES`）。
 # 要让那 5 档也能用：后端给 `CountdownCycle` 补枚举值 + 中文标签，重新部署后在这里
-# 补两行映射、把 `SUPPORTED_CYCLES` 换成 `db.REPEAT_CYCLES` 即可。
+# 补两行映射、把 `SUPPORTED_CYCLES` 换成 `cycles.REPEAT_CYCLES` 即可。
 CYCLE_TO_API: dict[str, str] = {
     "不循环": "once",
     "每天": "daily",
@@ -44,7 +44,7 @@ DEFAULT_CYCLE = "不循环"
 class Countdown:
     """一条倒数日（后端那条记录的本地样子）。
 
-    字段名和 tools/db.py 的 `Countdown` 保持一致（`due_date` / `cycle` / `content`），
+    字段名沿用本地数据层那份结构（`due_date` / `cycle` / `content`；那一层已删），
     卡片与导出那几处代码因此不用改：**颜色不在里面** —— 后端没有这个字段，由
     tools/countdown_store.py 按 id 稳定推一个浅色。
     """

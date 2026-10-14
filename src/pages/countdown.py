@@ -8,7 +8,7 @@ tools/countdown_store.py 里，渲染时同步读缓存 —— 所以「拉数�
 右下角那枚「+」照常在，点了会提示先登录。
 
 Every entry keeps the anchor date plus an optional 周期 (the cycle vocabulary in
-db.REPEAT_CYCLES). A repeating anchor walks forward to its next occurrence, so
+tools/cycles.py). A repeating anchor walks forward to its next occurrence, so
 a birthday written down years ago still counts down to the coming one, while 不循环
 counts down to the fixed day - or shows how long ago it passed.
 """

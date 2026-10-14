@@ -75,7 +75,7 @@ def open_countdown_form(
 
     cycle_selector = build_option_selector(
         cycle_text,
-        # 只列后端 `CountdownCycle` 认得的这几档（App 内部另几档见 db.REPEAT_CYCLES）。
+        # 只列后端 `CountdownCycle` 认得的这几档（App 内部另几档见 tools/cycles.py）。
         [(name, name) for name in SUPPORTED_CYCLES],
         set_cycle,
         # 面板钉成固定高度：档位再多也不用改这里，多出来的在里面上下滚。

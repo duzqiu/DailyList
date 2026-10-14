@@ -42,8 +42,8 @@ DEFAULT_BGCOLOR = CARD_COLORS[0][1]
 class Countdown:
     """一条倒数日。
 
-    字段与 tools/db.py 的 `Countdown` 一致（`due_date` / `cycle` / `content` /
-    `bgcolor`），所以卡片、左滑、导出那些地方一行都不用改 —— 换的只是数据从哪来。
+    字段沿用本地数据层那份结构（`due_date` / `cycle` / `content` / `bgcolor`；那一层已删），
+    所以卡片、左滑、导出那些地方一行都不用改 —— 换的只是数据从哪来。
     """
 
     id: int

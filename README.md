@@ -17,8 +17,8 @@
    （`my_background.py`）都在这里；只服务单个页面的也放这儿，别塞进页面。
    > 现状：原先散在 `tools/` 里的这一批**已经全部迁过来了**。页面与组件互相引用走
    > `widgets.*`；真正跟页面无关的东西（数据、设备、农历、版本检查……）仍从 `tools.*` 取。
-3. **与页面无关的工具类放 `src/tools/`**：数据（`db` / `countdown_store` / `my_profile`
-   / `mock_settings` / `contacts` / `cycles`）、设备、文件落点、导入导出、农历、通知、版本
+3. **与页面无关的工具类放 `src/tools/`**：数据（`countdown_store` / `my_profile` /
+   `mock_settings` / `contacts` / `cycles`）、设备、文件落点、导入导出、农历、通知、版本
    检查这些。判别标准：**和页面相关的一律进 `widgets/`**，`tools/` 只留跟界面无关的。
 4. **图片资源放 `src/assets/`**，按用途分两个目录：`images/`（背景图、照片）与
    `icons/`（图标）。assets 根目录另放打包用的 `icon.png` / `splash_android.png`。
@@ -32,10 +32,10 @@
 ```
 DailyList/
 ├─ src/
-│  ├─ main.py                 入口：建库 → 补默认设置 → 取设备 ID → 注册 Service → 装配导航
+│  ├─ main.py                 入口：注册 Service → 从客户端存储恢复登录态 → 装配导航
 │  ├─ api/                    后端接口层
 │  │  ├─ client.py            请求底座（基址 + urllib，浏览器 UA，错误转 ApiError）
-│  │  ├─ session.py           登录态令牌存取（落库 settings）
+│  │  ├─ session.py           登录态令牌存取（客户端存储 SharedPreferences + 内存镜像）
 │  │  ├─ member_auth.py       认证接口（验证码 / 注册 / 登录 / 当前会员 / 登出）
 │  │  └─ member_countdowns.py 倒数日接口（增删改查 + 周期映射）
 │  ├─ pages/                  各页面
@@ -64,10 +64,9 @@ DailyList/
 │  │  ├─ services.py          ft.Service（剪贴板 / 文件选择器）注册与取用
 │  │  └─ toast.py             居中 toast
 │  ├─ tools/                  **与页面无关**的工具类（见「开发约定」3）
-│  │  ├─ db.py                本地 SQLite：**只装登录令牌**；启动时清掉老表（todos / countdowns）与过期设置项
 │  │  ├─ mock_settings.py     **临时**：设置项的内存 mock（云端开关 / 通知 / 联系方式 / 我的资料 / 背景图）
 │  │  ├─ countdown_store.py   倒数日内存仓库（数据来自后端；同步读 + 增删改 + 按 id 取色）
-│  │  ├─ cycles.py            倒数日周期：有哪几档、下一次是哪天（纯计算，原先在 db.py 里）
+│  │  ├─ cycles.py            倒数日周期：有哪几档、下一次是哪天（纯计算，原先在本地数据层里）
 │  │  ├─ files.py             App 数据目录 + 「把选中的文件复制进来」（换背景图 / 存头像共用）
 │  │  ├─ device.py            设备主键（各平台取唯一标识；本地数据不再按设备隔离，暂无调用方）
 │  │  ├─ data_export.py       导出 JSON（倒数日来自后端缓存 + 设置来自内存 mock）
@@ -91,16 +90,17 @@ DailyList/
 
 _先这么办、以后要改的事记在这儿：写明现状 + 打算怎么改（最新在最上面）。_
 
-- **本地数据一律不落库，只有登录令牌还写 SQLite**。原先存在本地 `settings` 表里的那些
+- **本地数据一律不落盘，登录令牌改存客户端存储**。原先存在本地 SQLite `settings` 表里的那些
   （云端开关、通知总开关 / 渠道 / 地址、联系方式、「我的」页资料与背景图路径）现在全部走
-  `tools/mock_settings.py` 的内存表 —— 接口与 `tools/db.py` 那三个函数同名同形，示例值写在
-  该文件里；界面照旧能读能改，**改完当次运行内有效、重启回到示例值**。连带几处：
+  `tools/mock_settings.py` 的内存表 —— 接口保持 `get_setting` / `set_setting` /
+  `list_settings` 这套名字，示例值写在该文件里；界面照旧能读能改，**改完当次运行内有效、
+  重启回到示例值**。登录令牌（`api/session.py`）则改成写 Flet 的**客户端存储**
+  （`SharedPreferences`：Web 上是 localStorage，桌面 / 移动是各平台自己的偏好存储），跟着
+  客户端走 —— 同一个浏览器 / 设备还在，登录态就在。连带几处：
+  - **本地 SQLite 那一层（`tools/db.py`）已整个删除**，残留的 `dailylist.db` 也删了；
   - 「清除缓存」清的是 `countdown_store` 的内存缓存（先前清的本地表早没人读了，还在谎报条数）；
   - **导入 JSON 只把 `settings` 写进内存 mock，`countdowns` 那段不落地**（页面数据在后端），
     提示语如实写「倒数日暂未落地」；
-  - 老库里残留的 `countdowns` / `todos` 表和过期的设置项**由 `init_db()` 在启动时清掉**
-    （见 `tools/db.py` 的 `LEGACY_TABLES` / `KEPT_SETTINGS`，后者是白名单：只有登录令牌两
-    个键留下）；
-  - 待定方向：这些设置接后端接口，或恢复落库；届时把对应的键加回 `KEPT_SETTINGS`，否则下次
-    启动就会被清掉。
+  - 待定方向：这些设置与令牌接后端接口，或恢复落盘 —— 届时把 `mock_settings` / `session`
+    换成真存储即可，调用点不用改。
 - **「我的」页没设背景图时那层浅蓝底是临时方案**。这块区域原本只按「压在背景图上」一种形态设计（文字 / 图标全白），没设图时白字落在页面的白底上，整块等于看不见（`background_decoration()` 返回 `None` 的那条分支）。现在**临时**给它垫了一层浅蓝渐变（`pages/my.py` 的 `NO_COVER_GRADIENT_COLORS`，取 `SKY_BLUE → DATE_SELECTED_BG` 两个已有色）并把文字换成深色 —— 能看清了，但这套配色是凑出来的，不是设计稿。**先维持现状**，待定方向：给「我的」页配一张默认封面图（放进 `src/assets/images/`，让 `background_decoration()` 无图时返回它），或者另出一版浅色版式。

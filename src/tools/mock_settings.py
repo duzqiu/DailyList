@@ -1,12 +1,11 @@
-"""**临时**：这些设置项先放**内存**里，不落库（原先存在本地 SQLite 的 `settings` 表）。
+"""**临时**：这些设置项先放**内存**里，不落库、也不写磁盘。
 
 覆盖范围：云端开关、通知总开关 / 渠道 / 地址、联系方式、「我的」页资料（昵称 / 号 / 简介 /
-性别 / 生日 / 头像）与**背景图路径**。本地 SQLite 那边只剩**登录令牌**（api/session.py）——
-本文件里那些键若还留在库里，启动时会被 `db.init_db()` 清掉（见 db.py 的 `KEPT_SETTINGS`）。
+性别 / 生日 / 头像）与**背景图路径**。本地 SQLite 那一层已经整个删掉了；还留在磁盘上的只有
+**登录令牌**，它现在由 api/session.py 存进**客户端存储**（Flet 的 SharedPreferences）。
 
-接口刻意和 `tools/db.py` 那三个读写函数**同名同形**（`get_setting` / `set_setting` /
-`list_settings`）：将来接回本地库、或改成后端返回时，把调用点里的模块名换掉就行，参数和
-返回值都不用动。
+接口刻意保持 `get_setting` / `set_setting` / `list_settings` 这套名字：将来接后端返回、或
+重新落盘时，把调用点里的模块名换掉就行，参数和返回值都不用动。
 
 值是**示例数据**：界面照旧能读能改（改动只留在内存里），重启后回到下面这一份。
 
@@ -47,7 +46,7 @@ _VALUES: dict[str, str] = {
 
 
 def get_setting(name: str, default: str = "") -> str:
-    """取一项；没有就返回 `default`（形同 `db.get_setting`）。"""
+    """取一项；没有就返回 `default`。"""
     return _VALUES.get(name, default)
 
 

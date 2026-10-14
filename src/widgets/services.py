@@ -1,4 +1,4 @@
-"""页面级 Service 的统一注册（剪贴板、文件选择器都走它）。
+"""页面级 Service 的统一注册（剪贴板、文件选择器、客户端存储都走它）。
 
 Flet 里 `ft.Service`（`Clipboard`、`FilePicker` 这些都是）跟普通控件不一样：它得**注册
 到页面上**，客户端才会为它建一个服务绑定。注册只有一条路 —— 注册表的
@@ -47,7 +47,7 @@ def register_app_services(page: ft.Page) -> None:
     所以放到 `main()` 里、`build_navigation()` 之前注册 —— 服务会随首个页面一起
     送到客户端。各页面再通过 `ensure_service()` 取（取到的就是这里注册的那个）。
     """
-    for service_type in (ft.Clipboard, ft.FilePicker):
+    for service_type in (ft.Clipboard, ft.FilePicker, ft.SharedPreferences):
         ensure_service(page, service_type)
 
 
