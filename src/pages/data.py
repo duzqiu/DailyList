@@ -26,6 +26,7 @@ from tools.layout import (
 )
 from tools.half_ring import build_half_ring
 from tools.line_chart import build_interactive_line_chart
+from tools.month_calendar import build_month_calendar
 from tools.pie_chart import build_category_pie_chart, highlight_section
 from tools.segmented import build_segmented
 
@@ -668,6 +669,10 @@ def build_data_page(
                                     bgcolor=None,
                                     trailing=trend_selector_row,
                                 ),
+                                # 月历：从「日历」页整块搬来的（见
+                                # tools/month_calendar.py），接在待办趋势下面 ——
+                                # 月份切换行 + 整月网格，点某天弹当天详情。
+                                build_card("日历", [build_month_calendar(page)]),
                             ],
                         ),
                     ],

@@ -1,4 +1,10 @@
-"""日历页：月历本身就是内容，不再在下面另开一张待办列表。
+"""月历那一块：月份切换行 + 整月网格（含点某天弹出的当天详情）。
+
+原来它就是「日历」页的主体，现在整块搬到**数据页**，接在「待办趋势」那张卡下面（见
+pages/data.py）；「日历」那一页改成了「我的」（账号信息，见 pages/my.py）。所以这里只
+返回月历本身：页面的外壳（渐变 / 顶栏 / SafeArea / 滚动）都交给宿主页面。
+
+下面这段是原来页头的说明，仍然成立：
 
 日期格子没有底色，颜色全在「条目」上：当天每条待办都是一颗属于自己颜色的小圆点
 （重要红 / 一般黄 / 可选绿），已完成的那颗同色淡一半，同一天的倒数日用倒数日的
@@ -301,22 +307,28 @@ def overdue_count(day: date, todos: list[db.Todo]) -> int:
     return sum(1 for todo in todos if not todo.done)
 
 
-def build_calendar_page(
-    page: ft.Page,
-    set_menu_visible: Callable[[bool], None],
-    state: dict[str, object],
-    open_settings: Callable[[], None],
-    open_data: Callable[[], None],
-) -> ft.Control:
-    """日历页。`state` 由调用方保管（见 pages/navigation.py）：翻到哪个月、
-    选中了哪一天要能跨 Tab 留住，切走再回来不会被拉回今天。控件本身照旧每次
-    重建，所以上面的待办还是现从 db 读的。
+# 月历自己的状态（翻到哪个月、选中哪天、量到的行宽）：由这个模块保管，切 Tab / 重进数据页
+# 都能接着上次的位置。原来由 pages/navigation.py 的 page_state("calendar") 保管 —— 搬到
+# 这儿之后少一层传参（调用方只管把它挂进界面）。
+_STATE: dict[str, object] = {}
 
-    右上角并排两枚入口：**数据、设置**（`open_data` / `open_settings`）。数据那枚
-    原来挂在待办页的右上角 —— 两个入口分在两张一级页上，想找哪一个都得先猜它挂在
-    谁那儿；现在归到一处，日历页一眼看全。登录页的入口不在这儿了：挪到设置页的
-    「账号」卡片里（见 pages/preferences.py）。
+
+def build_month_calendar(
+    page: ft.Page, state: dict[str, object] | None = None
+) -> ft.Control:
+    """月历那一块：**月份切换行 + 整月网格**（含点某天弹出的当天详情）。
+
+    原来这是「日历」页的主体，现在整块搬到数据页，接在「待办趋势」那张卡下面（见
+    pages/data.py）。所以这里只返回**月历本身**，页面的外壳（顶栏、渐变、SafeArea、
+    滚动）交给宿主页面 —— 网格也不再自带 `ListView`，滚动交给数据页那一个。
+
+    `state` 不传就用模块级那份（`_STATE`）：翻月 / 选日要能跨 Tab 留住，切走再回来不会
+    被拉回今天。控件本身照旧每次重建，所以格子上的待办还是现从 db 读的。
+
+    挂进数据页之后，这一块靠 `page.run_task(load_countdowns)` 自己拉一次倒数日
+    （格子的圆点、当天弹窗都要用）。
     """
+    state = _STATE if state is None else state
     today = date.today()
     saved_month = state.get("month")
     saved_day = state.get("day")
@@ -1067,104 +1079,34 @@ def build_calendar_page(
     # 倒数日现在来自后端：先按空缓存渲染，拉到之后再补上圆点。
     page.run_task(load_countdowns)
 
-    return ft.Container(
-        expand=True,
-        gradient=page_gradient(),
-        content=ft.SafeArea(
-            expand=True,
-            content=ft.Container(
-                expand=True,
-                padding=ft.Padding.only(left=24, top=24, right=24),
-                content=ft.Column(
-                    expand=True,
-                    # 4px base gap so the month selector sits closer to the grid;
-                    # other sections add 12px margins to keep their previous gaps.
-                    spacing=4,
-                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                    controls=[
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Text(
-                                    "日历",
-                                    # Same face as the home page's
-                                    # 「待办」heading.
-                                    size=18,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=TITLE_COLOR,
-                                ),
-                                # 右上角两枚入口：数据、设置（底部菜单已经不放「我的」
-                                # 入口了，设置一直在这儿；数据原来挂在待办页的右上角，
-                                # 归拢过来并排摆）。登录页的入口从这儿撤了，现在在
-                                # 设置页的「账号」卡片里（见 pages/preferences.py）。
-                                ft.Row(
-                                    tight=True,
-                                    spacing=TOPBAR_ICON_GAP,
-                                    controls=[
-                                        ft.Container(
-                                            ink=True,
-                                            tooltip="数据",
-                                            # 22px 的图标太难点，四周补一圈让手指够得着。
-                                            padding=ft.Padding.all(6),
-                                            on_click=lambda _: open_data(),
-                                            content=ft.Image(
-                                                src=DATA_ICON_SRC,
-                                                width=DATA_ICON_SIZE,
-                                                height=DATA_ICON_SIZE,
-                                                fit=ft.BoxFit.CONTAIN,
-                                            ),
-                                        ),
-                                        ft.Container(
-                                            ink=True,
-                                            tooltip="设置",
-                                            # 同上：图标小，四周补一圈。
-                                            padding=ft.Padding.all(6),
-                                            on_click=lambda _: open_settings(),
-                                            content=ft.Image(
-                                                src=SETTINGS_ICON_SRC,
-                                                width=SETTINGS_ICON_SIZE,
-                                                height=SETTINGS_ICON_SIZE,
-                                                fit=ft.BoxFit.CONTAIN,
-                                            ),
-                                        ),
-                                    ],
-                                ),
-                            ],
-                        ),
-                        ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            # The month selector sits right under the「日历」
-                            # heading: only the column's own gap is left between
-                            # them (the icon buttons keep their tap padding).
-                            margin=ft.Margin.only(top=0),
-                            controls=[
-                                ft.IconButton(
-                                    icon=ft.Icons.CHEVRON_LEFT,
-                                    tooltip="上个月",
-                                    on_click=lambda _: change_month(-1),
-                                ),
-                                ft.Container(
-                                    ink=True,
-                                    on_click=open_date_picker,
-                                    content=month_title,
-                                ),
-                                ft.IconButton(
-                                    icon=ft.Icons.CHEVRON_RIGHT,
-                                    tooltip="下个月",
-                                    on_click=lambda _: change_month(1),
-                                ),
-                            ],
-                        ),
-                        # 网格万一放不下（小屏）能滚动，正常手机上不用滚。
-                        ft.ListView(
-                            expand=True,
-                            scroll=ft.ScrollMode.HIDDEN,
-                            padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
-                            controls=[month_view],
-                        ),
-                    ],
-                ),
+    # 只返回**月历那一块**：月份切换行 + 网格。页面的外壳（渐变 / 顶栏 / SafeArea /
+    # 滚动）交给宿主页面 —— 数据页把它整块塞进一张卡片里。
+    return ft.Column(
+        tight=True,
+        spacing=4,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        controls=[
+            ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.IconButton(
+                        icon=ft.Icons.CHEVRON_LEFT,
+                        tooltip="上个月",
+                        on_click=lambda _: change_month(-1),
+                    ),
+                    ft.Container(
+                        ink=True,
+                        on_click=open_date_picker,
+                        content=month_title,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CHEVRON_RIGHT,
+                        tooltip="下个月",
+                        on_click=lambda _: change_month(1),
+                    ),
+                ],
             ),
-        ),
+            # 网格：原来外面还包着一层 ListView（那一页自己滚），现在滚动交给数据页那个。
+            month_view,
+        ],
     )

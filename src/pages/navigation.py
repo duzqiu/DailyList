@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import flet as ft
 
-from pages.calendar import build_calendar_page
+from pages.my import build_my_page
 from pages.countdown import build_countdown_page
 from pages.data import build_data_page
 from pages.forgot_password import build_forgot_password_page
@@ -175,12 +175,15 @@ def build_navigation(page: ft.Page) -> None:
             if index == 0
             else             build_countdown_page(page, set_menu_visible)
             if index == 1
-            else build_calendar_page(
+            else build_my_page(
                 page,
                 set_menu_visible,
-                page_state("calendar"),
+                page_state("my"),
                 show_preferences,
                 show_data,
+                # 「账号」卡片里点「登录」/「管理」→ 登录页压在**这个 Tab 之上**（第 1
+                # 层），返回回到这个 Tab。
+                show_login_from_settings,
             )
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -266,13 +269,17 @@ def build_navigation(page: ft.Page) -> None:
             page.update()
 
     def show_login_from_settings(update: bool = True) -> None:
-        """设置页「账号」卡片里点「登录」/「管理」：登录页压在**设置页之上**（第 2 层）。
+        """「我的」页「账号」卡片里点「登录」/「管理」：登录页压在**这个 Tab 之上**（第 1 层）。
 
-        回一层回的是设置页那一层（`render_preferences`）—— 在那儿登录完再退回来，设置页
-        整层重画，账号卡片也就跟着刷成「已登录」。
+        回一层回的是进来时那个一级页（`show_page(origin)`）—— 在那儿登录完退回来，整页
+        重画，账号卡片也就跟着刷成「已登录」。
+
+        （名字里的 settings 是历史：这张卡片原来长在设置页里，现在搬到「我的」页。从设置页
+        进去登录要压第 2 层，那条路已随卡片一起撤掉。）
         """
-        nav_stack.append(lambda: render_preferences())
-        render_login(2, update)
+        origin = selected_index
+        nav_stack.append(lambda: show_page(origin))
+        render_login(1, update)
 
     def render_register(depth: int = 2, update: bool = True) -> None:
         """只重画「注册」页那一层（默认**第 2 层**），不动页面栈（同上）。"""
@@ -360,9 +367,11 @@ def build_navigation(page: ft.Page) -> None:
             ),
             menu_item(
                 2,
-                ft.Icons.CALENDAR_MONTH_OUTLINED,
-                ft.Icons.CALENDAR_MONTH,
-                "日历",
+                ft.Icons.PERSON_OUTLINE,
+                ft.Icons.PERSON,
+                # 原来是「日历」：月历搬去数据页了（见 tools/month_calendar.py），这一页
+                # 改放账号信息（pages/my.py）。
+                "我的",
                 "calendar-tab",
             ),
         ]

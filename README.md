@@ -75,7 +75,9 @@
 | `src/pages/navigation.py` | 底部菜单、Tab 切换、二级页跳转与页面栈（`nav_stack` + `page.views`）、主题 |
 | `src/pages/home.py` | 待办页：7 天日期条、按天列表、完成切换、「+」新增待办 |
 | `src/pages/countdown.py` | 倒数日页：「+」新增、通栏 + 双列卡片、底部「已过期 N」开关、未登录提示（数据来自后端） |
-| `src/pages/calendar.py` | 日历页：月历网格、当天详情弹窗、右上角数据 / 设置入口（倒数日圆点读同一份缓存） |
+| `src/pages/my.py` | 我的页：右上角数据 / 设置入口 + 账号卡片（登录态 / 当前用户）；月历原来在这一页，现已搬到数据页 |
+| `src/tools/month_calendar.py` | 月历那一块：月份切换行、整月网格、当天详情弹窗（挂在数据页的「日历」卡里，倒数日圆点读缓存） |
+| `src/tools/settings_card.py` | 设置卡片的公共零件（`settings_section` / `setting_row` / `compact_button_style`）+ 账号卡片，设置页与「我的」页共用 |
 | `src/pages/data.py` | 数据页：完成率半环、分类占比饼图、待办趋势折线图 |
 | `src/pages/preferences.py` | 设置页：账号（登录态 / 当前用户）+ 通知 / 数据 / 通用四档卡片 |
 | `src/pages/login.py` | 登录页：邮箱 / 密码 + 登录按钮（`/member/auth/login`），底部「忘记密码 / 注册新账号」进三级页 |
@@ -158,6 +160,8 @@
 ---
 
 ## 六、修改记录
+
+- `2026-10-14` 页面结构重组：**「日历」页改名「我的」**，月历整块搬进数据页。① 原 `pages/calendar.py` 的月历部分（月份切换行 + 整月网格 + 点某天弹出的当天详情 + 格子圆点/角标）整块搬到新模块 `tools/month_calendar.py`，入口改名 `build_month_calendar(page)`，**只返回月历本身**（外壳与滚动交给宿主）；数据页在「待办趋势」下面新增一张「日历」卡把它挂上。② 腾出来的那一页改成「我的」（新文件 `pages/my.py`）：页头「我的」+ 右上角数据 / 设置两枚入口 + 账号卡片。③ 设置页的「账号」卡片整块搬进「我的」页；`settings_section` / `setting_row` / `compact_button_style` 三个公共零件与账号卡片一起收进新模块 `tools/settings_card.py`，设置页反过来 import（一份实现，两处不会各自漂移）。④ 底部 Tab「日历」→「我的」（图标换 PERSON），登录入口改从「我的」页进（压第 1 层，返回回这个 Tab）；`pages/calendar.py` 删除；月历的「翻到哪个月 / 选中哪天」改由 `month_calendar._STATE` 自己保管（原来走 navigation 的 `page_state("calendar")`）。校验 21 项，含「点格子真的弹出当天详情」。
 
 _每次修改在此追加一条：`2026-10-12 一句话说明`（最新在最上面）_
 
