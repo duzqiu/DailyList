@@ -53,9 +53,9 @@ GLASS_BLUR = ft.Blur(32, 32, ft.BlurTileMode.CLAMP)
 FIELD_GLASS_BG = "#66FFFFFF"
 # 字段前方那枚图标：尺寸、与文字之间的距离，以及「带图标时」的左内边距。
 # 带图标后左内边距要收窄一点，让「图标 + 文字」整体看着仍然居中。
-FIELD_ICON_SIZE = 18
-FIELD_ICON_GAP = 9
-FIELD_LEADING_INSET = 12
+FIELD_ICON_SIZE = 16
+FIELD_ICON_GAP = 8
+FIELD_LEADING_INSET = 10
 # 字段文案 → 图标：按关键字匹配（各页 build_auth_field 的 hint 见下）。
 # ⚠️ 顺序有意义：「请输入邮箱验证码」同时含「邮箱」和「验证码」，验证码那格该配盾牌，
 # 所以 `SHIELD` 这一类要排在「邮箱」前面。
@@ -81,20 +81,20 @@ MUTED_COLOR = "#64748B"
 FIELD_COLOR = "#334155"
 HINT_COLOR = "#94A3B8"
 PAGE_SIDE_PADDING = 24
-# 卡片标题：摆在卡片**左上角**，字号比正文大出一截（22 → 26，正文 15）—— 它是这一页
-# 要说的头一件事，不该和下面 15pt 的字段挤在同一档。
-TITLE_SIZE = 26
-SUBTITLE_SIZE = 13
-FIELD_TEXT_SIZE = 15
+# 卡片标题：摆在卡片**左上角**，字号比正文大出一截（15 → 22）—— 它是这一页要说
+# 的头一件事，不该和下面 13pt 的字段挤在同一档。
+TITLE_SIZE = 22
+SUBTITLE_SIZE = 11
+FIELD_TEXT_SIZE = 13
 # 所有输入框都是这个高度：外层小框和里面的输入框同高（见 build_field_box），
 # 一列字段等高，文字也落在格子正中。
-FIELD_HEIGHT = 46
-FIELD_RADIUS = 10
-FIELD_SIDE_PADDING = 14
+FIELD_HEIGHT = 40
+FIELD_RADIUS = 8
+FIELD_SIDE_PADDING = 12
 # 输入框内容（输入文字 + 提示文字）的上下内边距：**上大下小**。
 #
 # 格子前面那枚图标是 `build_field_box` 用 `CrossAxisAlignment.CENTER` 摆的，严格居中；
-# 而文字那行是**顶部对齐**内容的 —— 15pt 的字，行盒比字形本身高，视觉重心天生偏上一点，
+# 而文字那行是**顶部对齐**内容的 —— 13pt 的字，行盒比字形本身高，视觉重心天生偏上一点，
 # 所以对称的上下内边距（11/11）会让文字看着比图标高出一截。这里上面多给 3、下面少给 3，
 # 把它压到与图标同一条中线上。
 # 想再挪：只改这两个数 —— **保持相加 22**（内容盒高度就与原来一致，行不会被压扁），
@@ -105,33 +105,31 @@ FIELD_TEXT_INSET_BOTTOM = 9
 # 密码框右边那枚「显示 / 隐藏」自带内边距，容器这侧不再另留（0）—— 那枚眼睛才会
 # 贴到框的后端。想让整体再往左一点，把这个数往上调即可。
 FIELD_TRAILING_INSET = 0
-BUTTON_HEIGHT = 48
-BUTTON_TEXT_SIZE = 16
+BUTTON_HEIGHT = 42
+BUTTON_TEXT_SIZE = 14
 # 卡片内元素的统一间距（字段之间、字段与主按钮之间、卡片之间）：比原先宽一档
-# （14 → 16），字段挨得太挤时看不出一格是一格。
-CARD_SPACING = 16
+# （12 → 14），字段挨得太挤时看不出一格是一格。
+CARD_SPACING = 14
 # 标题**额外**多出的那一截下间距：加在 `CARD_SPACING` 之上，所以标题到下面第一个
-# 输入框是 `CARD_SPACING + HEADING_BOTTOM_GAP`（30）。字号放大到 26 之后，标题跟
+# 输入框是 `CARD_SPACING + HEADING_BOTTOM_GAP`（26）。字号放大到 22 之后，标题跟
 # 字段用同一个间距会把两件事糊成一团，留出这一截才看得出它是块标题。
-HEADING_BOTTOM_GAP = 14
+HEADING_BOTTOM_GAP = 12
 # 字段下面那行小提示（登录页的「忘记密码？」）与字段之间的距离：**与 `CARD_SPACING`
 # 同档** —— 上面挨着密码框、下面是主按钮，两处留白相等时这枚链接才在它们之间的空档
 # 里**上下居中**。原先给 2（紧贴右下角）时明显偏上，看着像挂在密码框上的一行尾巴。
 FIELD_HINT_GAP = CARD_SPACING
-CARD_PADDING_X = 18
-CARD_PADDING_Y = 17
-CARD_RADIUS = 14
+CARD_PADDING_X = 16
+CARD_PADDING_Y = 14
+CARD_RADIUS = 12
 # 链接（卡片下面那行小字按钮）左右各留一点，点起来更好按；登录页的「忘记密码？」
 # 要跟密码框右边缘对齐，所以那一行传 0。
-LINK_SIDE_PADDING = 8
+LINK_SIDE_PADDING = 6
 # 表单区离顶栏的距离：按**窗口高度**的比例取（`page.height` 在页面构建时就有了），
 # 不是按「剩余可用高度」分配。键盘升起时视口会被压矮，用后者算出来的位置会跟着往上
 # 跑 —— 那就是「弹键盘整页往上挤」。这里定成固定像素，构建完就不再变。
-# 比例给得比较小（约等于从顶部 10% 处起），表单整体落在中上偏上的位置。字段、按钮这些
-# 整体放大之后表单高了一截（注册页约 400px），这里比原先（0.13 / 96）往上收一截，给它
-# 和底部那行链接之间留出空档。
-FORM_TOP_RATIO = 0.10
-FORM_TOP_MIN = 76.0
+# 比例给得比较小（约等于从顶部 13% 处起），表单整体落在中上偏上的位置。
+FORM_TOP_RATIO = 0.13
+FORM_TOP_MIN = 96.0
 # 「不跟表单走」那件（登录页的「还没有账号？去注册」）的位置：**从内容区的顶边往下量**
 # （`top`），而不是从底边往上量（`bottom`）。
 #
@@ -141,9 +139,8 @@ FORM_TOP_MIN = 76.0
 # 距离必须大于被吃掉的那一截才看得见：给 0.12H（iPhone 上约 101px）时它正好卡在可见
 # 边界上、看着偏低，收到 0.08H（约 67px）就整行被裁掉 —— 一个字都不剩。从顶边往下量
 # 没有这个坑：顶边是稳的，量出来的位置和设备底部那一圈 inset 无关。
-# 0.78 ≈ 落在页面下靠 1/4 那一带；表单占到大约 `0.10H + 320px`，中间留出的空档比原先
-# 宽，小屏上也不会跟它撞上。
-FOOTER_TOP_RATIO = 0.78
+# 0.74 ≈ 落在页面的下 1/4；表单占到大约 `0.13H + 260px`，小屏上也不会跟它撞上。
+FOOTER_TOP_RATIO = 0.74
 # 量不到屏高（`page.height` 为 0）时的兜底：这一档是从顶边往下量，给小一点没关系。
 FOOTER_TOP_MIN = 300.0
 # 「获取验证码」那枚小按钮的三种文案：初始 → 倒计时中（`{n}` 是剩余秒数）→ 可重发。
@@ -158,12 +155,12 @@ CODE_COUNTDOWN_SECONDS = 60
 CODE_BUTTON_BG = DATE_SELECTED_BG
 CODE_BUTTON_TEXT = TITLE_COLOR
 CODE_BUTTON_HEIGHT = FIELD_HEIGHT
-# 字比其它小字链接（13pt）大一档，和输入框里的 15pt 同档 —— 它跟输入框**同高并排**，
+# 字比其它小字链接（11pt）大一档，和输入框里的 13pt 同档 —— 它跟输入框**同高并排**，
 # 字号也一致才像一对。倒计时期间只换字色、不换字号。
-CODE_BUTTON_TEXT_SIZE = 15
-CODE_BUTTON_SIDE_PADDING = 14
+CODE_BUTTON_TEXT_SIZE = 13
+CODE_BUTTON_SIDE_PADDING = 12
 # 与左边输入框之间的距离：给了底色之后不能贴在一起，会糊成一块。
-CODE_BUTTON_GAP = 10
+CODE_BUTTON_GAP = 8
 # 这枚按钮只有**两种配色**（互切的过渡是 `CODE_BUTTON_ANIMATION`）：
 #   ① 可以点（默认）    蓝底深蓝字 —— **按下去的那一段也用这副配色**
 #   ② 冷却中·倒计时      灰底浅字，一眼看出这会儿点不了
@@ -187,7 +184,7 @@ def icon_for(hint: str) -> str | None:
 def build_auth_field(
     hint: str, password: bool = False, icon: str | None = None
 ) -> ft.TextField:
-    """一个表单字段：和新增待办、通知地址同一个写法（无边框、单行、15pt）。
+    """一个表单字段：和新增待办、通知地址同一个写法（无边框、单行、13pt）。
 
     密码那格用 `password=True`，右边的「显示 / 隐藏」交给 `can_reveal_password`
     —— Material 自己那枚眼睛，不用另画一个。
@@ -528,7 +525,7 @@ def build_card_heading(title: str, hint: str | None = None) -> ft.Control:
         padding=ft.Padding.only(bottom=HEADING_BOTTOM_GAP),
         content=ft.Column(
             tight=True,
-            spacing=3,
+            spacing=2,
             # 靠左摆：标题是这一页的第一句话，贴着卡片左上角比居中更明朗，也和下面
             # 左对齐的字段同一条起笔线。
             horizontal_alignment=ft.CrossAxisAlignment.START,
@@ -578,8 +575,8 @@ def build_link(
     """
     return ft.Container(
         ink=True,
-        border_radius=ft.BorderRadius.all(8),
-        padding=ft.Padding.symmetric(horizontal=side_padding, vertical=3),
+        border_radius=ft.BorderRadius.all(6),
+        padding=ft.Padding.symmetric(horizontal=side_padding, vertical=2),
         on_click=on_click,
         content=ft.Text(
             label,
