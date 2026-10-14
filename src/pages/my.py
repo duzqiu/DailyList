@@ -68,9 +68,9 @@ QUICK_HINT_SIZE = 10
 SHEET_PADDING = 16
 # 标签条：通栏一条，自己带底色（比页面的白略深一档，才看得出是「一条」）；上下各留一点。
 TAB_STRIP_BG = "#F1F5F9"
-# 标签条上下各留的白：10 → 4（用户要求「降低 tab 的高度」）。想更矮就往 0 调，
-# 那时四个标签基本贴着这一条的上下了。
-TAB_STRIP_PADDING = 4
+# 标签条上下各留的白：10 → 4 → **2**（用户两次要求「降低 tab 的高度」）。想更矮就往 0
+# 调，那时四个标签基本贴着这一条的上下沿了。
+TAB_STRIP_PADDING = 2
 # 内容板**顶部两角**的圆角半径。圆角切掉的那两块小缺口要露出上面那张背景图，所以
 # 「圆角顶盖」画在背景区的最底下（见 `_panel_top_cap`），背景区的下内边距也得比它大。
 PANEL_TOP_RADIUS = 18
@@ -334,7 +334,8 @@ def build_my_page(
             on_click=lambda _: select_tab(index),
             content=ft.Column(
                 tight=True,
-                spacing=4,
+                # 文字与那道红杠之间的缝：4 → 2（跟着「降低 tab 高度」那两次一起收）。
+                spacing=2,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[text, bar],
             ),
@@ -354,21 +355,16 @@ def build_my_page(
             padding=ft.Padding.symmetric(
                 horizontal=SHEET_PADDING, vertical=TAB_STRIP_PADDING
             ),
+            # 右侧原来还有一枚搜索图标（`Icons.SEARCH`），按用户要求去掉 —— 这一条
+            # 现在只剩左边那排标签，通栏也就不用 `SPACE_BETWEEN` 了。
             content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+                spacing=20,
                 controls=[
-                    ft.Row(
-                        tight=True,
-                        spacing=20,
-                        controls=[
-                            tab_header(0, "笔记"),
-                            tab_header(1, "评论"),
-                            tab_header(2, "收藏"),
-                            tab_header(3, "赞过"),
-                        ],
-                    ),
-                    ft.Icon(ft.Icons.SEARCH, size=20, color=TITLE_COLOR),
+                    tab_header(0, "笔记"),
+                    tab_header(1, "评论"),
+                    tab_header(2, "收藏"),
+                    tab_header(3, "赞过"),
                 ],
             ),
         )
@@ -515,8 +511,8 @@ def build_my_page(
                                     ),
                                 ),
                                 # 原来「编辑主页」旁边还有一枚「数据」（柱状图）入口，
-                                # 连同数据页（pages/data.py）与那些图表控件已按用户要求
-                                # **整体删除** —— 这一格现在只剩「编辑主页」。
+                                # 连同那一页与它的图表控件已按用户要求**整体删除**
+                                # —— 这一格现在只剩「编辑主页」。
                             ],
                         ),
                     ],

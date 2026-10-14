@@ -26,3 +26,6 @@ storage/
 
 # macOS
 .DS_Store
+
+# db
+dailylist.db

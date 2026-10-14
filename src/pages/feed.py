@@ -57,7 +57,7 @@ USER_HINT_SIZE = 12
 FOLLOW_BTN_W = 62
 FOLLOW_BTN_H = 28
 # 在内容区左右滑一下切二级 tab：走满这么多像素、或者甩得够快，都算一次切换
-# （和待办页那套「左右滑切天」同一套判定，见 pages/home.py）。
+# （左右滑切二级 tab 与竖着列表的滚动不冲突，见 `on_swipe_*` 那几个回调）。
 SWIPE_DISTANCE = 24.0
 SWIPE_VELOCITY = 300.0
 # 切 tab 时**由客户端做交叉淡入淡出**（`ft.AnimatedSwitcher`，见 `body`）。之前是自己算
@@ -858,7 +858,7 @@ def build_feed_page(page: ft.Page) -> ft.Control:
             fill_chips()
             chip_bar.visible = True
             # 卡片区域包一层手势：在这一块上左右滑 = 切二级 tab（横滑自己判定，
-            # 竖着的列表滚动照旧 —— 和待办页那套一样）。
+            # 竖着的列表滚动照旧 —— 横滑只判横着走的那一截）。
             view = ft.GestureDetector(
                 expand=True,
                 on_pan_start=on_swipe_start,

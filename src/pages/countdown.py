@@ -42,9 +42,8 @@ PAGE_SIDE_PADDING = 24
 COUNTDOWN_GAP = 10
 COUNTDOWN_MIN_WIDTH = 140
 
-# 右下角那枚「+」：和待办页那一枚同一个尺寸、位置与长相（见 pages/home.py）。
-# 「+」在这里是**直接**开新增倒数日的弹窗（待办页那边还要先选「新增待办 / 倒数日」，
-# 因为那儿有两种东西要加；这一页只有倒数日，不用再问一次）。
+# 右下角那枚「+」：坐在浮动菜单条上面，透明底 + 一圈细灰边。
+# 它**直接**开「新增倒数日」的弹窗（这一页只有倒数日，不用先问一句加哪种）。
 ADD_BUTTON_SIZE = 52
 ADD_BUTTON_LIFT = 10
 ADD_BUTTON_BORDER = "#E2E8F0"
@@ -296,12 +295,12 @@ def build_countdown_page(
 
     add_button = ft.Container(
         right=PAGE_SIDE_PADDING,
-        # 和待办页那枚一样：坐在浮动菜单条上面 10px（菜单条高度就是那个 inset）。
+        # 坐在浮动菜单条上面 10px（菜单条高度就是那个 inset）。
         bottom=BOTTOM_MENU_INSET + ADD_BUTTON_LIFT,
         width=ADD_BUTTON_SIZE,
         height=ADD_BUTTON_SIZE,
         shape=ft.BoxShape.CIRCLE,
-        # 透明底 + 一圈细灰边：和待办页那枚同一个做法（没有底色，边界靠这圈线）。
+        # 透明底 + 一圈细灰边（没有底色，边界靠这圈线）。
         bgcolor=ft.Colors.TRANSPARENT,
         border=ft.Border.all(ADD_BUTTON_BORDER_WIDTH, ADD_BUTTON_BORDER),
         content=ft.IconButton(

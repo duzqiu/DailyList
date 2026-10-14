@@ -12,8 +12,8 @@ import flet as ft
 logger = logging.getLogger(__name__)
 
 # 左滑 = 手指往左走 = dx 为负。走够距离、或者甩得够快，都算一次「返回上一页」；
-# 两个阈值跟首页切日期的横滑取同一档（见 pages/home.py 的 DATE_SWIPE_*），整台
-# 机器的横滑手感一致。整页横滑的命中面积大，所以不跟手、也不画「滑到一半」的
+# 两个阈值跟发现流切二级 tab 的横滑取同一档（见 pages/feed.py 的 SWIPE_DISTANCE /
+# SWIPE_VELOCITY），整台机器的横滑手感一致。整页横滑的命中面积大，所以不跟手、也不画「滑到一半」的
 # 中间态。
 SWIPE_BACK_DISTANCE = 24.0
 SWIPE_BACK_VELOCITY = 300.0

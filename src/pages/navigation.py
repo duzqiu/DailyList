@@ -232,8 +232,8 @@ def build_navigation(page: ft.Page) -> None:
         del page.views[1:]
         # 先把目标页建出来（建的时候不碰界面），换上去的时机交给下面的过渡。
         control = (
-            # 一级页 0：发现流（原「待办」页的版式换成了它，见 pages/feed.py；
-            # 待办那一版留在 pages/home.py 里，要换回来把这一支改回去即可）。
+            # 一级页 0：发现流（原来这一格是「待办」页，那一页已按用户要求删掉，
+            # 见 pages/feed.py）。
             build_feed_page(page)
             if index == 0
             else             build_countdown_page(page, set_menu_visible)
@@ -247,8 +247,8 @@ def build_navigation(page: ft.Page) -> None:
                 # 设置页照旧是**压在之上的一层**（`show_preferences`，二级页、收起底栏）；
                 # 入口只剩「我的」页左上角那枚 ≡（右上角那枚齿轮已去掉）。
                 show_preferences,
-                # ⚠️ 原来的「数据」入口（顶栏那枚柱状图图标）与数据页**已按用户要求整体删掉**
-                # （pages/data.py 及只服务它的图表控件都没了），所以这儿不再传 `show_data`。
+                # ⚠️ 原来的「数据」入口（顶栏那枚柱状图图标）连同数据页**已按用户要求整体删掉**
+                # （只服务它的图表控件也没了），所以这儿不再传 `show_data`。
                 # 「账号」卡片里点「登录」/「管理」→ 登录页压在**这个 Tab 之上**（第 1
                 # 层），返回回到这个 Tab。
                 show_login_from_settings,
