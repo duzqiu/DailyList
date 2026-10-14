@@ -37,6 +37,7 @@ from tools.layout import (
     text_width,
     track_keyboard,
 )
+from tools.layout import safe_update
 from tools.popup_select import (
     MENU_HEIGHT,
     OPTION_TEXT_SIZE,
@@ -758,6 +759,51 @@ def build_preferences_page(
             ),
         )
 
+    def logout_row() -> ft.Control:
+        """通用设置最后一行：**退出登录**（只在登录状态下摆出来）。
+
+        这个动作原来在登录页的已登录形态里（pages/login.py 的 `do_logout`）—— 现在挂到
+        「清除缓存」下面：设置页才是「配置」的地方，「要不要退出」归它管。
+
+        令牌由 `member_auth.logout` 清掉（后端是无状态 JWT，只是应一声，见 api/session.py）；
+        清完把这一行收掉（已经是未登录了），顺便重画云端数据那一段 —— 那几行的摘要都跟
+        登录态有关。没登录时这一行不出现：那时候没有「退出」可点。
+        """
+        if not session.access_token():
+            return ft.Container(visible=False)
+
+        async def do_logout() -> None:
+            try:
+                await member_auth.logout()
+            except ApiError as error:
+                # `logout` 在 finally 里清令牌，所以这里只把后端的抱怨说一声，照样算退出。
+                notify(error.message)
+            row.visible = False
+            # 走 safe_update：退出是**异步**做完的（等后端应一声），回来时这一页可能
+            # 已经被换掉了（切走就重建），硬 update 会抛「must be added to the page
+            # first」—— 和倒数日页、日历页那两处同一个道理。
+            safe_update(row)
+            notify("已退出登录")
+            refresh_cloud_summary()
+
+        def on_logout(_: ft.Event[ft.Control]) -> None:
+            page.run_task(do_logout)
+
+        row = ft.Container(
+            content=setting_row(
+                "退出登录",
+                ft.Text(
+                    "清掉本机保存的登录凭证", size=11, color=MUTED_COLOR
+                ),
+                ft.OutlinedButton(
+                    "退出",
+                    on_click=on_logout,
+                    style=compact_button_style(),
+                ),
+            )
+        )
+        return row
+
     def app_info() -> ft.Control:
         """页面最下方那行署名：App 名 + 版本 + 版权，居中一行灰字。
 
@@ -822,6 +868,8 @@ def build_preferences_page(
                                             for label, value in contacts.items()
                                         ),
                                         clear_row(),
+                                        # 退出登录紧挨在「清除缓存」下面（只登录时出现）。
+                                        logout_row(),
                                     ],
                                 ),
                                 # 落款：三张卡片下面的一小块署名（跟着内容滚）。

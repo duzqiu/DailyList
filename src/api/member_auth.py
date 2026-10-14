@@ -10,12 +10,24 @@
 只管"发什么、收什么"：界面上的校验与提示留在页面里，出错统一抛 `client.ApiError`。
 """
 
+import time
+
 from . import session
 from .client import get, post
 
 # 验证码场景（后端 `EmailScene`）：注册用 register，重置密码用 reset_password。
 SCENE_REGISTER = "register"
 SCENE_RESET_PASSWORD = "reset_password"
+
+# ---------------------- 当前会员的缓存 ----------------------
+# 「我的」页、登录页都会拿一次当前会员；原来每进一次页面就打一次接口（还要闪一下骨架）。
+# 这里存一份：
+# - **按令牌存**：登录 / 退出 / 刷新令牌都会换掉令牌，键跟着变，天然就作废了，不用手动清；
+# - 有**有效期**（`ME_CACHE_TTL` 秒）：过期后下次进入会重新拉一遍，数据不会永远停在老样子。
+#   想让它一直有效就调大，想每次进页面都重拉就设 0（等于关掉缓存）。
+ME_CACHE_TTL = 600
+# 只留**当前令牌**这一份（换过令牌的老条目会被顺手清掉，不会无限攒）。
+_ME_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 async def send_code(email: str, scene: str = SCENE_REGISTER) -> dict:
@@ -90,12 +102,50 @@ async def reset_password(
     )
 
 
-async def me() -> dict:
+def cached_me() -> dict | None:
+    """**同步**看一眼缓存里的会员信息；没有 / 过期就是 `None`（不打接口）。
+
+    构建页面时用它：命中就**直接摆真数据**，连骨架都不用闪（见 tools/settings_card.py）。
+    """
+    token = session.access_token()
+    if not token:
+        return None
+    hit = _ME_CACHE.get(token)
+    if hit is None:
+        return None
+    saved_at, user = hit
+    if ME_CACHE_TTL and time.monotonic() - saved_at >= ME_CACHE_TTL:
+        return None
+    return user
+
+
+def forget_me(token: str | None = None) -> None:
+    """把缓存丢掉（`token` 不传就全清）。退出登录时清一下，免得留着没用的条目。"""
+    if token is None:
+        _ME_CACHE.clear()
+    else:
+        _ME_CACHE.pop(token, None)
+
+
+async def me(use_cache: bool = True) -> dict:
     """当前登录会员（`GET /member/auth/me`，返回 `MemberOut`）。
 
     没登录、或令牌过期时抛 401 的 `ApiError`。
+
+    `use_cache=True`（默认）先看缓存：同一个令牌、且没过期就直接返回，**不再打接口**；
+    拉回来的结果也会存进缓存。要强制重拉传 `use_cache=False`。
     """
-    return await get("/member/auth/me", token=session.access_token())
+    token = session.access_token()
+    if use_cache:
+        hit = cached_me()
+        if hit is not None:
+            return hit
+    user = await get("/member/auth/me", token=token)
+    if token:
+        # 只留这一份（见 `_ME_CACHE` 的说明）。
+        _ME_CACHE.clear()
+        _ME_CACHE[token] = (time.monotonic(), user)
+    return user
 
 
 async def logout() -> dict:
@@ -109,3 +159,5 @@ async def logout() -> dict:
         return await post("/member/auth/logout", token=token)
     finally:
         session.clear()
+        # 退出后这条令牌作废了，缓存的会员信息也一并丢掉。
+        forget_me(token)

@@ -1,7 +1,6 @@
 import calendar
 import os
 import sqlite3
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -352,32 +351,8 @@ def add_todo(
         connection.close()
 
 
-def set_done(todo_id: int, done: bool) -> None:
-    connection = connect()
-    try:
-        # 一律带上 owner：id 是全局自增的，手上那个万一不是本机的，也不能动。
-        connection.execute(
-            "UPDATE todos SET done = ? WHERE id = ? AND owner = ?",
-            (1 if done else 0, todo_id, data_owner()),
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def delete_todo(todo_id: int) -> None:
-    connection = connect()
-    try:
-        connection.execute(
-            "DELETE FROM todos WHERE id = ? AND owner = ?",
-            (todo_id, data_owner()),
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-
 def get_todo(todo_id: int) -> Todo | None:
+    """按 id 取一条（**本模块内部在用**：`todo_series` 与 `update_todo` 都靠它）。"""
     connection = connect()
     try:
         row = connection.execute(
@@ -690,42 +665,6 @@ def update_countdown(
         connection.close()
 
 
-def list_todos(days: Iterable[date]) -> list[Todo]:
-    due_dates = [day.isoformat() for day in days]
-    if not due_dates:
-        return []
-    placeholders = ", ".join("?" for _ in due_dates)
-    connection = connect()
-    try:
-        rows = connection.execute(
-            "SELECT id, due_date, due_time, end_time, category, content, done,"
-            " repeat_cycle"
-            " FROM todos"
-            f" WHERE due_date IN ({placeholders}) AND owner = ?"
-            " ORDER BY due_date, id",
-            [*due_dates, data_owner()],
-        ).fetchall()
-    finally:
-        connection.close()
-    return [_to_todo(row) for row in rows]
-
-
-def list_range(start: date, end: date) -> list[Todo]:
-    connection = connect()
-    try:
-        rows = connection.execute(
-            "SELECT id, due_date, due_time, end_time, category, content, done,"
-            " repeat_cycle"
-            " FROM todos"
-            " WHERE due_date BETWEEN ? AND ? AND owner = ?"
-            " ORDER BY due_date, id",
-            (start.isoformat(), end.isoformat(), data_owner()),
-        ).fetchall()
-    finally:
-        connection.close()
-    return [_to_todo(row) for row in rows]
-
-
 def list_all_todos() -> list[Todo]:
     """本机所有的待办 —— 导出数据用。
 
@@ -745,26 +684,6 @@ def list_all_todos() -> list[Todo]:
     finally:
         connection.close()
     return [_to_todo(row) for row in rows]
-
-
-def counts_in(
-    start: date | None = None, end: date | None = None
-) -> list[tuple[str, bool, int]]:
-    """(category, done, count) rows, optionally limited to a due-date range."""
-    query = "SELECT category, done, COUNT(*) AS count FROM todos WHERE owner = ?"
-    parameters: list[str] = [data_owner()]
-    if start is not None and end is not None:
-        query += " AND due_date BETWEEN ? AND ?"
-        parameters += [start.isoformat(), end.isoformat()]
-    query += " GROUP BY category, done"
-    connection = connect()
-    try:
-        rows = connection.execute(query, parameters).fetchall()
-    finally:
-        connection.close()
-    return [
-        (row["category"], bool(row["done"]), int(row["count"])) for row in rows
-    ]
 
 
 def get_setting(name: str, default: str = "") -> str:

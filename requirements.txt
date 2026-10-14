@@ -6,5 +6,3 @@
 # [dependency-groups].dev 里：flet-cli / flet-desktop / flet-web / flet[test]
 
 flet>=1.0.1
-# Flet 1.0 把图表控件拆成了独立包，待办趋势折线图与分类占比饼图依赖它
-flet-charts>=1.0.1

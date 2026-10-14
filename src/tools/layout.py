@@ -19,60 +19,22 @@ ADD_ICON_SRC = "icons/add.png"
 # 柔和的天蓝 → 淡靛蓝渐变、带一点极淡光斑，低对比度 —— 上面压 70% 白的毛玻璃卡片后
 # 仍读得清字（见 tools/auth_form.py 的 `GLASS_BG`）。
 AUTH_BACKGROUND_SRC = "images/auth_background.jpg"
-DATA_ICON_SRC = "icons/data.png"
 CALENDAR_ICON_SRC = "icons/calendar.png"
 SETTINGS_ICON_SRC = "icons/settings.png"
-CHECK_ICON_SRC = "icons/check.png"
 
-# An open todo takes the colour of its category (see tools/categories.py) and
-# keeps the same neutral card as a completed one - no fill either way. Only the
-# done state changes the text: grey, struck through, behind a green check.
 SKY_BLUE = "#B2E0F4"
-# Surface colour of an unselected card - the home date strip, the todo cards and
-# the compact date picker all share it.
+# Surface colour of an unselected card（不选中的卡片底色）。
 UNSELECTED_CARD_BG = "#F1F5F9"
-# The picked day's blue: the home date strip, the 日历 month grid and the dialogs'
-# compact calendar all read it from here.
+# The picked day's blue（选中的那一天）。
 DATE_SELECTED_BG = "#B5D7EA"
-# A completed todo greys out and is struck through, the way a paper list reads
-# once an item is ticked off.
-TODO_DONE_TEXT = "#94A3B8"
-TODO_DONE_STRIKE_THICKNESS = 1.5
-# A todo row is the state marker plus the text, and both share one size so the
-# circle never looks bigger or smaller than the line it belongs to.
-TODO_TEXT_SIZE = 15
-# The marker in front of a todo: an empty ring while the todo is open, a green
-# filled circle with a white check once it is done.
-TODO_MARK_SIZE = 15
-TODO_MARK_COLOR = "#94A3B8"
-TODO_MARK_BORDER_WIDTH = 1.5
-TODO_MARK_DONE_BG = "#22C55E"
-TODO_MARK_DONE_CHECK = "#FFFFFF"
-# 待办卡片上那枚勾选框：方框带圆角（不是圆），空心的表示还没做，勾上了填青绿底
-# 加一枚黑色对勾 —— 它管的是这条待办的「做完了」，和上面那枚列表标记两回事。
-TODO_CHECK_SIZE = 16  # 比原来（18）收小一圈，和 15pt 的正文更配
-TODO_CHECK_RADIUS = 5
-TODO_CHECK_BORDER_WIDTH = 1.5
-TODO_CHECK_COLOR = "#94A3B8"
-TODO_CHECK_DONE_BG = "#14B8A6"
-TODO_CHECK_DONE_CHECK = "#000000"
-# The「9月26日待办」heading above the list stays a quiet caption next to the
-# rows, so it sits a step below the todo text itself.
-TODO_TITLE_SIZE = 14
-# 待办正文统一用灰字 —— 比「已完成」那档（TODO_DONE_TEXT）深一级，勾掉之后
-# 还是看得出灰下去了。不再跟着分类上色：分类色只留在右上角那枚标签和时间轴的
-# 点上。
-TODO_TEXT_COLOR = "#64748B"
-# A todo's time of day is a quiet second line under its text.
-TODO_TIME_SIZE = 11
-TODO_TIME_COLOR = "#94A3B8"
 
-MENU_BAR_BOTTOM = 16
-MENU_BAR_HEIGHT = 46
+# 底栏贴着屏幕底：不留那条缝（`keep_menu_off_keyboard` 仍按 `media.view_insets` 顶键盘）。
+MENU_BAR_BOTTOM = 0
+MENU_BAR_HEIGHT = 64
 MENU_BAR_GAP = 8
-# Icon and label of one bottom-menu entry, sized to sit inside the shorter bar.
-MENU_ICON_SIZE = 20
-MENU_LABEL_SIZE = 10
+# 底栏项改成小红书那排的写法：**只有文字、没有图标**，字号比原来大一档（选中的那一项
+# 由 pages/navigation.py 加粗、颜色压深）。
+MENU_LABEL_SIZE = 15
 # Material 3 dialogs default to a 28px corner radius; the app uses 12, the same
 # radius as its cards and option panels, so every dialog shares this value.
 DIALOG_RADIUS = 12
@@ -256,60 +218,6 @@ def build_subpage_header(
             ft.Container(width=BACK_WIDTH),
         ],
     )
-
-
-def build_todo_mark(done: bool) -> ft.Control:
-    """The circle drawn in front of a todo, in either of its two states.
-
-    The diameter is kept at `TODO_MARK_SIZE` (the todo font size) so the circle
-    and the text line up instead of one outgrowing the other.
-    """
-    if done:
-        return ft.Container(
-            width=TODO_MARK_SIZE,
-            height=TODO_MARK_SIZE,
-            shape=ft.BoxShape.CIRCLE,
-            bgcolor=TODO_MARK_DONE_BG,
-            alignment=ft.Alignment.CENTER,
-            content=ft.Icon(
-                ft.Icons.CHECK,
-                size=TODO_MARK_SIZE * 0.72,
-                color=TODO_MARK_DONE_CHECK,
-            ),
-        )
-    return ft.Container(
-        width=TODO_MARK_SIZE,
-        height=TODO_MARK_SIZE,
-        shape=ft.BoxShape.CIRCLE,
-        border=ft.Border.all(TODO_MARK_BORDER_WIDTH, TODO_MARK_COLOR),
-    )
-
-
-def todo_text_style(done: bool) -> ft.TextStyle | None:
-    """Grey strikethrough for a completed todo; `None` keeps the default face."""
-    if not done:
-        return None
-    return ft.TextStyle(
-        decoration=ft.TextDecoration.LINE_THROUGH,
-        decoration_color=TODO_DONE_TEXT,
-        decoration_thickness=TODO_DONE_STRIKE_THICKNESS,
-    )
-
-
-def todo_time_label(due_time: str) -> str:
-    """「09:30」- how a todo's time of day is printed, here and in the picker."""
-    return due_time
-
-
-def todo_time_range(due_time: str, end_time: str) -> str:
-    """「09:30 - 10:30」- 卡片正文上方那行灰色时间。
-
-    Only one end filled in prints just that one; neither end prints nothing, and
-    the card falls back to its single line.
-    """
-    if due_time and end_time:
-        return f"{due_time} - {end_time}"
-    return due_time or end_time
 
 
 def date_label(day: date) -> str:

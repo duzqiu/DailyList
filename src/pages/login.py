@@ -2,7 +2,7 @@
 
 **未登录**（本地没有令牌）时是登录表单：字段是邮箱 / 密码，点「登录」调后端
 `POST /member/auth/login`（见 api/member_auth.py）；令牌由 api/session.py 存到本地，
-登录成功后**直接跳到待办页**（`open_todo`，由 pages/navigation.py 给）。
+登录成功后**直接跳到待办页**（`open_home`，由 pages/navigation.py 给）。
 
 **已登录**（本地有令牌）时这一页换成「当前用户」卡片：进来先调 `GET /member/auth/me`
 把昵称 / 邮箱 / 会员号显示出来，卡片下面是「退出登录」（调 `POST /member/auth/logout`；
@@ -49,19 +49,19 @@ def build_login_page(
     go_back: Callable[[], None],
     open_register: Callable[[], None],
     open_forgot: Callable[[], None],
-    open_todo: Callable[[], None],
+    open_home: Callable[[], None],
     reload_login: Callable[[], None],
 ) -> ft.Control:
     """登录页。
 
-    `go_back` / `open_register` / `open_forgot` / `open_todo` / `reload_login` 都由
+    `go_back` / `open_register` / `open_forgot` / `open_home` / `reload_login` 都由
     pages/navigation.py 给：「‹ 返回」、整页左滑、真机返回键共用 `go_back`；两个链接
-    分别进注册页、忘记密码页；登录成功走 `open_todo` 跳到待办页；退出登录（或令牌
+    分别进注册页、忘记密码页；登录成功走 `open_home` 跳到待办页；退出登录（或令牌
     失效）走 `reload_login` 重画本层，使它回到未登录形态。
     """
     if session.access_token():
-        return _build_signed_in(page, go_back, open_todo, reload_login)
-    return _build_sign_in_form(page, go_back, open_register, open_forgot, open_todo)
+        return _build_signed_in(page, go_back, open_home, reload_login)
+    return _build_sign_in_form(page, go_back, open_register, open_forgot, open_home)
 
 
 def _notify(page: ft.Page, message: str) -> None:
@@ -77,7 +77,7 @@ def _build_sign_in_form(
     go_back: Callable[[], None],
     open_register: Callable[[], None],
     open_forgot: Callable[[], None],
-    open_todo: Callable[[], None],
+    open_home: Callable[[], None],
 ) -> ft.Control:
     # 字段对象要留着读值（`build_auth_field` 给控件本体，`build_field_box` 只是把它
     # 套进那圈细边里，两者分开是为了这一层还能拿到 TextField）。
@@ -102,7 +102,7 @@ def _build_sign_in_form(
             _notify(page, error.message)
             return
         # 登录成功：先跳到待办页，再把提示压在它上面 —— 提示是页面级弹层，换页不受影响。
-        open_todo()
+        open_home()
         _notify(page, "登录成功")
 
     def submit(_: ft.Event[ft.Control]) -> None:
@@ -145,7 +145,7 @@ def _build_sign_in_form(
 def _build_signed_in(
     page: ft.Page,
     go_back: Callable[[], None],
-    open_todo: Callable[[], None],
+    open_home: Callable[[], None],
     reload_login: Callable[[], None],
 ) -> ft.Control:
     """已登录时的形态：当前用户信息 + 退出登录。
@@ -227,7 +227,7 @@ def _build_signed_in(
     links = build_link_row(
         [
             ("重新加载", on_reload),
-            ("去待办页", lambda _: open_todo()),
+            ("去待办页", lambda _: open_home()),
         ]
     )
 

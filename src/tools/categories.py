@@ -32,8 +32,8 @@ def build_category_icon(
 ) -> ft.Control:
     """The category's star: red for 重要, yellow for 一般, green for 可选.
 
-    `color` overrides the star's own colour - the 数据统计 headers paint the star
-    in the ink that reads on the category's solid background.
+    `color` overrides the star's own colour - a caller painting the star on a solid
+    background passes the ink that reads on that background.
     """
     if name not in CATEGORY_COLORS:
         return ft.Icon(

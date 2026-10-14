@@ -2,18 +2,24 @@ from collections.abc import Callable
 
 import flet as ft
 
+from datetime import date
+
+from pages.background import build_background_page
+from pages.messages import build_messages_page
 from pages.my import build_my_page
+# 占位页要页面渐变 + 底栏那一段留白；底栏中间那颗「+」在这儿弹「新增待办」。
+from tools.layout import safe_update
+from tools.todo_form import open_todo_form
 from pages.countdown import build_countdown_page
-from pages.data import build_data_page
+from pages.edit_profile import build_edit_profile_page
 from pages.forgot_password import build_forgot_password_page
-from pages.home import build_home_page
+from pages.feed import build_feed_page
 from pages.login import build_login_page
 from pages.preferences import build_preferences_page
 from pages.register import build_register_page
 from tools.layout import (
     MENU_BAR_BOTTOM,
     MENU_BAR_HEIGHT,
-    MENU_ICON_SIZE,
     MENU_LABEL_SIZE,
     PAGE_BGCOLOR,
 )
@@ -33,6 +39,25 @@ ICON_BUTTON_STYLE = ft.ButtonStyle(
 # 是纯横向推拉：新旧两页各自整块不透明地滑进滑出，前后不会叠在一起，配边缘返回
 # 手势也是这一档最顺。想干脆不要动画，把它换成 `ft.PageTransitionTheme.NONE`。
 PAGE_TRANSITION = ft.PageTransitionTheme.CUPERTINO
+
+# 一级页（底栏那几格）切换的过渡：用 flet 自带的 **`ft.AnimatedSwitcher`** —— 服务端只要
+# 换一次 `content`，**客户端**自己就会让旧页淡出、新页淡入（真正的交叉淡入淡出），不用在
+# 服务端排「先淡出、再换、再淡入」那两拍。
+#
+# ⚠️ 别再拿 `animate_opacity` / `animate_offset`（隐式动画）做这件事：真机上走了两轮，
+# 这两种写法都**看不到任何过渡**（客户端里那两处分支是有的，实测不生效），而
+# `AnimatedSwitcher` 是客户端驱动的，稳。
+# ⚠️ 二级 / 三级页也不用这套：它们是压在 `page.views` 上的真 View，走上面的
+# `PAGE_TRANSITION`（系统那档横向推拉），自己再画一层反而会叠。
+PAGE_SWITCH_MS = 220
+# 每一页一个**不同的 key**：AnimatedSwitcher 靠 key 判断「这是不是另一个控件」——
+# key 相同只当普通刷新（不播动画），正好对上「同一格重复点 = 刷新」那条。
+PAGE_KEYS: dict[int, str] = {
+    0: "tab-feed",
+    1: "tab-countdown",
+    3: "tab-messages",
+    4: "tab-my",
+}
 
 
 def build_navigation(page: ft.Page) -> None:
@@ -62,8 +87,20 @@ def build_navigation(page: ft.Page) -> None:
         hover_color="#00000000",
         focus_color="#00000000",
     )
-    content = ft.Container(expand=True)
+    # 一级页的容器：**AnimatedSwitcher 负责过渡** —— 换 `content` 时旧页淡出、新页淡入。
+    # 初始给一个空占位：真身在第一帧之前就换上（见文件末尾的 `show_page(0, update=False)`，
+    # 那一步发生在 `page.add()` 之前），所以首屏不会先闪一下再切。
+    holder = ft.AnimatedSwitcher(
+        content=ft.Container(),
+        duration=PAGE_SWITCH_MS,
+        reverse_duration=PAGE_SWITCH_MS,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
+        expand=True,
+    )
     selected_index = 0
+
     # 各页的「选择状态」，按页面名保管。切页时页面控件是重建的（待办数据要现从
     # db 读），但「在看哪个月 / 选了哪一档」这类选择不该跟着回到默认值：切走再
     # 切回来还停在原处，只有热重载重新跑 main() 才回到初始值。
@@ -107,7 +144,7 @@ def build_navigation(page: ft.Page) -> None:
     ) -> None:
         """把 `build()` 画成第 `depth` 层，二级起每层一个真 `ft.View`。
 
-        第 0 层是一级页的外壳（`content` + 底部菜单），由 `show_page` 直接画在
+        第 0 层是一级页的外壳（`holder` + 底部菜单），由 `show_page` 直接画在
         `page.add()` 建出来的根 View 里。这一层已经存在就重画它（从更深的层退回来
         时走这条），不存在才压一层新的 —— **压出来的必须是真 View**，客户端的
         「返回」和边缘返回手势才有层可弹、才不回把整个 App 结束掉。
@@ -136,21 +173,44 @@ def build_navigation(page: ft.Page) -> None:
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         expand=True,
     )
+    # 底栏那 4 个文字项的引用：(index, Text)。项只建一次、之后只改它们的状态 ——
+    # 挂着 `animate_scale` 才插得出「选中放大」那段动画（见 `refresh_menu_items`）。
+    menu_label_texts: list[tuple[int, ft.Text]] = []
+
+    # 底栏配色：白底、**不描边**；项只有文字，中间那颗红「+」是小红书最显眼的一笔
+    # （在这个 App 里它 = 新增待办，见 `menu_plus`）。
+    MENU_BAR_BG = "#FFFFFF"
+    MENU_LABEL_IDLE = "#9CA3AF"
+    MENU_LABEL_SELECTED = "#111827"
+    # 选中的那一项**放大**：字号不变、靠 `scale` + 动画（切页时它是「弹大」的，
+    # 不是直接蹦成大字 —— 所以项只建一次、之后改它，见 `refresh_menu_items`）。
+    # 幅度收过一档：1.18 太跳，1.08 只是「比旁边大一点点」。
+    MENU_LABEL_ZOOM = 1.08
+    MENU_LABEL_ZOOM_MS = 160
+    MENU_PLUS_BG = "#FF2442"
+    # 那颗「+」是**扁的**：宽比高长，圆角比「高的一半」小一档 —— 是一枚圆角扁块，
+    # 不是完整的椭圆。
+    MENU_PLUS_WIDTH = 56
+    MENU_PLUS_HEIGHT = 34
+    MENU_PLUS_RADIUS = 10
+    # 底栏某一格右上角那枚未读徽标的底色（「消息」那格是 99+）。
+    MENU_BADGE_BG = "#FF2442"
+    # 底栏内**底边**留的白：内容因此整体上移一点；这段空白用的就是底栏自己的白底，
+    # 和菜单一个颜色，不会在下面露出一条别的颜色的边。
+    MENU_BAR_BOTTOM_SPACE = 20
 
     menu_bottom = MENU_BAR_BOTTOM
+    # 底栏参照小红书那一版：**通栏平底、贴着屏幕底**（不再是浮在中间的一枚圆角毛玻璃
+    # 丸，顶上也不描那条细灰线）。项本身只有文字，中间那颗红「+」见 `menu_plus`。
     menu_bar = ft.Container(
-        left=32,
-        right=32,
+        left=0,
+        right=0,
         bottom=menu_bottom,
         height=MENU_BAR_HEIGHT,
-        padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-        border_radius=ft.BorderRadius.all(18),
-        blur=ft.Blur(16, 16, ft.BlurTileMode.CLAMP),
-        gradient=ft.LinearGradient(
-            colors=["#66FFFFFF", "#40FFFFFF", "#66FFFFFF"],
-            begin=ft.Alignment.TOP_LEFT,
-            end=ft.Alignment.BOTTOM_RIGHT,
+        padding=ft.Padding.only(
+            left=6, right=6, top=2, bottom=MENU_BAR_BOTTOM_SPACE
         ),
+        bgcolor=MENU_BAR_BG,
         content=menu_items,
     )
 
@@ -170,49 +230,45 @@ def build_navigation(page: ft.Page) -> None:
         # 一级页是根：回到它就把上面压的层全撤掉，也再没有「上一页」了。
         nav_stack.clear()
         del page.views[1:]
-        content.content = (
-            build_home_page(page, set_menu_visible, page_state("home"))
+        # 先把目标页建出来（建的时候不碰界面），换上去的时机交给下面的过渡。
+        control = (
+            # 一级页 0：发现流（原「待办」页的版式换成了它，见 pages/feed.py；
+            # 待办那一版留在 pages/home.py 里，要换回来把这一支改回去即可）。
+            build_feed_page(page)
             if index == 0
             else             build_countdown_page(page, set_menu_visible)
             if index == 1
+            else build_messages_page(page)
+            if index == 3
             else build_my_page(
                 page,
                 set_menu_visible,
                 page_state("my"),
+                # 设置页照旧是**压在之上的一层**（`show_preferences`，二级页、收起底栏）；
+                # 入口只剩「我的」页左上角那枚 ≡（右上角那枚齿轮已去掉）。
                 show_preferences,
-                show_data,
+                # ⚠️ 原来的「数据」入口（顶栏那枚柱状图图标）与数据页**已按用户要求整体删掉**
+                # （pages/data.py 及只服务它的图表控件都没了），所以这儿不再传 `show_data`。
                 # 「账号」卡片里点「登录」/「管理」→ 登录页压在**这个 Tab 之上**（第 1
                 # 层），返回回到这个 Tab。
                 show_login_from_settings,
+                # 内容板上那个红色胶囊「去添加」= 新增待办（和底栏那颗「+」同一件事）。
+                add_todo,
+                # 背景区里点空白处 → 换背景图那一页。
+                show_background,
+                # 顶栏那枚胶囊「编辑主页」→「编辑资料」页（复刻小红书那一版）。
+                show_edit_profile,
             )
         )
+        # 每页一个固定的 key：**AnimatedSwitcher 靠它认出「换的是另一个控件」才播过渡**；
+        # 同一格再来（从二级页退回来 / 重复点）key 不变 → 只当普通刷新，不白播一次。
+        control.key = PAGE_KEYS.get(index, f"tab-{index}")
+        holder.content = control
         page.bgcolor = PAGE_BGCOLOR
         menu_bar.visible = True
         build_menu_items()
         if update:
             page.update()
-
-    def render_data(update: bool = True) -> None:
-        """只重画「数据」页那**一层**，不动页面栈 —— 从三级页退回二级页回的就是它。"""
-        show_layer(
-            1,
-            "/data",
-            lambda: build_data_page(
-                page, go_back=go_back, state=page_state("data")
-            ),
-        )
-        page.bgcolor = PAGE_BGCOLOR
-        menu_bar.visible = False
-        if update:
-            page.update()
-
-    def show_data(update: bool = True) -> None:
-        """日历页右上角柱状图进来的「数据」页：二级页，进来后底部菜单收起。"""
-        # 记下是从哪一个一级页进来的：退回来时回的也是它（写死 0 的话，从别的页
-        # 进来就会被摁回待办页）。
-        origin = selected_index
-        nav_stack.append(lambda: show_page(origin))
-        render_data(update)
 
     def render_preferences(update: bool = True) -> None:
         """只重画设置页那**一层**，不动页面栈（同上）。"""
@@ -226,6 +282,77 @@ def build_navigation(page: ft.Page) -> None:
                 go_back=go_back,
                 # 「账号」卡片里点「登录」/「管理」→ 登录页压在设置页之上（第 2 层）。
                 open_login=show_login_from_settings,
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_background(update: bool = True) -> None:
+        """「我的」页背景区点空白处进来：**换背景图**那一页（二级页，收起底栏）。
+
+        左上角的 ✕ / 返回回到进来时那个 Tab；选好图后那一页会叫 `on_saved`，这里顺手把
+        「我的」重画一遍（`show_page` 会把上面这层也撤掉），新背景就铺上了。
+        """
+        origin = selected_index
+        nav_stack.append(lambda: show_page(origin))
+        show_layer(
+            1,
+            "/background",
+            lambda: build_background_page(
+                page,
+                go_back=go_back,
+                on_saved=lambda: show_page(origin),
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def render_edit_profile(update: bool = True) -> None:
+        """只重画「编辑资料」页那**一层**，不动页面栈（同上）。"""
+        show_layer(
+            1,
+            "/edit-profile",
+            lambda: build_edit_profile_page(
+                page,
+                go_back=go_back,
+                # 「背景图」那一行 → 换背景图页压在**这一页之上**（第 2 层）。
+                open_background=show_background_from_editor,
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_edit_profile(update: bool = True) -> None:
+        """「我的」页顶栏「编辑主页」进来：**编辑资料**页（二级页，收起底栏）。
+
+        返回回到进来时那个 Tab；改完资料退回去时「我的」页会重画一遍（名字 / 头像跟着变，
+        本地资料见 tools/my_profile.py）。
+        """
+        origin = selected_index
+        nav_stack.append(lambda: show_page(origin))
+        render_edit_profile(update)
+
+    def show_background_from_editor(update: bool = True) -> None:
+        """编辑资料页里点「背景图」→ 换背景图页（第 2 层）。
+
+        和「我的」页直接进不一样：这一层**压在编辑资料页之上**，所以父层动作是
+        `render_edit_profile`（退回编辑资料页、缩略图跟着换成新图），不是 `show_page`。
+        """
+        nav_stack.append(lambda: render_edit_profile())
+        show_layer(
+            2,
+            "/background",
+            lambda: build_background_page(
+                page,
+                go_back=go_back,
+                # 选完图直接退回编辑资料页（`go_back` 弹掉这一层 + 重画编辑资料页）。
+                on_saved=go_back,
             ),
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -256,9 +383,9 @@ def build_navigation(page: ft.Page) -> None:
                 # show_register / show_forgot。
                 open_register=lambda: show_register(depth + 1),
                 open_forgot=lambda: show_forgot(depth + 1),
-                # 登录成功 → 待办页（一级页第 0 个 Tab）：`show_page` 会把上面压的层
+                # 登录成功 → 首页（一级页第 0 个 Tab）：`show_page` 会把上面压的层
                 # 全撤掉，所以跳过去之后就是干净的一级页。
-                open_todo=lambda: show_page(0),
+                open_home=lambda: show_page(0),
                 # 退出登录 / 令牌失效 → 重画本层，使它回到未登录形态。
                 reload_login=lambda: render_login(depth),
             ),
@@ -320,60 +447,116 @@ def build_navigation(page: ft.Page) -> None:
         nav_stack.append(lambda: render_login(depth - 1))
         render_forgot(depth, update)
 
-    def menu_item(
-        index: int, icon: str, selected_icon: str, label: str, key: str
-    ) -> ft.Control:
+    def menu_item(index: int, label: str, badge: str = "") -> ft.Control:
+        """底栏一项：**只有文字**（照小红书那排），选中的放大 + 加粗 + 颜色压深。
+
+        文字控件留一份引用（`menu_label_texts`）：选中态是**改它**、不是重建 —— 挂着
+        `animate_scale` 才有得插值，切页时那一项是「弹大」的。
+
+        `badge` 给了就在那两个字右上角挂一枚红徽标（「消息」那一格是 99+）。
+        """
+        selected = selected_index == index
+        text = ft.Text(
+            label,
+            size=MENU_LABEL_SIZE,
+            color=MENU_LABEL_SELECTED if selected else MENU_LABEL_IDLE,
+            weight=ft.FontWeight.BOLD if selected else ft.FontWeight.NORMAL,
+            # 放大对齐中心：字只变大、不挪位。
+            scale=ft.Scale(
+                MENU_LABEL_ZOOM if selected else 1,
+                alignment=ft.Alignment.CENTER,
+            ),
+            animate_scale=ft.Animation(
+                MENU_LABEL_ZOOM_MS, ft.AnimationCurve.EASE_OUT
+            ),
+            badge=(
+                ft.Badge(
+                    label=badge,
+                    bgcolor=MENU_BADGE_BG,
+                    text_color="#FFFFFF",
+                    text_style=ft.TextStyle(size=10),
+                    padding=ft.Padding.symmetric(horizontal=5, vertical=0),
+                )
+                if badge
+                else None
+            ),
+        )
+        menu_label_texts.append((index, text))
         return ft.Container(
-            key=key,
             expand=True,
             alignment=ft.Alignment.CENTER,
-            border_radius=ft.BorderRadius.all(16),
             ink=True,
             on_click=lambda _: show_page(index),
-            content=ft.Column(
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=2,
-                controls=[
-                    # 三个 Tab 都用内置图标：选中 / 未选中是「实心 / 空心」那一对。
-                    ft.Icon(
-                        selected_icon if selected_index == index else icon,
-                        size=MENU_ICON_SIZE,
-                        color="#1F2937",
-                    ),
-                    ft.Text(
-                        label,
-                        size=MENU_LABEL_SIZE,
-                        color="#1F2937",
-                        weight=(
-                            ft.FontWeight.BOLD
-                            if selected_index == index
-                            else ft.FontWeight.NORMAL
-                        ),
-                    ),
-                ],
+            content=text,
+        )
+
+    def add_todo() -> None:
+        """开「新增待办」弹窗（存完跳回首页）。
+
+        底栏那颗红「+」和「我的」页内容板上那个红色胶囊「去添加」，两处都走这一个 ——
+        同一件事只有一处写法。
+        """
+        open_todo_form(
+            page,
+            set_menu_visible=set_menu_visible,
+            on_saved=lambda _day: show_page(0),
+            default_date=date.today(),
+        )
+
+    def menu_plus() -> ft.Control:
+        """中间那颗「+」（小红书最显眼的一笔）：**扁椭圆**的红按钮 + 白加号。
+
+        在这个 App 里它 = **新增待办**（见 `add_todo`）。新增倒数日不在这儿 —— 它在
+        倒数日页右下角自己那枚「+」上。
+        """
+        return ft.Container(
+            expand=True,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Container(
+                width=MENU_PLUS_WIDTH,
+                height=MENU_PLUS_HEIGHT,
+                alignment=ft.Alignment.CENTER,
+                # 圆角比「高的一半」小一档：是一枚圆角扁块，不是完整椭圆。
+                border_radius=ft.BorderRadius.all(MENU_PLUS_RADIUS),
+                bgcolor=MENU_PLUS_BG,
+                ink=True,
+                on_click=lambda _: add_todo(),
+                content=ft.Icon(ft.Icons.ADD, size=22, color="#FFFFFF"),
             ),
         )
 
+    def refresh_menu_items() -> None:
+        """切页后把选中态刷到那 4 个文字上（放大 / 加粗 / 压深换人）。
+
+        改的是原来那几个 `ft.Text`：它们带着 `animate_scale`，所以「放大」是动画出来的。
+        """
+        for index, text in menu_label_texts:
+            selected = selected_index == index
+            text.color = MENU_LABEL_SELECTED if selected else MENU_LABEL_IDLE
+            text.weight = (
+                ft.FontWeight.BOLD if selected else ft.FontWeight.NORMAL
+            )
+            text.scale = ft.Scale(
+                MENU_LABEL_ZOOM if selected else 1,
+                alignment=ft.Alignment.CENTER,
+            )
+        # 底栏这时候可能还没挂到页面上（第一次是 `build_navigation` 里先 build 的），
+        # 挂上了才刷得动 —— 走 safe_update 免得抛。
+        safe_update(menu_items)
+
     def build_menu_items() -> None:
+        """建 / 刷底栏那五格：**只建一次**，之后都走 `refresh_menu_items` 改选中态。"""
+        if menu_items.controls:
+            refresh_menu_items()
+            return
         menu_items.controls = [
-            menu_item(0, ft.Icons.HOME_OUTLINED, ft.Icons.HOME, "待办", "home-tab"),
-            menu_item(
-                1,
-                ft.Icons.HOURGLASS_EMPTY,
-                ft.Icons.HOURGLASS_BOTTOM,
-                "倒数日",
-                "countdown-tab",
-            ),
-            menu_item(
-                2,
-                ft.Icons.PERSON_OUTLINE,
-                ft.Icons.PERSON,
-                # 原来是「日历」：月历搬去数据页了（见 tools/month_calendar.py），这一页
-                # 改放账号信息（pages/my.py）。
-                "我的",
-                "calendar-tab",
-            ),
+            # 第 1 格原来是「待办」，页面换成发现流之后改叫「首页」（和那一页对得上）。
+            menu_item(0, "首页"),
+            menu_item(1, "倒数日"),
+            menu_plus(),
+            # 「消息」：页面上有 9 条未读，底栏这一格跟着挂个「99+」（照截图那排）。
+            menu_item(3, "消息", badge="99+"),
+            menu_item(4, "我的"),
         ]
 
     show_page(0, update=False)
@@ -382,7 +565,7 @@ def build_navigation(page: ft.Page) -> None:
         ft.Stack(
             expand=True,
             controls=[
-                content,
+                holder,
                 menu_bar,
             ],
         )
