@@ -6,8 +6,8 @@ from pages.background import build_background_page
 from pages.messages import build_messages_page
 from pages.my import build_my_page
 # 占位页要页面渐变 + 底栏那一段留白。
-from tools.layout import safe_update
-from tools.toast import build_toast
+from widgets.layout import safe_update
+from widgets.toast import build_toast
 from pages.countdown import build_countdown_page
 from pages.edit_profile import build_edit_profile_page
 from pages.forgot_password import build_forgot_password_page
@@ -15,13 +15,13 @@ from pages.feed import build_feed_page
 from pages.login import build_login_page
 from pages.preferences import build_preferences_page
 from pages.register import build_register_page
-from tools.layout import (
+from widgets.layout import (
     MENU_BAR_BOTTOM,
     MENU_BAR_HEIGHT,
     MENU_LABEL_SIZE,
     PAGE_BGCOLOR,
 )
-from tools.swipe_back import build_swipe_back
+from widgets.swipe_back import build_swipe_back
 
 # Dropdown carets are Material IconButtons; their default surface/overlay colour
 # painted over neighbouring content (the selected 年/月/周 and the popup below

@@ -17,21 +17,21 @@ import flet as ft
 from api.client import ApiError
 from api.member_countdowns import DEFAULT_CYCLE, SUPPORTED_CYCLES
 from tools import countdown_store
-from tools.layout import (
+from widgets.layout import (
     DIALOG_RADIUS,
     DIALOG_SURFACE,
     date_label,
     dialog_button_style,
     track_keyboard,
 )
-from tools.pickers import build_date_picker, build_value_trigger
-from tools.popup_select import (
+from widgets.pickers import build_date_picker, build_value_trigger
+from widgets.popup_select import (
     MENU_HEIGHT,
     build_option_row,
     build_option_selector,
     build_option_text,
 )
-from tools.toast import build_toast
+from widgets.toast import build_toast
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
@@ -112,7 +112,7 @@ def open_countdown_form(
         page.update()
 
     def notify(message: str) -> None:
-        """一句话提示：走 tools/toast.py，浮在屏幕正中（弹窗开着也看得见）。"""
+        """一句话提示：走 widgets/toast.py，浮在屏幕正中（弹窗开着也看得见）。"""
         page.show_dialog(build_toast(page, message))
 
     async def do_save(text: str) -> None:

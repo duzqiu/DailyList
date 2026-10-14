@@ -11,12 +11,12 @@
 
 两个链接的位置：**「忘记密码？」贴着密码框外的右下角**（卡片里、密码框下面那一行，右对齐，
 与密码框的间距用 `FIELD_HINT_GAP` 收到 2），**「还没有账号？去注册」钉在页面左右居中偏下**
-（不跟表单走 —— 见 tools/auth_form.py 的 `footer`）。
+（不跟表单走 —— 见 widgets/auth_form.py 的 `footer`）。
 它们进的都是**三级页**（压进 page.views 的第 2 层，见 pages/register.py 与
 pages/forgot_password.py）；从那儿返回回到的是这一页 —— 注册成功、重置密码成功也是回
 这一层（各页自己调 `go_back()`）。
 
-壳子、卡片、字段、主按钮、底部链接都来自 tools/auth_form.py（和注册页、忘记密码页
+壳子、卡片、字段、主按钮、底部链接都来自 widgets/auth_form.py（和注册页、忘记密码页
 共用一套），这一页只负责「有哪些字段、点了做什么」。
 """
 
@@ -26,7 +26,7 @@ import flet as ft
 
 from api import member_auth, session
 from api.client import ApiError
-from tools.auth_form import (
+from widgets.auth_form import (
     FIELD_HINT_GAP,
     FIELD_TEXT_SIZE,
     HINT_COLOR,
@@ -41,7 +41,7 @@ from tools.auth_form import (
     build_link_row,
     build_primary_button,
 )
-from tools.toast import build_toast
+from widgets.toast import build_toast
 
 
 def build_login_page(
@@ -65,7 +65,7 @@ def build_login_page(
 
 
 def _notify(page: ft.Page, message: str) -> None:
-    """一句话的提示：走 tools/toast.py，浮在**屏幕正中**。"""
+    """一句话的提示：走 widgets/toast.py，浮在**屏幕正中**。"""
     page.show_dialog(build_toast(page, message))
 
 

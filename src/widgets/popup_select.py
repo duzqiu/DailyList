@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import flet as ft
 
-from tools.layout import text_width
+from widgets.layout import text_width
 
 OPTION_HEIGHT = 28
 OPTION_PADDING = ft.Padding.symmetric(horizontal=10)

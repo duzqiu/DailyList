@@ -1,8 +1,11 @@
-"""导出数据：把库里的倒数日 / 设置拍成一份 JSON。
+"""导出数据：把倒数日与设置拍成一份 JSON。
 
-选 JSON 是因为它和 SQLite 结构最贴 —— 一张表一个数组，字段名和列名一一对上，将来
-要「导入回填」不用再拍平一层。写文件时 `ensure_ascii=False`，中文在文件里仍是原文，
-用户拿去看也认得出。
+两边的来源不一样：**倒数日**取自后端那份缓存（tools/countdown_store.py），**设置**取自
+内存里的 mock 数据（tools/mock_settings.py，见 README「待处理问题」）—— 导出即所见。
+
+选 JSON 是因为结构直白 —— 一块数据一个数组，字段名和原来的列名一一对上，将来要「导入
+回填」不用再拍平一层。写文件时 `ensure_ascii=False`，中文在文件里仍是原文，用户拿去看
+也认得出。
 
 Flet 那边只管把一串字节交出去（`FilePicker.save_file` 的 `src_bytes`）：桌面弹的是
 「另存为」，手机和 Web 上表现为导出 / 下载 —— 格式是这里定的，Flet 不挑。
@@ -11,7 +14,7 @@ Flet 那边只管把一串字节交出去（`FilePicker.save_file` 的 `src_byte
 import json
 from datetime import datetime
 
-from tools import countdown_store, db
+from tools import countdown_store, mock_settings
 
 # 文件里写明的格式标记：以后要加 CSV、或改结构，靠这两个字段分辨是什么、哪一版。
 EXPORT_FORMAT = "json"
@@ -25,9 +28,9 @@ def export_file_name(now: datetime | None = None) -> str:
 
 
 def build_payload(now: datetime | None = None) -> dict:
-    """库里的全部数据拍成一个可 JSON 序列化的 dict。
+    """当前全部数据拍成一个可 JSON 序列化的 dict。
 
-    两张表各一数组，`settings` 是键值对（它本来就是 name/value 两列）。
+    两块各一个字段：`countdowns` 来自后端缓存，`settings` 是内存 mock 里那份键值对。
     """
     moment = now or datetime.now()
     return {
@@ -45,7 +48,7 @@ def build_payload(now: datetime | None = None) -> dict:
             }
             for item in countdown_store.items()
         ],
-        "settings": db.list_settings(),
+        "settings": mock_settings.list_settings(),
     }
 
 

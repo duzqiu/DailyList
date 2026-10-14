@@ -20,8 +20,8 @@ from typing import Any
 
 import flet as ft
 
-from tools import countdown_store, db
-from tools.layout import (
+from tools import countdown_store, cycles
+from widgets.layout import (
     CALENDAR_ICON_SRC,
     FUTURE_COLOR,
     SOON_COLOR,
@@ -76,7 +76,7 @@ DOT_ROW_ESTIMATE = 133
 # 再窄也留这么几个，免得算出 0 或 1 个看着不像一条线。
 DOT_MIN_COUNT = 4
 # 天数徽标的三档状态色：红 = 三天内、黄 = 一周内、绿 = 更远，天数越近越扎眼。三档色值
-# 都在 tools/layout.py 里定义（全 App 一份），这儿只用不定义。
+# 都在 widgets/layout.py 里定义（全 App 一份），这儿只用不定义。
 SOON_DAYS = 3
 FUTURE_DAYS = 7
 # 不循环的倒数日过期后还挂几天：到期当天算第 0 天、还留在正列表里，第二天起收进底部开关。
@@ -88,7 +88,7 @@ WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日"
 def countdown_days(item: countdown_store.Countdown, today: date | None = None) -> int:
     """Days left until the next occurrence; negative once a fixed day passed."""
     return (
-        db.next_occurrence(item.due_date, item.cycle, today or date.today())
+        cycles.next_occurrence(item.due_date, item.cycle, today or date.today())
         - (today or date.today())
     ).days
 
@@ -104,7 +104,7 @@ def countdown_color(days: int) -> str:
 
 def countdown_visible(item: countdown_store.Countdown, today: date | None = None) -> bool:
     """不循环的倒数日一过到期日就收进「已过期」；循环的永远等下一次。"""
-    if item.cycle in db.REPEAT_CYCLES and item.cycle != db.DEFAULT_CYCLE:
+    if item.cycle in cycles.REPEAT_CYCLES and item.cycle != cycles.DEFAULT_CYCLE:
         return True
     return ((today or date.today()) - item.due_date).days < EXPIRED_HIDE_AFTER_DAYS
 
@@ -381,7 +381,7 @@ def build_countdown_card(
     )
     if on_delete is None and on_edit is None:
         return card
-    from tools.swipe_delete import build_swipe_delete_row
+    from widgets.swipe_delete import build_swipe_delete_row
 
     # 左滑会平移卡片，这里按卡片圆角裁一刀：网格里卡片不会盖到隔壁那张。
     return ft.Container(

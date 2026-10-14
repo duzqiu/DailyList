@@ -18,7 +18,7 @@
 下拉：**手势在这一层被吃掉**（`GestureDetector`），在图上竖直拖拽页面不动 —— 也就不会
 露出白底。为什么不用「页面底下再铺一张同款图」那招：用户否了（等于两张上下层图片）。
 
-数据说明：昵称 / ID 用后端真数据（tools/settings_card.py），关注 / 粉丝 / 获赞、三张小卡、
+数据说明：昵称 / ID 用后端真数据（widgets/settings_card.py），关注 / 粉丝 / 获赞、三张小卡、
 感兴趣的人、笔记那几块**目前没有真实来源**，先按版式摆出来。
 """
 
@@ -26,12 +26,14 @@ from collections.abc import Callable
 
 import flet as ft
 
-from tools.layout import (
+from widgets.layout import (
     BOTTOM_MENU_INSET,
+    DATE_SELECTED_BG,
+    SKY_BLUE,
     safe_update,
 )
-from tools.my_background import background_decoration
-from tools.settings_card import build_account_card
+from widgets.my_background import background_decoration
+from widgets.settings_card import build_account_card
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
@@ -44,6 +46,12 @@ MY_BG = "#FFFFFF"
 ON_IMAGE_COLOR = "#FFFFFF"
 ON_IMAGE_MUTED = "#E6FFFFFF"
 ON_IMAGE_LINE = "#66FFFFFF"
+# 但**没设过背景图**时（`background_decoration()` 返回 None）这块区域只能落在页面那层白底
+# 上 —— 白字白底，整块等于看不见（用户反馈的「tab 上方的页面缺失」就是它）。所以再备一套
+# 「没有图」的墨色，并给这块垫一层浅蓝渐变当底（两个色都是全 App 已有的浅蓝，不新起颜色）。
+#
+# ⚠️ 这层底是**临时方案**（配色是凑的，不是设计稿），先这么用 —— 见 README「待处理问题」。
+NO_COVER_GRADIENT_COLORS = (SKY_BLUE, DATE_SELECTED_BG)
 # 浅灰面板 / 小卡底色（白底上要分得出层次）。
 PANEL_BG = "#F8FAFC"
 LINE_COLOR = "#E2E8F0"
@@ -195,7 +203,12 @@ def _pill(
     )
 
 
-def _stat(value: str, label: str) -> ft.Control:
+def _stat(
+    value: str,
+    label: str,
+    ink: str = ON_IMAGE_COLOR,
+    muted: str = ON_IMAGE_MUTED,
+) -> ft.Control:
     """数字统计里的一格：数字 + 标签，横着排。
 
     这一行压在**背景图**上，所以是白字（次要的标签用 90% 白）。
@@ -209,9 +222,9 @@ def _stat(value: str, label: str) -> ft.Control:
                 value,
                 size=STAT_NUMBER_SIZE,
                 weight=ft.FontWeight.BOLD,
-                color=ON_IMAGE_COLOR,
+                color=ink,
             ),
-            ft.Text(label, size=STAT_LABEL_SIZE, color=ON_IMAGE_MUTED),
+            ft.Text(label, size=STAT_LABEL_SIZE, color=muted),
         ],
     )
 
@@ -240,12 +253,21 @@ def build_my_page(
     top_inset = (
         getattr(getattr(page.media, "view_padding", None), "top", 0) or 0
     )
+    # 有没有设过背景图：这一块区域的**配色**（白字 / 深字）和**底**（图 / 浅蓝渐变）都跟它
+    # 走。没设过图时若还按「白字压图」那套摆，字就落在页面那层白底上 —— 整块看不见
+    # （见文件开头 `NO_COVER_GRADIENT_COLORS` 那段）。
+    decoration = background_decoration()
+    has_cover = decoration is not None
+    ink = ON_IMAGE_COLOR if has_cover else TITLE_COLOR
+    ink_muted = ON_IMAGE_MUTED if has_cover else MUTED_COLOR
+    ink_line = ON_IMAGE_LINE if has_cover else LINE_COLOR
 
     def quick_card(title: str, icon: str, hint: str) -> ft.Control:
         """三张小卡里的一张：图标 + 标题一行、下面一行小字。
 
-        **透明底**（用户要求）：卡片压在背景图上，不铺自己的浅灰；文字 / 图标改白，
-        只留一圈 40% 白的细描边把形状框出来。
+        **透明底**（用户要求）：卡片压在背景图上，不铺自己的浅灰；文字 / 图标用 `ink`、
+        只留一圈细描边把形状框出来 —— 有图时那套是白的（40% 白描边），没图时换深色
+        （浅灰描边），两种情况下都看得清。
         """
         return ft.Container(
             expand=True,
@@ -253,7 +275,7 @@ def build_my_page(
             padding=ft.Padding.all(QUICK_CARD_PADDING),
             border_radius=ft.BorderRadius.all(QUICK_CARD_RADIUS),
             bgcolor=None,
-            border=ft.Border.all(1, ON_IMAGE_LINE),
+            border=ft.Border.all(1, ink_line),
             content=ft.Column(
                 tight=True,
                 spacing=4,
@@ -266,18 +288,18 @@ def build_my_page(
                             ft.Icon(
                                 icon,
                                 size=QUICK_ICON_SIZE,
-                                color=ON_IMAGE_COLOR,
+                                color=ink,
                             ),
                             ft.Text(
                                 title,
                                 size=QUICK_TITLE_SIZE,
                                 weight=ft.FontWeight.BOLD,
-                                color=ON_IMAGE_COLOR,
+                                color=ink,
                                 no_wrap=True,
                             ),
                         ],
                     ),
-                    ft.Text(hint, size=QUICK_HINT_SIZE, color=ON_IMAGE_MUTED),
+                    ft.Text(hint, size=QUICK_HINT_SIZE, color=ink_muted),
                 ],
             ),
         )
@@ -468,9 +490,7 @@ def build_my_page(
                             tooltip="设置",
                             padding=ft.Padding.all(6),
                             on_click=lambda _: open_settings(),
-                            content=ft.Icon(
-                                ft.Icons.MENU, size=22, color=ON_IMAGE_COLOR
-                            ),
+                            content=ft.Icon(ft.Icons.MENU, size=22, color=ink),
                         ),
                         ft.Row(
                             tight=True,
@@ -484,8 +504,8 @@ def build_my_page(
                                         horizontal=10
                                     ),
                                     border_radius=ft.BorderRadius.all(14),
-                                    # 白描边的胶囊（压在图上）。
-                                    border=ft.Border.all(1, ON_IMAGE_LINE),
+                                    # 描边胶囊（压在图上时是白描边）。
+                                    border=ft.Border.all(1, ink_line),
                                     # 进「编辑资料」二级页（见 pages/edit_profile.py）。
                                     ink=True,
                                     tooltip="编辑资料",
@@ -500,12 +520,12 @@ def build_my_page(
                                             ft.Icon(
                                                 ft.Icons.EDIT_OUTLINED,
                                                 size=13,
-                                                color=ON_IMAGE_COLOR,
+                                                color=ink,
                                             ),
                                             ft.Text(
                                                 "编辑主页",
                                                 size=12,
-                                                color=ON_IMAGE_COLOR,
+                                                color=ink,
                                             ),
                                         ],
                                     ),
@@ -533,7 +553,7 @@ def build_my_page(
                             content=build_account_card(
                                 page,
                                 open_login,
-                                on_image=True,
+                                on_image=has_cover,
                                 on_blank_tap=open_background,
                             ),
                         ),
@@ -541,9 +561,9 @@ def build_my_page(
                         ft.Row(
                             spacing=STAT_GAP,
                             controls=[
-                                _stat("0", "关注"),
-                                _stat("0", "粉丝"),
-                                _stat("0", "获赞与收藏"),
+                                _stat("0", "关注", ink, ink_muted),
+                                _stat("0", "粉丝", ink, ink_muted),
+                                _stat("0", "获赞与收藏", ink, ink_muted),
                             ],
                         ),
                     ],
@@ -551,7 +571,7 @@ def build_my_page(
                 ft.Text(
                     "点击这里，填写简介",
                     size=INTRO_SIZE,
-                    color=ON_IMAGE_MUTED,
+                    color=ink_muted,
                 ),
                 # 三张小卡：**在背景图里**（图一直铺到它们的下沿）。
                 ft.Row(
@@ -570,8 +590,9 @@ def build_my_page(
     # 背景图 + 「顶部清晰 → 底部模糊」：
     # 图挂在**外层容器**的 `image=` 上（内容自己撑高，高度不用写死）；上面再叠一层磨砂带
     # —— `ft.Stack`：磨砂带在下（四边定位铺满），内容层在上（它决定整块的高度）。
-    # 没设过图就什么都不叠，只有内容。
-    decoration = background_decoration()
+    #
+    # 没设过图也不能把内容光着摆：这时候字与图标换成深色（`ink`），底下再垫一层浅蓝渐变
+    # （`NO_COVER_GRADIENT_COLORS`）—— 既托得住字，也让这块跟下面的白底分得开。
     background_region = (
         ft.Container(
             image=decoration,
@@ -588,7 +609,14 @@ def build_my_page(
             ),
         )
         if decoration is not None
-        else region_body
+        else ft.Container(
+            gradient=ft.LinearGradient(
+                colors=list(NO_COVER_GRADIENT_COLORS),
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+            ),
+            content=region_body,
+        )
     )
     # ⚠️ 下拉手势**在这一层吃掉**：在图片上竖直拖拽什么都不做（页面不跟着动，也就不会
     # 露出白底）。

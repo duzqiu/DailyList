@@ -28,7 +28,7 @@ from math import ceil
 
 import flet as ft
 
-from tools.layout import SUBPAGE_TITLE_COLOR, text_width
+from widgets.layout import SUBPAGE_TITLE_COLOR, text_width
 
 # 提示的字与底：深靛蓝底 + 白字（和二级页标题同一个深蓝，压在浅色页面上够清楚）。
 TOAST_TEXT_SIZE = 13

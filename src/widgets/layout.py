@@ -17,7 +17,7 @@ PAGE_BGCOLOR = BACKGROUND_COLORS[-1]
 ADD_ICON_SRC = "icons/add.png"
 # 登录 / 注册 / 忘记密码三页的整页背景：`src/assets/images/auth_background.jpg`。
 # 柔和的天蓝 → 淡靛蓝渐变、带一点极淡光斑，低对比度 —— 上面压 70% 白的毛玻璃卡片后
-# 仍读得清字（见 tools/auth_form.py 的 `GLASS_BG`）。
+# 仍读得清字（见 widgets/auth_form.py 的 `GLASS_BG`）。
 AUTH_BACKGROUND_SRC = "images/auth_background.jpg"
 CALENDAR_ICON_SRC = "icons/calendar.png"
 
@@ -197,7 +197,7 @@ def build_subpage_header(
     """二级页顶栏：返回按钮在左，`title` 居中（右侧补等宽占位）。
 
     `title` 传 `None` 就只剩返回按钮 —— 登录 / 注册 / 忘记密码三页走这条：标题已经在
-    卡片上（与页面一一对应，见 tools/auth_form.py 的 `build_card_heading`），顶栏再来
+    卡片上（与页面一一对应，见 widgets/auth_form.py 的 `build_card_heading`），顶栏再来
     一行就重复了。右侧那格占位是为「标题居中」补的，没有标题也就不必留。
     """
     if title is None:

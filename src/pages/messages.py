@@ -15,8 +15,8 @@ from collections.abc import Callable
 
 import flet as ft
 
-from tools.layout import BOTTOM_MENU_INSET, safe_update
-from tools.toast import build_toast
+from widgets.layout import BOTTOM_MENU_INSET, safe_update
+from widgets.toast import build_toast
 
 # ---------------------------- 配色（照截图取）----------------------------
 PAGE_BG = "#FFFFFF"

@@ -15,12 +15,12 @@
 - 名字 / 小红书号 / 简介 → 弹输入框（存本地，见 tools/my_profile.py）；
 - 头像 → 选图后**复制进 App 目录**再存（同背景图那套）；
 - 背景图 → 「换背景图」那一页（`open_background`，压在**这一页之上**，返回回到这儿）；
-- 性别 → 三个选项的弹窗；生日 → 项目自带的日期选择器（tools/pickers.py）；
+- 性别 → 三个选项的弹窗；生日 → 项目自带的日期选择器（widgets/pickers.py）；
 - 地区 / 职业 / 学校 / 原创信息 / 组件管理 / 预览 → 还没做，点了给一句提示 ——
   ⚠️ 别在这儿摆死按钮，等真做的时候再把回调换掉。
 
 ⚠️ 选图器**不能在这一页新建**：Service 只有在「页面首次发给客户端之前」注册才到得了客户端
-（见 tools/services.py 开头那两条），所以用 `ensure_service` 取 `main()` 里注册好的那个。
+（见 widgets/services.py 开头那两条），所以用 `ensure_service` 取 `main()` 里注册好的那个。
 """
 
 from collections.abc import Callable
@@ -29,7 +29,7 @@ from datetime import date
 import flet as ft
 
 from api import member_auth, session
-from tools.layout import (
+from widgets.layout import (
     BACK_WIDTH,
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
@@ -38,7 +38,7 @@ from tools.layout import (
     dialog_button_style,
     track_keyboard,
 )
-from tools.my_background import background_path
+from widgets.my_background import background_path
 from tools.my_profile import (
     GENDERS,
     INTRO_HINT,
@@ -56,9 +56,9 @@ from tools.my_profile import (
     set_xhs_id,
     store_avatar,
 )
-from tools.pickers import build_date_picker
-from tools.services import ensure_service
-from tools.toast import build_toast
+from widgets.pickers import build_date_picker
+from widgets.services import ensure_service
+from widgets.toast import build_toast
 
 # 这一页的配色照那张图：浅灰底、白卡片、标签灰、值近黑、没填过的值更浅一档。
 PAGE_BG = "#F5F5F5"

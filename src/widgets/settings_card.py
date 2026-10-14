@@ -19,7 +19,7 @@ import flet as ft
 from api import member_auth, session
 from api.client import ApiError
 from tools import my_profile
-from tools.layout import UNSELECTED_CARD_BG
+from widgets.layout import UNSELECTED_CARD_BG
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"

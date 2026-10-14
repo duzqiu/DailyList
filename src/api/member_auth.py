@@ -105,7 +105,7 @@ async def reset_password(
 def cached_me() -> dict | None:
     """**同步**看一眼缓存里的会员信息；没有 / 过期就是 `None`（不打接口）。
 
-    构建页面时用它：命中就**直接摆真数据**，连骨架都不用闪（见 tools/settings_card.py）。
+    构建页面时用它：命中就**直接摆真数据**，连骨架都不用闪（见 widgets/settings_card.py）。
     """
     token = session.access_token()
     if not token:

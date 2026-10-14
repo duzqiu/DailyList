@@ -18,7 +18,7 @@
 抽到这儿是因为一份实现、三页共用，别重复造控件（见 README 开发约定 2）—— 三页将来
 一起调样式时只有这一处要动；页面自己只管字段和动作。
 
-配色全部取自 tools/layout.py 已经给出的那几档，这里不新起颜色：边线是设置页卡片边框
+配色全部取自 widgets/layout.py 已经给出的那几档，这里不新起颜色：边线是设置页卡片边框
 那一档浅灰，主按钮的底色就是那档「选中」的蓝（`DATE_SELECTED_BG`），字色是全 App 的
 深蓝（这个底色够浅，按 `readable_ink` 的判断本来就该配深字）。
 """
@@ -28,7 +28,7 @@ from collections.abc import Callable
 
 import flet as ft
 
-from tools.layout import (
+from widgets.layout import (
     AUTH_BACKGROUND_SRC,
     DATE_SELECTED_BG,
     PAGE_BGCOLOR,
@@ -333,7 +333,7 @@ def _paint_code_button(
 
     分开改要多推几次界面，还可能中间那一瞬三者错位（底色已经灰了、字还是深蓝）。控件
     不在树上时 `update()` 抛 RuntimeError —— 页面还在时不会，用户退回
-    上一页才会，这时当作「页面没了」收手就行（和 tools/layout.py 的
+    上一页才会，这时当作「页面没了」收手就行（和 widgets/layout.py 的
     anchor_dialog_above_keyboard 一个处理）。
     """
     button.bgcolor = bgcolor
@@ -351,7 +351,7 @@ def _set_code_label(button: ft.Control, label: str, color: str) -> bool:
     冷却期的字色由调用方给（`CODE_BUTTON_COOLDOWN_TEXT`）—— 那时候按钮整体是灰的，
     和「可以点」那档深蓝分开。控件被卸下之后
     `update()` 会抛 RuntimeError —— 页面还在时不会，用户退回上一页才会，这时当成
-    「页面没了」收手就行（和 tools/layout.py 的 anchor_dialog_above_keyboard
+    「页面没了」收手就行（和 widgets/layout.py 的 anchor_dialog_above_keyboard
     一个处理）。
     """
     button.content.value = label

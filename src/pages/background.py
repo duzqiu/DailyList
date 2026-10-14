@@ -2,19 +2,19 @@
 
 版式：左上角 **✕** 关掉 → 中间摆**当前背景图** → 下面一条**长条按钮「更换背景图」**。
 点它走 `ft.FilePicker.pick_files`（手机上是系统相册 / 文件选图器，桌面是文件对话框），
-选中的路径存进 settings 表（见 tools/my_background.py），随后叫一次 `on_saved` —— 由调用方
-（pages/navigation.py）去重画「我的」页，那段背景就换成新图了。
+选中的路径存进设置项（内存 mock，见 widgets/my_background.py），随后叫一次 `on_saved` —— 由
+调用方（pages/navigation.py）去重画「我的」页，那段背景就换成新图了。
 """
 
 from collections.abc import Callable
 
 import flet as ft
 
-from tools import db
-from tools.layout import BOTTOM_MENU_INSET
-from tools.services import ensure_service
-from tools.toast import build_toast
-from tools.my_background import background_path, set_background
+from tools import files
+from widgets.layout import BOTTOM_MENU_INSET
+from widgets.services import ensure_service
+from widgets.toast import build_toast
+from widgets.my_background import background_path, set_background
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
@@ -57,27 +57,18 @@ def build_background_page(
 
         为什么非要复制：相册/图库给回来的多半是**临时路径**（Android 上还可能是
         `content://` 这类取不到的东西），过一会儿就失效，甚至根本渲染不出来 —— 表现就是
-        「选完了没反应、看不到图」。复制到数据库旁边（`dailylist.db` 同一层目录）就成了
-        自己的文件，重启也还在。
+        「选完了没反应、看不到图」。复制进 App 自己的数据目录（`tools/files.py` 的
+        `APP_DIR`）就成了自己的文件，重启也还在。
         """
-        from pathlib import Path
-        import shutil
-
-        stored = path
-        try:
-            suffix = Path(path).suffix.lower() or ".jpg"
-            target = Path(db.DB_PATH).parent / f"my_background{suffix}"
-            shutil.copyfile(path, target)
-            stored = str(target)
-        except Exception:  # noqa: BLE001 —— 复制不了就用原路径，总比什么都不做强
-            stored = path
-        set_background(stored)
+        # 复制进 App 自己的数据目录（tools/files.py）：相册给回来的多是临时路径，直接
+        # 存下来过一会儿就失效（复制不了会退回原路径，见 copy_into_app）。
+        set_background(files.copy_into_app(path, "my_background"))
         render()
         page.update()
         on_saved()
 
     # ⚠️ 选图器**不能在这一页里新建**：Service 只有在「页面首次发给客户端之前」注册才到
-    # 得了客户端（见 tools/services.py 开头那两条踩坑记录 —— 注册表自己的 `parent` 恒为
+    # 得了客户端（见 widgets/services.py 开头那两条踩坑记录 —— 注册表自己的 `parent` 恒为
     # `None`，后来的注册推送不出去，只能随首个页面一起发出）。这一页是二级页，页面早就发
     # 过了：此刻新建 / 注册的 FilePicker 客户端永远收不到，调它只会干等 10 秒后抛
     #     TimeoutException: Timeout waiting for invoke method listener for FilePicker(xxx)

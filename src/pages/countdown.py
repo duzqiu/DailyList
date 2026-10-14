@@ -20,7 +20,7 @@ import flet as ft
 
 from api.client import ApiError
 from tools import countdown_store
-from tools.countdown_card import (
+from widgets.countdown_card import (
     MUTED_COLOR,
     TITLE_COLOR,
     build_countdown_card,
@@ -28,14 +28,14 @@ from tools.countdown_card import (
     expired_countdowns,
     visible_countdowns,
 )
-from tools.countdown_form import open_countdown_form
-from tools.layout import (
+from widgets.countdown_form import open_countdown_form
+from widgets.layout import (
     ADD_ICON_SRC,
     BOTTOM_MENU_INSET,
     page_gradient,
     safe_update,
 )
-from tools.toast import build_toast
+from widgets.toast import build_toast
 
 PAGE_SIDE_PADDING = 24
 # 双列卡片：两张之间的缝，以及再窄也要保住的卡片宽度。
@@ -83,7 +83,7 @@ def build_countdown_page(
     expired_open = False
 
     def notify(message: str) -> None:
-        """一句话的提示：走 tools/toast.py，浮在屏幕正中。"""
+        """一句话的提示：走 widgets/toast.py，浮在屏幕正中。"""
         page.show_dialog(build_toast(page, message))
 
     def card_width() -> float:
@@ -216,7 +216,7 @@ def build_countdown_page(
             return
         all_items = countdown_store.items()
         # 到期的按天数排；过期的那些被 `visible_countdowns` 筛掉了（见
-        # tools/countdown_card.py），收在底部那个开关里，最近过期的排最前。
+        # widgets/countdown_card.py），收在底部那个开关里，最近过期的排最前。
         rows = sorted(
             visible_countdowns(all_items, today),
             key=lambda item: countdown_days(item, today),

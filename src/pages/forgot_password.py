@@ -6,12 +6,12 @@
 密码强度（6-64 位、含字母和数字）由后端把关，报错原样提示。
 
 验证码按钮点过之后锁一段时间（按后端返回的 `resend_after`，没给才用默认 60 秒），
-期间点了不响应 —— 见 tools/auth_form.py 的 `start_code_countdown`。
+期间点了不响应 —— 见 widgets/auth_form.py 的 `start_code_countdown`。
 
 卡片下面那行「想起来了？返回登录」直接 `go_back()`，回到进来时的登录页；**重置成功后
 也走同一条路**：先回登录页，提示沿用后端回的那句话（「密码重置成功，请使用新密码登录」）。
 
-壳子、卡片、字段、主按钮、验证码行都来自 tools/auth_form.py（和登录页、注册页共用
+壳子、卡片、字段、主按钮、验证码行都来自 widgets/auth_form.py（和登录页、注册页共用
 一套），这一页只管「有哪些字段、点了做什么」。
 """
 
@@ -21,7 +21,7 @@ import flet as ft
 
 from api import member_auth
 from api.client import ApiError
-from tools.auth_form import (
+from widgets.auth_form import (
     build_auth_card,
     build_auth_field,
     build_auth_page,
@@ -34,7 +34,7 @@ from tools.auth_form import (
     release_code_button,
     start_code_countdown,
 )
-from tools.toast import build_toast
+from widgets.toast import build_toast
 
 
 def build_forgot_password_page(
@@ -43,7 +43,7 @@ def build_forgot_password_page(
     """忘记密码页。`go_back` 由 pages/navigation.py 给，回的是登录页那一层。"""
 
     def notify(message: str) -> None:
-        """一句话的提示：走 tools/toast.py，浮在屏幕中间。"""
+        """一句话的提示：走 widgets/toast.py，浮在屏幕中间。"""
         page.show_dialog(build_toast(page, message))
 
     email_field = build_auth_field("请输入邮箱")

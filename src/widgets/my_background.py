@@ -1,26 +1,27 @@
 """「我的」页那段背景图：存在哪、怎么铺。
 
-- **存**：一个设置项（`settings` 表，键 `my_background`，值是图片路径）—— 和主题、设备号
-  一样跟着这台设备走，见 db.get_setting / set_setting。
+- **存**：一个设置项（键 `my_background`，值是图片路径）—— 现在放在**内存 mock** 里
+  （tools/mock_settings.py，见 README「待处理问题」），改完当次运行内有效、重启回到默认
+  （默认是空串 = 不铺图，「我的」页用浅蓝渐变兜底）。
 - **铺**：`ft.BoxFit.FILL`，也就是「均匀拉伸铺满」：不裁掉两边、也不留边，整块区域被这一
   张图填满（用户要的就是这个效果；想改成「裁满」用 COVER 即可）。
 """
 
 import flet as ft
 
-from tools import db
+from tools import mock_settings
 
 SETTING_KEY = "my_background"
 
 
 def background_path() -> str:
     """当前背景图的路径；没设过就是空串。"""
-    return db.get_setting(SETTING_KEY, "").strip()
+    return mock_settings.get_setting(SETTING_KEY, "").strip()
 
 
 def set_background(path: str) -> None:
     """把背景图换成这一张（存路径）。"""
-    db.set_setting(SETTING_KEY, path.strip())
+    mock_settings.set_setting(SETTING_KEY, path.strip())
 
 
 def background_image(path: str | None = None) -> ft.Control | None:

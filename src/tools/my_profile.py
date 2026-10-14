@@ -1,21 +1,18 @@
 """本地「我的资料」：昵称 / 小红书号 / 简介 / 性别 / 生日 / 头像。
 
-**存哪儿**：和背景图（tools/my_background.py）一个套路 —— `settings` 表里一行一个键，
-跟着这台设备走，见 db.get_setting / set_setting。
+**存哪儿**：**内存里的 mock 数据**（`tools/mock_settings.py`，目前不落库）—— 改完当次运行
+内有效，重启回到那份示例值。
 
 **为什么是本地**：后端 `GET /member/auth/me` 只回 `email` / `display_name` / `nickname` /
 `member_no` 这几个字段，**没有头像、性别、简介**这些，也没有更新资料的接口（见
-api/member_auth.py）。所以这些先存在本地；`name()` / `xhs_id()` 会**优先用本地改过的值**，
+api/member_auth.py）。所以这些先自己存着；`name()` / `xhs_id()` 会**优先用本地改过的值**，
 没改过才回落到账号里的值 —— 于是「在编辑资料页改完名字，`我的` 页立刻跟着变」。
 
-**图片**（头像）**先复制进数据库同层目录**再存路径：相册 / 图库给回来的多半是临时路径，
+**图片**（头像）**先复制进 App 自己的目录**再存路径：相册 / 图库给回来的多半是临时路径，
 过一会儿就失效，甚至根本渲染不出来（同 pages/background.py 里那段注释）。
 """
 
-import shutil
-from pathlib import Path
-
-from tools import db
+from tools import files, mock_settings
 
 NAME_KEY = "my_name"
 XHS_ID_KEY = "my_xhs_id"
@@ -32,11 +29,11 @@ INTRO_HINT = "介绍一下自己"
 
 
 def _read(key: str) -> str:
-    return (db.get_setting(key, "") or "").strip()
+    return (mock_settings.get_setting(key, "") or "").strip()
 
 
 def _write(key: str, value: str) -> None:
-    db.set_setting(key, (value or "").strip())
+    mock_settings.set_setting(key, (value or "").strip())
 
 
 def name() -> str:
@@ -96,15 +93,9 @@ def set_avatar(path: str) -> None:
 def store_avatar(source: str) -> str:
     """把选中那张图复制进 App 自己的目录，返回可以长期用的路径。
 
-    复制不了就用原路径 —— 总比什么都不做强（同 background.py 的 `apply`）。
+    复制不了就用原路径 —— 总比什么都不做强（同 background.py 的选图那条路）。
     """
-    try:
-        suffix = Path(source).suffix.lower() or ".jpg"
-        target = Path(db.DB_PATH).parent / f"my_avatar{suffix}"
-        shutil.copyfile(source, target)
-        return str(target)
-    except Exception:  # noqa: BLE001
-        return source
+    return files.copy_into_app(source, "my_avatar")
 
 
 def account_name(account: dict | None) -> str:

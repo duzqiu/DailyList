@@ -1,7 +1,10 @@
-"""导入数据：把 `tools/data_export.py` 导出的那份 JSON 读回库里。
+"""导入数据：把 `tools/data_export.py` 导出的那份 JSON 读回来。
 
-语义是「恢复备份」：倒数日整表替换，设置逐条覆盖。文件里认不出来的行直接跳过，
-最后把「进了多少、跳了几条」报给调用方。
+**设置**逐条写进内存 mock（tools/mock_settings.py）；**倒数日**那段暂时不落地 —— 页面读的是
+后端（api/member_countdowns.py），写哪儿都不会显示出来，所以如实报 0 而不是假装写进去了
+（见 README「待处理问题」）。
+
+文件里认不出来的行直接跳过，最后把「进了多少、跳了几条」报给调用方。
 
 早先的导出文件里还带一个 `todos` 数组（待办那版留下的），现在直接忽略 —— 老备份
 照样能导，只是待办不再进库。
@@ -14,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from tools import data_export, db
+from tools import cycles, data_export, mock_settings
 
 
 class ImportFailed(Exception):
@@ -33,10 +36,10 @@ class ImportResult:
     skipped: int = 0
 
     def summary(self) -> str:
-        """一句话说清导入了什么（提示条只有一行，所以只报倒数日）。"""
-        if not self.countdowns:
+        """一句话说清导入了什么（提示条只有一行）。"""
+        if not self.settings:
             return "文件里没有可导入的数据"
-        return f"已导入 {self.countdowns} 个倒数日"
+        return f"已导入 {self.settings} 项设置（倒数日暂未落地）"
 
 
 def _iso_date(value: Any) -> str | None:
@@ -65,7 +68,7 @@ def _countdowns_from(data: Any) -> tuple[list[dict], int]:
         rows.append(
             {
                 "due_date": due_date,
-                "cycle": str(item.get("cycle") or db.DEFAULT_CYCLE),
+                "cycle": str(item.get("cycle") or cycles.DEFAULT_CYCLE),
                 "content": content,
                 "bgcolor": str(item.get("bgcolor") or "#F1F5F9"),
             }
@@ -99,15 +102,18 @@ def import_bytes(raw: bytes) -> ImportResult:
         raise ImportFailed("不是「每日清单」导出的文件")
 
     countdowns, skipped_countdowns = _countdowns_from(data.get("countdowns"))
-    # 一条都没解析出来就别动库了 —— 清空之后写不进去，等于白丢数据。
-    if not countdowns:
+    settings = _settings_from(data.get("settings"))
+    # 两边都没解析出东西就别当导入成功了（老备份里只有 countdowns 也算数，见模块说明）。
+    if not countdowns and not settings:
         raise ImportFailed("文件里没有可导入的数据")
 
-    written_countdowns, written_settings = db.replace_data(
-        countdowns, _settings_from(data.get("settings"))
-    )
+    written_settings = 0
+    for name, value in settings.items():
+        mock_settings.set_setting(name, value)
+        written_settings += 1
+    # 倒数日那段**暂时不落地**：页面读的是后端，写哪儿都显示不出来 —— 如实报 0。
     return ImportResult(
-        countdowns=written_countdowns,
+        countdowns=0,
         settings=written_settings,
         skipped=skipped_countdowns,
     )

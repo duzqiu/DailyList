@@ -3,9 +3,9 @@
 三档卡片，每档一张：**通知设置**（通知渠道）、**数据设置**（导出 / 导入 JSON、云端开关）、
 **通用设置**（当前版本、联系方式、清除缓存、退出登录）—— 档名是卡片上的小标题，条目都
 摆在自己那张卡片里（见 settings_section）。原来那张「账号」卡片已经搬去「我的」页
-（pages/my.py），两页共用 tools/settings_card.py 里的同一套零件。
+（pages/my.py），两页共用 widgets/settings_card.py 里的同一套零件。
 
-顶栏用 tools/layout.py 的 build_subpage_header：左边是「‹ 返回」，标题「设置」落在页面
+顶栏用 widgets/layout.py 的 build_subpage_header：左边是「‹ 返回」，标题「设置」落在页面
 正中（左边返回按钮有多宽，右边就留多宽的空位撑着）。
 """
 
@@ -19,14 +19,15 @@ from api import member_auth, session
 from api.client import ApiError
 from tools import (
     contacts,
+    countdown_store,
     data_export,
     data_import,
-    db,
+    mock_settings,
     notifications,
     version_check,
 )
-from tools.app_settings import CLOUD_OFF, CLOUD_ON, CLOUD_SETTING
-from tools.layout import (
+from tools.mock_settings import CLOUD_OFF, CLOUD_ON, CLOUD_SETTING
+from widgets.layout import (
     BOTTOM_MENU_INSET,
     DIALOG_RADIUS,
     DIALOG_SURFACE,
@@ -38,8 +39,8 @@ from tools.layout import (
     text_width,
     track_keyboard,
 )
-from tools.layout import safe_update
-from tools.popup_select import (
+from widgets.layout import safe_update
+from widgets.popup_select import (
     MENU_HEIGHT,
     OPTION_TEXT_SIZE,
     build_option_row,
@@ -47,16 +48,16 @@ from tools.popup_select import (
     build_option_text,
     option_text,
 )
-from tools.services import ensure_service
+from widgets.services import ensure_service
 # 「账号」卡片搬去「我的」页了（pages/my.py），它和设置页共用这几个卡片零件 —— 实现
-# 收在 tools/settings_card.py 一处，两边都从这儿取（`settings_section` / `setting_row` /
+# 收在 widgets/settings_card.py 一处，两边都从这儿取（`settings_section` / `setting_row` /
 # `compact_button_style` 的本地定义已删掉，避免两份会各自漂移）。
-from tools.settings_card import (
+from widgets.settings_card import (
     compact_button_style,
     setting_row,
     settings_section,
 )
-from tools.toast import build_toast
+from widgets.toast import build_toast
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ NOTIFY_OFF_LABEL = "关着的时候不推送提醒"
 NOTIFY_ON_TOAST = "已开启通知提醒"
 NOTIFY_OFF_TOAST = "已关闭通知提醒"
 # 云端数据的两种状态：一行小字说明 + 开关时的一句提示。文案放一起，免得两边对不上。
-# （开关存哪个键、值是什么，见 tools/app_settings.py。）
+# （开关存哪个键、值是什么，见 tools/mock_settings.py —— 目前存在**内存**里，不落库。）
 CLOUD_ON_LABEL = "本地数据会同步到云端"
 CLOUD_OFF_LABEL = "数据只保存在本机"
 CLOUD_ON_TOAST = "已开启云端同步"
@@ -106,7 +107,7 @@ def build_preferences_page(
     调用它 —— 登录页压在设置页之上，返回回到这一页。
     """
     def notify(message: str) -> None:
-        """一句话的提示：走 `tools/toast.py`，浮在**屏幕中间**（不再是底部那条）。"""
+        """一句话的提示：走 `widgets/toast.py`，浮在**屏幕中间**（不再是底部那条）。"""
         page.show_dialog(build_toast(page, message))
 
     def settings_dialog(
@@ -137,10 +138,11 @@ def build_preferences_page(
 
     def clear_data(_: ft.Event[ft.Control]) -> None:
         page.pop_dialog()
-        # 「清除缓存」的意思是"把我这份数据倒空"。本地现在只剩倒数日这一份数据
-        # （待办整块已经删掉了）。
-        countdowns = db.clear_countdowns()
-        notify(f"已清除 {countdowns} 个倒数日")
+        # 「清除缓存」= 把本地这份**内存缓存**倒空（倒数日列表来自后端，下次进那一页会重新拉）。
+        # 原先清的是本地 SQLite 的 countdowns 表，而那一页早就不读那张表了 —— 清了跟没清一样，
+        # 提示里还在报「已清除 N 个」（见 README「待处理问题」）。
+        countdown_store.clear()
+        notify("已清除本地缓存")
 
     def confirm_clear(_: ft.Event[ft.Control]) -> None:
         # iOS-style dialog, the one Cupertino control Flet offers: the whole
@@ -157,7 +159,7 @@ def build_preferences_page(
                 content=ft.Container(
                     padding=ft.Padding.only(top=6),
                     content=ft.Text(
-                        "将删除当前所有的倒数日，且无法恢复。",
+                        "将清空本地缓存（倒数日列表下次进页面会重新拉）。",
                         size=13,
                         color=TITLE_COLOR,
                     ),
@@ -182,7 +184,7 @@ def build_preferences_page(
         )
 
     # 复制和导出各要一个 Service（剪贴板、文件选择器）。它们不能像控件那样随手挂到
-    # 页面上 —— 必须**真注册**（见 tools/services.py）：`page.services.append()` 只
+    # 页面上 —— 必须**真注册**（见 widgets/services.py）：`page.services.append()` 只
     # 往清单里塞个对象、不推给客户端，客户端不认识它，之后调它的方法就是干等，10 秒
     # 后抛 TimeoutException。
     clipboard = ensure_service(page, ft.Clipboard)
@@ -308,10 +310,10 @@ def build_preferences_page(
         notify(result.summary())
 
     cloud_switch = ft.Switch(
-        # 状态存在 `settings` 里（键见 tools/app_settings.py）：关掉之后再进来还是
+        # 状态存在内存里（键见 tools/mock_settings.py）：关掉之后再进来还是
         # 关着。表里没有这个键时按 `CLOUD_OFF` 算 —— 默认**关着**，云端同步是后加
         # 的能力，不该在用户还没表态时替他打开。
-        value=db.get_setting(CLOUD_SETTING, CLOUD_OFF) == CLOUD_ON,
+        value=mock_settings.get_setting(CLOUD_SETTING, CLOUD_OFF) == CLOUD_ON,
         active_color="#FFFFFF",
         active_track_color=SKY_BLUE,
         inactive_thumb_color="#FFFFFF",
@@ -334,12 +336,12 @@ def build_preferences_page(
         )
 
     def toggle_cloud(_: ft.Event[ft.Switch]) -> None:
-        """云端数据开关：先只做样子，不落库、不发请求。
+        """云端数据开关：先只做样子 —— 只写内存、不落库，也不发请求。
 
         但**开、关都要说一声** —— 这个开关管的是「数据出不出本机」，值得让用户知道
         自己刚做了什么（小字说明同时跟着换）。
         """
-        db.set_setting(
+        mock_settings.set_setting(
             CLOUD_SETTING, CLOUD_ON if cloud_switch.value else CLOUD_OFF
         )
         refresh_cloud_summary()
@@ -363,18 +365,18 @@ def build_preferences_page(
 
     def refresh_notify_summary() -> None:
         notify_summary.value = notifications.summary(
-            db.get_setting(
+            mock_settings.get_setting(
                 notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
             ),
-            db.get_setting(notifications.URL_SETTING, ""),
+            mock_settings.get_setting(notifications.URL_SETTING, ""),
         )
 
     # 「通知提醒」总开关：它管「发不发」，所以摆在**卡片里自己一行**，不藏进「通知
     # 渠道」那个弹窗 —— 弹窗里那两项管的是「怎么发」（往哪个渠道、地址是什么）。
-    # 拨一下就落库（和云端那个开关一个做法），下回来还是这档。
+    # 拨一下只写内存（和云端那个开关一个做法），当次运行内一直是这档。
     notify_switch = ft.Switch(
         value=(
-            db.get_setting(
+            mock_settings.get_setting(
                 notifications.ENABLED_SETTING, notifications.ENABLED_OFF
             )
             == notifications.ENABLED_ON
@@ -401,12 +403,12 @@ def build_preferences_page(
         )
 
     def toggle_notify_enabled(_: ft.Event[ft.Switch]) -> None:
-        """拨一下：立刻落库、换掉自己那行小字，并弹一句提示。
+        """拨一下：立刻写进内存、换掉自己那行小字，并弹一句提示。
 
         **不动「通知渠道」那行**：它的摘要只说渠道和地址配没配好，和总开关是两码事
         （联动的话，关掉提醒会让这一行看不出地址到底填了没有）。
         """
-        db.set_setting(
+        mock_settings.set_setting(
             notifications.ENABLED_SETTING,
             notifications.ENABLED_ON
             if notify_switch.value
@@ -447,7 +449,7 @@ def build_preferences_page(
 
     def open_notify_settings(_: ft.Event[ft.Container]) -> None:
         """通知渠道 dialog: the channel picker plus its delivery address."""
-        selected = db.get_setting(
+        selected = mock_settings.get_setting(
             notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
         )
         channel_text = build_option_text(selected)
@@ -497,7 +499,7 @@ def build_preferences_page(
             set_menu_visible(not focused)
 
         url_field = ft.TextField(
-            value=db.get_setting(notifications.URL_SETTING, ""),
+            value=mock_settings.get_setting(notifications.URL_SETTING, ""),
             hint_text="粘贴通知地址",
             hint_style=ft.TextStyle(size=13, color="#94A3B8"),
             # 地址很长，这一格必须是**单行**：长地址在格子里横向滚，别折成两行
@@ -520,7 +522,7 @@ def build_preferences_page(
         # Flet 的 `TextField` 没有 `overflow`：长链接塞进去只会被硬裁（右边直接切
         # 掉，连省略号都不给），而省略号只有 `ft.Text` 上才有。所以「看」和「改」
         # 分成两层 —— 默认这层专门用来看，点一下才换成能输入的。
-        url_value = db.get_setting(notifications.URL_SETTING, "")
+        url_value = mock_settings.get_setting(notifications.URL_SETTING, "")
         url_display = ft.Container(
             height=URL_FIELD_HEIGHT,
             alignment=ft.Alignment.CENTER_LEFT,
@@ -568,8 +570,8 @@ def build_preferences_page(
             close_notify_settings()
 
         def save_notify(_: ft.Event[ft.Control]) -> None:
-            db.set_setting(notifications.CHANNEL_SETTING, selection["channel"])
-            db.set_setting(
+            mock_settings.set_setting(notifications.CHANNEL_SETTING, selection["channel"])
+            mock_settings.set_setting(
                 notifications.URL_SETTING, (url_field.value or "").strip()
             )
             unwatch_keyboard()
@@ -612,7 +614,7 @@ def build_preferences_page(
     def notify_enabled_row() -> ft.Control:
         """通知设置卡片里的第一行：通知提醒总开关。
 
-        拨一下就落库（见 `toggle_notify_enabled`），不跟「通知渠道」那个弹窗绑在一起。
+        拨一下写内存（见 `toggle_notify_enabled`），不跟「通知渠道」那个弹窗绑在一起。
         """
         return setting_row("通知提醒", notify_state_summary, notify_switch)
 
@@ -671,7 +673,7 @@ def build_preferences_page(
         )
 
     def cloud_row() -> ft.Control:
-        """数据设置那一行：云端数据（开关先只做样子，不落库、不发请求）。
+        """数据设置那一行：云端数据（开关先只做样子 —— 只写内存、不落库，也不发请求）。
 
         小字不是死文案 —— 它跟着开关在「只存本机」和「同步到云端」之间换（见
         `refresh_cloud_summary`）。
@@ -749,9 +751,7 @@ def build_preferences_page(
         """通用设置那一行：清除缓存（见 clear_data）。"""
         return setting_row(
             "清除缓存",
-            ft.Text(
-                "删除当前所有的倒数日", size=11, color=MUTED_COLOR
-            ),
+            ft.Text("清空本地缓存", size=11, color=MUTED_COLOR),
             ft.OutlinedButton(
                 "清除",
                 on_click=confirm_clear,
