@@ -257,7 +257,8 @@ def build_my_page(
     """「我的」页。
 
     `open_settings` 是顶栏左上角那枚 ☰；`open_login` 是账号那块里点「登录」；
-    `on_publish` 是内容板上那个红胶囊（目前没接功能，点了给提示）；`open_background`
+    `on_publish` 是内容板上那个红胶囊「去发布」：和底栏那颗「+」同一个回调，弹发布面板
+    （见 pages/navigation.py 的 `open_publish_sheet`）；`open_background`
     是账号卡片里那块空白（换背景图）；`open_edit_profile` 是顶栏胶囊「编辑主页」
     （进去是「编辑资料」二级页，见 pages/edit_profile.py）。
 

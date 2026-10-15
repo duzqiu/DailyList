@@ -21,12 +21,14 @@ from pages.feed import build_feed_page
 from pages.login import build_login_page
 from pages.preferences import build_preferences_page
 from pages.register import build_register_page
+from pages.write_thought import build_write_thought_page
 from widgets.layout import (
     MENU_BAR_BOTTOM,
     MENU_BAR_HEIGHT,
     MENU_LABEL_SIZE,
     PAGE_BGCOLOR,
 )
+from widgets.publish_sheet import WRITE_LABEL, build_publish_sheet
 from widgets.swipe_back import build_swipe_back
 
 # Dropdown carets are Material IconButtons; their default surface/overlay colour
@@ -260,8 +262,8 @@ def build_navigation(page: ft.Page) -> None:
                 # 层），返回回到这个 Tab。
                 show_login_from_settings,
                 # 内容板上那个红色胶囊「去发布」：和底栏那颗「+」走同一个回调 ——
-                # 两处目前都没接功能，点了给一句提示（见 `notify_unavailable`）。
-                notify_unavailable,
+                # 两处都弹发布面板（见 `open_publish_sheet`）。
+                open_publish_sheet,
                 # 背景区里点空白处 → 换背景图那一页。
                 show_background,
                 # 顶栏那枚胶囊「编辑主页」→「编辑资料」页（复刻小红书那一版）。
@@ -285,8 +287,6 @@ def build_navigation(page: ft.Page) -> None:
             "/settings",
             lambda: build_preferences_page(
                 page,
-                # 二级页没有底部菜单：输入框弹键盘、弹窗收起时都不要把它叫回来。
-                set_menu_visible=lambda _visible: None,
                 go_back=go_back,
                 # 「账号」卡片里点「登录」/「管理」→ 登录页压在设置页之上（第 2 层）。
                 open_login=show_login_from_settings,
@@ -611,19 +611,47 @@ def build_navigation(page: ft.Page) -> None:
             content=text,
         )
 
-    def notify_unavailable() -> None:
-        """底栏那颗「+」和「我的」页那个红胶囊：两处目前都没接功能，点了给一句提示。
+    def show_write_thought(update: bool = True) -> None:
+        """发布面板里点「写文字」→ **写想法**页（二级页，收起底栏）。
 
-        「新增待办」整块已经删掉，这两个按钮先留着小红书那一笔红色视觉 —— 底栏
-        那颗「+」和我的页的胶囊都走这一个回调。新增倒数日不在这儿，它在倒数日页
-        右下角自己那枚「+」上。
+        ⚠️ 这颗「+」在哪个 Tab 上都点得到，所以退回来时回到的是**进来时的那个 Tab**
+        （存 `origin`，和「换背景图」那一页同一个写法），不是写死的某一页。
         """
-        page.show_dialog(build_toast(page, "该功能暂未开放"))
+        origin = selected_index
+        nav_stack.append(lambda: show_page(origin))
+        show_layer(
+            1,
+            "/write-thought",
+            lambda: build_write_thought_page(page, go_back=go_back),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def choose_publish(name: str) -> None:
+        """发布面板里选了一项：目前只有「写文字」有去处，其余先给一句提示。
+
+        面板只把选中的名字交回来（见 widgets/publish_sheet.py），去哪儿由这儿定。
+        """
+        if name == WRITE_LABEL:
+            show_write_thought()
+            return
+        page.show_dialog(build_toast(page, f"「{name}」暂未开放"))
+
+    def open_publish_sheet() -> None:
+        """底栏那颗「+」和「我的」页那个红胶囊「去发布」：两处都弹这块**发布面板**。
+
+        面板本身在 widgets/publish_sheet.py（「从相册选择」/「相机」/「写文字」+「取消」，
+        照小红书那张图）。「新增待办」整块已经删掉，这两个入口先留着小红书那一笔红色
+        视觉。新增倒数日不在这儿，它在倒数日页右下角自己那枚「+」上。
+        """
+        page.show_dialog(build_publish_sheet(page, choose_publish))
 
     def menu_plus() -> ft.Control:
         """中间那颗「+」（小红书最显眼的一笔）：**扁椭圆**的红按钮 + 白加号。
 
-        照旧摆在底栏正中，但暂时没接功能（见 `notify_unavailable`）。
+        照旧摆在底栏正中，点开是发布面板（见 `open_publish_sheet`）。
         """
         return ft.Container(
             expand=True,
@@ -636,7 +664,7 @@ def build_navigation(page: ft.Page) -> None:
                 border_radius=ft.BorderRadius.all(MENU_PLUS_RADIUS),
                 bgcolor=MENU_PLUS_BG,
                 ink=True,
-                on_click=lambda _: notify_unavailable(),
+                on_click=lambda _: open_publish_sheet(),
                 content=ft.Icon(ft.Icons.ADD, size=22, color="#FFFFFF"),
             ),
         )

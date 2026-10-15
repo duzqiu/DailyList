@@ -1,9 +1,21 @@
 """设置页：「我的」页左上角那枚 ☰ 进来的二级页。
 
-三档卡片，每档一张：**通知设置**（通知渠道）、**数据设置**（导出 / 导入 JSON、云端开关）、
-**通用设置**（当前版本、联系方式、清除缓存、退出登录）—— 档名是卡片上的小标题，条目都
-摆在自己那张卡片里（见 settings_section）。原来那张「账号」卡片已经搬去「我的」页
-（pages/my.py），两页共用 widgets/settings_card.py 里的同一套零件。
+两档卡片，每档一张：**通知设置**（通知提醒总开关、通知渠道）、**通用设置**（当前版本、
+联系方式、清除缓存、退出登录）—— 档名是卡片上的小标题，条目都摆在自己那张卡片里
+（见 settings_section）。原来那张「账号」卡片已经搬去「我的」页（pages/my.py），两页共用
+widgets/settings_card.py 里的同一套零件。
+
+每张卡片都是**透明底**（用户要求）：`settings_section(..., bgcolor=None)` —— 卡片自己不铺色，
+露出来的是页面那层渐变，边框照旧留着（方框的样子还在）。
+
+**「数据设置」那一档整块去掉了**（导出 / 导入 JSON、云端开关 —— 用户要求）：页面里那几条
+处理函数（导出 / 导入 / 云端开关）连同对 `tools/data_export.py`、`tools/data_import.py`、
+`mock_settings` 里那个云端键的调用一起删了（那两个工具模块还留在 `tools/`，只是暂时没人用；
+要恢复这一档，照原来那版接回来即可）。
+
+**「通知渠道」那一行不再弹窗**：原来点开是个弹窗（挑渠道 + 填推送地址），现在点一下只给一句
+提示（用户要求，功能先不做）。渠道 / 地址照旧从 `tools/notifications.py` 读，那行小字
+（`notify_summary`）还是显示当前配的是什么。
 
 顶栏用 widgets/layout.py 的 build_subpage_header：左边是「‹ 返回」，标题「设置」落在页面
 正中（左边返回按钮有多宽，右边就留多宽的空位撑着）。
@@ -20,34 +32,17 @@ from api.client import ApiError
 from tools import (
     contacts,
     countdown_store,
-    data_export,
-    data_import,
     mock_settings,
     notifications,
     version_check,
 )
-from tools.mock_settings import CLOUD_OFF, CLOUD_ON, CLOUD_SETTING
 from widgets.layout import (
     BOTTOM_MENU_INSET,
-    DIALOG_RADIUS,
-    DIALOG_SURFACE,
     SKY_BLUE,
-    UNSELECTED_CARD_BG,
     build_subpage_header,
-    dialog_button_style,
     page_gradient,
-    text_width,
-    track_keyboard,
 )
 from widgets.layout import safe_update
-from widgets.popup_select import (
-    MENU_HEIGHT,
-    OPTION_TEXT_SIZE,
-    build_option_row,
-    build_option_selector,
-    build_option_text,
-    option_text,
-)
 from widgets.services import ensure_service
 # 「账号」卡片搬去「我的」页了（pages/my.py），它和设置页共用这几个卡片零件 —— 实现
 # 收在 widgets/settings_card.py 一处，两边都从这儿取（`settings_section` / `setting_row` /
@@ -61,21 +56,18 @@ from widgets.toast import build_toast
 
 logger = logging.getLogger(__name__)
 
-CARD_BG = UNSELECTED_CARD_BG
-CARD_BORDER = "#E2E8F0"
+# 卡片底色：**透明**（用户要求）—— 每张卡片都走 `settings_section(..., bgcolor=None)`：
+# 卡片自己不铺色，露出来的就是页面那层渐变，边框还留着（方框的样子还在）。原来那两枚
+# `CARD_BG` / `CARD_BORDER` 常量（白卡片 + 深一档的描边）没人用了，一并删掉。
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#64748B"
 PENDING_COLOR = "#DC2626"
 PAGE_SIDE_PADDING = 24
 # 检查新版本时，右边那枚版本号先换成这句，回来再换回版本号。
 CHECKING_LABEL = "检查中…"
-# 通知渠道下拉里那枚图标：尺寸 16、名字前留 8 的空当；颜色比正文浅一档，让它站在辅助
-# 的位置上，别和渠道名抢眼。宽度会一起算进面板宽度（见 open_notify_settings）。
-CHANNEL_ICON_SIZE = 16
-CHANNEL_ICON_GAP = 8
-CHANNEL_ICON_COLOR = "#475569"
-# 通知地址那一格的高度：输入框和「平时显示的那行文字」共用，点开时高度不跳。
-URL_FIELD_HEIGHT = 40
+# 「通知渠道」那一行点一下给的那句话：渠道 / 地址那个弹窗先不做了（用户要求），
+# 但这一行照旧可点、照旧显示当前配的渠道（见 notify_row）。
+NOTIFY_CHANNEL_TOAST = "通知渠道：设置暂未开放"
 # 通知提醒总开关那两行小字（跟着开关换：关着的时候说清「填了也不发」，别让人只看见
 # 一串地址以为提醒是活的）+ 拨动时的一句提示。文案放一起，免得两边对不上。
 # （开关存哪个键、值是什么，见 tools/notifications.py。）
@@ -83,21 +75,14 @@ NOTIFY_ON_LABEL = "有新提醒时按下面的渠道推送"
 NOTIFY_OFF_LABEL = "关着的时候不推送提醒"
 NOTIFY_ON_TOAST = "已开启通知提醒"
 NOTIFY_OFF_TOAST = "已关闭通知提醒"
-# 云端数据的两种状态：一行小字说明 + 开关时的一句提示。文案放一起，免得两边对不上。
-# （开关存哪个键、值是什么，见 tools/mock_settings.py —— 目前存在**内存**里，不落库。）
-CLOUD_ON_LABEL = "本地数据会同步到云端"
-CLOUD_OFF_LABEL = "数据只保存在本机"
-CLOUD_ON_TOAST = "已开启云端同步"
-CLOUD_OFF_TOAST = "已关闭云端同步"
 # 页面最下方那行署名。App 名和 pyproject.toml 的 `product` 是一对，版本跟着
 # tools/version_check.py 的 `APP_VERSION` 走（不在版本里重复一遍），版权年份发版时改。
-APP_NAME = "每日清单"
+APP_NAME = "每日资讯"
 APP_COPYRIGHT = "© 2026 duzqiu"
 
 
 def build_preferences_page(
     page: ft.Page,
-    set_menu_visible: Callable[[bool], None],
     go_back: Callable[[], None],
     open_login: Callable[[], None],
 ) -> ft.Control:
@@ -105,36 +90,13 @@ def build_preferences_page(
 
     `open_login` 由 pages/navigation.py 给：「账号」那张卡片里点「登录」/「管理」时
     调用它 —— 登录页压在设置页之上，返回回到这一页。
+
+    原来还有一个 `set_menu_visible` 入参（给「通知渠道」那个弹窗和通知地址输入框用的：
+    收弹窗 / 弹键盘时把底部菜单栏叫回来）。那个弹窗没了之后它就没人用了，一并去掉。
     """
     def notify(message: str) -> None:
         """一句话的提示：走 `widgets/toast.py`，浮在**屏幕中间**（不再是底部那条）。"""
         page.show_dialog(build_toast(page, message))
-
-    def settings_dialog(
-        title: str, content: ft.Control, actions: list[ft.Control]
-    ) -> ft.AlertDialog:
-        """Dialog chrome shared by the 清除缓存 and 通知渠道 dialogs."""
-        return ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-            # Same surface as the add-countdown dialog, so the option panels
-            # opening inside a settings dialog can be painted the same colour too.
-            bgcolor=DIALOG_SURFACE,
-            elevation=0,
-            inset_padding=ft.Padding.symmetric(horizontal=48, vertical=24),
-            title_padding=ft.Padding.only(left=16, top=12, right=16, bottom=0),
-            content_padding=ft.Padding.only(left=16, top=8, right=16, bottom=8),
-            actions_padding=ft.Padding.only(left=8, right=8, bottom=8),
-            action_button_padding=ft.Padding.symmetric(horizontal=8),
-            title=ft.Text(
-                title,
-                size=16,
-                weight=ft.FontWeight.BOLD,
-                color=TITLE_COLOR,
-            ),
-            content=content,
-            actions=actions,
-        )
 
     def clear_data(_: ft.Event[ft.Control]) -> None:
         page.pop_dialog()
@@ -183,12 +145,11 @@ def build_preferences_page(
             )
         )
 
-    # 复制和导出各要一个 Service（剪贴板、文件选择器）。它们不能像控件那样随手挂到
-    # 页面上 —— 必须**真注册**（见 widgets/services.py）：`page.services.append()` 只
-    # 往清单里塞个对象、不推给客户端，客户端不认识它，之后调它的方法就是干等，10 秒
-    # 后抛 TimeoutException。
+    # 复制联系方式要一个 Service（剪贴板）。它不能像控件那样随手挂到页面上 —— 必须
+    # **真注册**（见 widgets/services.py）：`page.services.append()` 只往清单里塞个对象、
+    # 不推给客户端，客户端不认识它，之后调它的方法就是干等，10 秒后抛 TimeoutException。
+    # （导出 / 导入原来那个文件选择器服务，随「数据设置」那张卡片一起去掉了。）
     clipboard = ensure_service(page, ft.Clipboard)
-    export_picker = ensure_service(page, ft.FilePicker)
 
     async def copy_contact(label: str, value: str) -> None:
         """点一下联系方式：把值复制到剪贴板，再吱一声复制的是哪一条。"""
@@ -200,157 +161,6 @@ def build_preferences_page(
             notify("复制失败")
             return
         notify(f"已复制{label}")
-
-    async def export_data() -> None:
-        """导出数据：把库里的东西拍成一份 JSON，交给系统去存。
-
-        桌面端弹「另存为」；手机和 Web 上 `save_file` 表现为导出 / 下载 —— 这几种
-        平台上 `src_bytes` 必须给（不给会直接抛 `ValueError`），内容在内存里就先
-        备好了。用户取消返回 `None`，存下了才有值（手机返回的路径不可用，只拿它
-        判存没存）。
-        """
-        name = data_export.export_file_name()
-        try:
-            saved = await export_picker.save_file(
-                dialog_title="导出为 JSON 文件",
-                file_name=name,
-                # Flet 的 `file_type` 只有 any / media / image / video / audio /
-                # custom 这几档，没有「文本档」—— 要限定后缀就得走 CUSTOM +
-                # allowed_extensions。它只管对话框筛不筛，不校验内容。
-                file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=[data_export.EXPORT_FORMAT],
-                src_bytes=data_export.export_bytes(),
-            )
-        except Exception:
-            logger.exception("导出数据失败")
-            notify("导出失败")
-            return
-        if saved:
-            notify("已导出 JSON 数据")
-
-    def confirm_import(_: ft.Event[ft.Control]) -> None:
-        """导入前的二次确认 —— 它会把现在的倒数日整表换掉，不能点错就进去。"""
-        page.show_dialog(
-            ft.CupertinoAlertDialog(
-                modal=True,
-                title=ft.Text(
-                    "导入数据",
-                    size=15,
-                    weight=ft.FontWeight.BOLD,
-                    color=TITLE_COLOR,
-                ),
-                content=ft.Container(
-                    padding=ft.Padding.only(top=6),
-                    content=ft.Text(
-                        "会用 JSON 文件里的内容替换现在的倒数日，且无法撤销。",
-                        size=13,
-                        color=TITLE_COLOR,
-                    ),
-                ),
-                actions=[
-                    ft.CupertinoDialogAction(
-                        content=ft.Text("取消", size=14),
-                        on_click=lambda _: page.pop_dialog(),
-                    ),
-                    ft.CupertinoDialogAction(
-                        content=ft.Text(
-                            "选择文件",
-                            size=14,
-                            color=PENDING_COLOR,
-                            weight=ft.FontWeight.BOLD,
-                        ),
-                        destructive=True,
-                        on_click=pick_import_file,
-                    ),
-                ],
-            )
-        )
-
-    def pick_import_file(_: ft.Event[ft.Control]) -> None:
-        """关掉确认框再去挑文件（挑文件是异步的，交给 `run_task`）。"""
-        page.pop_dialog()
-        page.run_task(import_data)
-
-    async def import_data() -> None:
-        """挑一个 JSON 文件导进库；结果用一句提示说清楚。"""
-        files = await export_picker.pick_files(
-            dialog_title="选择要导入的 JSON 文件",
-            # 和导出同理：Flet 的 `file_type` 没有「文本档」这一档，限定后缀得走
-            # CUSTOM + allowed_extensions。
-            file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=[data_export.EXPORT_FORMAT],
-            # 让 Flet 把内容一并读进来：手机上返回的路径不可用，只有 bytes 靠得住。
-            with_data=True,
-        )
-        if not files:
-            return
-        chosen = files[0]
-        raw = chosen.bytes
-        if not raw and chosen.path:
-            # 有的平台 `with_data` 只回路径，桌面端就自己补读一次。
-            try:
-                with open(chosen.path, "rb") as handle:
-                    raw = handle.read()
-            except OSError:
-                logger.exception("读取导入文件失败")
-        if not raw:
-            notify("读不到文件内容")
-            return
-
-        try:
-            result = data_import.import_bytes(raw)
-        except data_import.ImportFailed as failure:
-            # 这一步的消息本来就是写给用户看的（「不是 JSON」之类），直接弹。
-            notify(str(failure))
-            return
-        except Exception:
-            logger.exception("导入数据失败")
-            notify("导入失败")
-            return
-        notify(result.summary())
-
-    cloud_switch = ft.Switch(
-        # 状态存在内存里（键见 tools/mock_settings.py）：关掉之后再进来还是
-        # 关着。表里没有这个键时按 `CLOUD_OFF` 算 —— 默认**关着**，云端同步是后加
-        # 的能力，不该在用户还没表态时替他打开。
-        value=mock_settings.get_setting(CLOUD_SETTING, CLOUD_OFF) == CLOUD_ON,
-        active_color="#FFFFFF",
-        active_track_color=SKY_BLUE,
-        inactive_thumb_color="#FFFFFF",
-        inactive_track_color="#E2E8F0",
-    )
-
-    cloud_summary = ft.Text(
-        "",
-        size=11,
-        color=MUTED_COLOR,
-        # 和通知渠道那行一个道理：这里只放一句话，放不下就省略，别折行把卡片顶高。
-        no_wrap=True,
-        overflow=ft.TextOverflow.ELLIPSIS,
-    )
-
-    def refresh_cloud_summary() -> None:
-        """小字说明跟着开关走：关着说「只存本机」，开着才提「同步云端」。"""
-        cloud_summary.value = (
-            CLOUD_ON_LABEL if cloud_switch.value else CLOUD_OFF_LABEL
-        )
-
-    def toggle_cloud(_: ft.Event[ft.Switch]) -> None:
-        """云端数据开关：先只做样子 —— 只写内存、不落库，也不发请求。
-
-        但**开、关都要说一声** —— 这个开关管的是「数据出不出本机」，值得让用户知道
-        自己刚做了什么（小字说明同时跟着换）。
-        """
-        mock_settings.set_setting(
-            CLOUD_SETTING, CLOUD_ON if cloud_switch.value else CLOUD_OFF
-        )
-        refresh_cloud_summary()
-        cloud_summary.update()
-        notify(CLOUD_ON_TOAST if cloud_switch.value else CLOUD_OFF_TOAST)
-
-    # 处理函数等开关和说明都摆好之后再挂上去：`ft.Switch(on_change=...)` 是**构建时**
-    # 求值（不像函数体那样延迟解析），写在前面会直接 `UnboundLocalError`。
-    cloud_switch.on_change = toggle_cloud
 
     notify_summary = ft.Text(
         "",
@@ -371,9 +181,9 @@ def build_preferences_page(
             mock_settings.get_setting(notifications.URL_SETTING, ""),
         )
 
-    # 「通知提醒」总开关：它管「发不发」，所以摆在**卡片里自己一行**，不藏进「通知
-    # 渠道」那个弹窗 —— 弹窗里那两项管的是「怎么发」（往哪个渠道、地址是什么）。
-    # 拨一下只写内存（和云端那个开关一个做法），当次运行内一直是这档。
+    # 「通知提醒」总开关：它管「发不发」，所以摆在**卡片里自己一行**（原来那个「通知
+    # 渠道」弹窗管的是「怎么发」—— 往哪个渠道、地址是什么）。拨一下只写内存、不落库
+    # （设置项都在 tools/mock_settings.py 那张内存表里），当次运行内一直是这档。
     notify_switch = ft.Switch(
         value=(
             mock_settings.get_setting(
@@ -420,265 +230,33 @@ def build_preferences_page(
             NOTIFY_ON_TOAST if notify_switch.value else NOTIFY_OFF_TOAST
         )
 
-    # 和云端那个开关一样：先建控件、再挂处理函数 —— `ft.Switch(on_change=...)` 是
-    # **构建时**求值，写在处理函数之前会直接 `UnboundLocalError`。
+    # 先建控件、再挂处理函数 —— `ft.Switch(on_change=...)` 是**构建时**求值，
+    # 写在处理函数之前会直接 `UnboundLocalError`。
     notify_switch.on_change = toggle_notify_enabled
-
-    def close_notify_settings() -> None:
-        """Dismiss the 通知渠道 dialog and bring the menu bar back."""
-        page.pop_dialog()
-        set_menu_visible(True)
-
-    def channel_icon(name: str, size: int = CHANNEL_ICON_SIZE) -> ft.Icon:
-        """渠道图标控件。图标不跟着系统字号缩放 —— 放大了会把面板挤出去。"""
-        return ft.Icon(
-            notifications.channel_icon(name),
-            size=size,
-            color=CHANNEL_ICON_COLOR,
-            apply_text_scaling=False,
-        )
-
-    def channel_label(name: str) -> ft.Control:
-        """下拉里的一项：图标 + 渠道名。"""
-        return ft.Row(
-            tight=True,
-            spacing=CHANNEL_ICON_GAP,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[channel_icon(name), option_text(name)],
-        )
-
-    def open_notify_settings(_: ft.Event[ft.Container]) -> None:
-        """通知渠道 dialog: the channel picker plus its delivery address."""
-        selected = mock_settings.get_setting(
-            notifications.CHANNEL_SETTING, notifications.DEFAULT_CHANNEL
-        )
-        channel_text = build_option_text(selected)
-        # 触发按钮上也挂一枚图标，选完渠道它跟着换。
-        trigger_icon = channel_icon(selected)
-        selection = {"channel": selected}
-
-        def pick_channel(name: str) -> None:
-            selection["channel"] = name
-            channel_text.value = name
-            trigger_icon.icon = notifications.channel_icon(name)
-            channel_text.update()
-            trigger_icon.update()
-
-        channel_selector = build_option_selector(
-            # 触发按钮就是「图标 + 渠道名」，和面板里的项同一个样子。
-            ft.Row(
-                tight=True,
-                spacing=CHANNEL_ICON_GAP,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[trigger_icon, channel_text],
-            ),
-            [(name, name) for name in notifications.CHANNELS],
-            pick_channel,
-            # 九个渠道一屏摆不下：面板钉成固定高度，多出来的在里面上下滚。
-            menu_height=MENU_HEIGHT,
-            # 面板宽度得把图标也一起算进去 —— 否则行宽按纯文字钉死，图标会把名字挤出
-            # 面板（行宽是按 `content_width` 定死的，不会自己撑开）。
-            content_width=(
-                max(
-                    text_width(name, OPTION_TEXT_SIZE)
-                    for name in notifications.CHANNELS
-                )
-                + CHANNEL_ICON_SIZE
-                + CHANNEL_ICON_GAP
-            ),
-            label_builder=channel_label,
-        )
-
-        def url_focus_changed(focused: bool) -> None:
-            """键盘弹起时把底部菜单栏收走。
-
-            **只干这一件** —— 挪弹窗那件事交给下面的 `track_keyboard`：焦点事件比
-            键盘动画早到一步，照焦点挪的话弹窗会先往屏幕底下一沉（键盘还没起来），
-            等键盘真升上来再弹回去，看上去就是「先下拉、再弹起」。
-            """
-            set_menu_visible(not focused)
-
-        url_field = ft.TextField(
-            value=mock_settings.get_setting(notifications.URL_SETTING, ""),
-            hint_text="粘贴通知地址",
-            hint_style=ft.TextStyle(size=13, color="#94A3B8"),
-            # 地址很长，这一格必须是**单行**：长地址在格子里横向滚，别折成两行
-            # （`multiline` 默认就是 False，这里写出来是防止以后被改成 True）。
-            multiline=False,
-            # Same as the 倒数日事项 field: the keyboard would cover the floating
-            # menu bar, so the bar steps out of the way and the dialog parks just
-            # above the keyboard while typing.
-            on_focus=lambda _: url_focus_changed(True),
-            on_blur=lambda _: url_focus_changed(False),
-            filled=False,
-            border=ft.NoInputBorder(),
-            content_padding=ft.Padding.symmetric(horizontal=0, vertical=6),
-            text_style=ft.TextStyle(size=13, color="#334155"),
-            dense=True,
-            height=URL_FIELD_HEIGHT,
-        )
-
-        # 地址平时是一行**省略号收尾的文字**，点一下才换成上面那格输入框。
-        # Flet 的 `TextField` 没有 `overflow`：长链接塞进去只会被硬裁（右边直接切
-        # 掉，连省略号都不给），而省略号只有 `ft.Text` 上才有。所以「看」和「改」
-        # 分成两层 —— 默认这层专门用来看，点一下才换成能输入的。
-        url_value = mock_settings.get_setting(notifications.URL_SETTING, "")
-        url_display = ft.Container(
-            height=URL_FIELD_HEIGHT,
-            alignment=ft.Alignment.CENTER_LEFT,
-            content=ft.Text(
-                url_value or "粘贴通知地址",
-                size=13,
-                color="#334155" if url_value else "#94A3B8",
-                no_wrap=True,
-                overflow=ft.TextOverflow.ELLIPSIS,
-            ),
-        )
-
-        url_slot = ft.Container()
-
-        async def focus_url() -> None:
-            """再显式要一次焦点。
-
-            `focus()` 是**方法**（async），不是布尔字段 —— 写成 `url_field.focus =
-            True` 只会把方法覆盖掉，客户端那边一点动静都没有（这正是「点了输入框
-            光标不出来」的原因）。
-            """
-            try:
-                await url_field.focus()
-            except Exception:
-                logger.debug("通知地址格没能自动聚焦", exc_info=True)
-
-        def start_editing(_: ft.Event[ft.Container]) -> None:
-            """从「看」切到「改」：换上输入框，并把光标送进去。
-
-            两头都要：`autofocus` 管控件**挂上去那一帧**，`focus_url` 等它挂稳之后
-            再要一次 —— 万一这一帧客户端漏了，光标也还是落得进去。
-            """
-            url_slot.content = url_field
-            url_slot.on_click = None
-            url_field.autofocus = True
-            page.update()
-            page.run_task(focus_url)
-
-        url_slot.content = url_display
-        url_slot.on_click = start_editing
-
-        def dismiss(_: ft.Event[ft.Control]) -> None:
-            """关掉这个弹窗：先拆掉键盘跟随，再走页面那套关闭流程。"""
-            unwatch_keyboard()
-            close_notify_settings()
-
-        def save_notify(_: ft.Event[ft.Control]) -> None:
-            mock_settings.set_setting(notifications.CHANNEL_SETTING, selection["channel"])
-            mock_settings.set_setting(
-                notifications.URL_SETTING, (url_field.value or "").strip()
-            )
-            unwatch_keyboard()
-            dialog.open = False
-            set_menu_visible(True)
-            refresh_notify_summary()
-            notify_summary.update()
-            page.update()
-            notify("通知渠道已保存")
-
-        dialog = settings_dialog(
-            "通知渠道",
-            ft.Column(
-                tight=True,
-                spacing=8,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=[
-                    build_option_row(channel_selector),
-                    url_slot,
-                ],
-            ),
-            [
-                ft.TextButton(
-                    "取消",
-                    style=dialog_button_style(),
-                    on_click=dismiss,
-                ),
-                ft.TextButton(
-                    "保存",
-                    style=dialog_button_style(),
-                    on_click=save_notify,
-                ),
-            ],
-        )
-        # 键盘一升一落都把弹窗挪到键盘上方 / 回到正中（见 track_keyboard）。
-        # 挂在 media 事件上而不是焦点上 —— 和新增倒数日那个弹窗一个做法。
-        unwatch_keyboard = track_keyboard(page, dialog)
-        page.show_dialog(dialog)
 
     def notify_enabled_row() -> ft.Control:
         """通知设置卡片里的第一行：通知提醒总开关。
 
-        拨一下写内存（见 `toggle_notify_enabled`），不跟「通知渠道」那个弹窗绑在一起。
+        拨一下写内存（见 `toggle_notify_enabled`），不跟「通知渠道」那一行绑在一起。
         """
         return setting_row("通知提醒", notify_state_summary, notify_switch)
 
     def notify_row() -> ft.Control:
-        """通知设置那一行：通知渠道 —— 点开弹窗改渠道和推送地址。"""
+        """通知设置那一行：通知渠道 —— 点一下**只给一句提示**（用户要求）。
+
+        原来是点开一个弹窗（挑渠道 + 填推送地址）。弹窗撤了、渠道也暂时不做，所以这一行
+        只把当前配的渠道 / 地址（`notify_summary`）摆着看，点一下提示「暂未开放」——
+        处理函数留在 `tools/notifications.py`，之后要做直接照原来那版弹窗接回来。
+        """
         return ft.Container(
             border_radius=ft.BorderRadius.all(8),
-            on_click=open_notify_settings,
+            on_click=lambda _: notify(NOTIFY_CHANNEL_TOAST),
             content=setting_row(
                 "通知渠道",
                 notify_summary,
                 ft.Icon(ft.Icons.CHEVRON_RIGHT, size=20, color="#94A3B8"),
             ),
         )
-
-    def export_row() -> ft.Control:
-        """数据设置那一行：导出数据（JSON）。
-
-        小字里就写明是 JSON 文件 —— 点之前用户就知道会拿到个什么样的文件。
-        """
-        return setting_row(
-            "导出数据",
-            ft.Text(
-                "导出为 JSON 文件",
-                size=11,
-                color=MUTED_COLOR,
-                no_wrap=True,
-            ),
-            ft.OutlinedButton(
-                "导出",
-                # async 处理器交给 `run_task` 跑（和首页「+」面板那两条入口一个
-                # 路子），别直接挂在 on_click 上。
-                on_click=lambda _: page.run_task(export_data),
-                style=compact_button_style(),
-            ),
-        )
-
-    def import_row() -> ft.Control:
-        """数据设置那一行：导入数据（从导出的 JSON 恢复）。
-
-        小字里就写明**会覆盖** —— 这一行按下去是要整表换掉的，得先说清楚。
-        """
-        return setting_row(
-            "导入数据",
-            ft.Text(
-                "从 JSON 恢复，会覆盖现有数据",
-                size=11,
-                color=MUTED_COLOR,
-                no_wrap=True,
-            ),
-            ft.OutlinedButton(
-                "导入",
-                on_click=confirm_import,
-                style=compact_button_style(),
-            ),
-        )
-
-    def cloud_row() -> ft.Control:
-        """数据设置那一行：云端数据（开关先只做样子 —— 只写内存、不落库，也不发请求）。
-
-        小字不是死文案 —— 它跟着开关在「只存本机」和「同步到云端」之间换（见
-        `refresh_cloud_summary`）。
-        """
-        return setting_row("云端数据", cloud_summary, cloud_switch)
 
     def check_version_row() -> ft.Control:
         """通用设置那一行：检查新版本 —— 右边写着当前版本号，点它去仓库问一次。
@@ -766,8 +344,8 @@ def build_preferences_page(
         「清除缓存」下面：设置页才是「配置」的地方，「要不要退出」归它管。
 
         令牌由 `member_auth.logout` 清掉（后端是无状态 JWT，只是应一声，见 api/session.py）；
-        清完把这一行收掉（已经是未登录了），顺便重画云端数据那一段 —— 那几行的摘要都跟
-        登录态有关。没登录时这一行不出现：那时候没有「退出」可点。
+        清完把这一行收掉（已经是未登录了）。没登录时这一行不出现：那时候没有「退出」可点。
+        （原先这里还顺手重画了「云端数据」那一行的小字 —— 那张卡片已经整块去掉，不用了。）
         """
         if not session.access_token():
             return ft.Container(visible=False)
@@ -784,7 +362,6 @@ def build_preferences_page(
             # first」—— 和倒数日页那处同一个道理。
             safe_update(row)
             notify("已退出登录")
-            refresh_cloud_summary()
 
         def on_logout(_: ft.Event[ft.Control]) -> None:
             page.run_task(do_logout)
@@ -822,7 +399,6 @@ def build_preferences_page(
 
     refresh_notify_state()
     refresh_notify_summary()
-    refresh_cloud_summary()
 
     return ft.Container(
         expand=True,
@@ -848,16 +424,15 @@ def build_preferences_page(
                             scroll=ft.ScrollMode.HIDDEN,
                             padding=ft.Padding.only(bottom=BOTTOM_MENU_INSET),
                             controls=[
-                                # 三档设置，各一张卡片，条目摆在自己那张里。
+                                # 两档设置，各一张卡片，条目摆在自己那张里。
                                 # （「账号」原来摆在这上头 —— 已整块搬到「我的」页，
-                                # 见 pages/my.py。）
+                                # 见 pages/my.py；「数据设置」那一档按用户要求去掉了。）
+                                # `bgcolor=None`：卡片**不铺色**（透明），露出来的是页面那层
+                                # 渐变 ——「我的」页那张个人信息卡片也是这个做法。
                                 settings_section(
                                     "通知设置",
                                     [notify_enabled_row(), notify_row()],
-                                ),
-                                settings_section(
-                                    "数据设置",
-                                    [export_row(), import_row(), cloud_row()],
+                                    bgcolor=None,
                                 ),
                                 settings_section(
                                     "通用设置",
@@ -871,8 +446,9 @@ def build_preferences_page(
                                         # 退出登录紧挨在「清除缓存」下面（只登录时出现）。
                                         logout_row(),
                                     ],
+                                    bgcolor=None,
                                 ),
-                                # 落款：三张卡片下面的一小块署名（跟着内容滚）。
+                                # 落款：两张卡片下面的一小块署名（跟着内容滚）。
                                 app_info(),
                             ],
                         ),
