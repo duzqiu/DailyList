@@ -8,7 +8,10 @@ authors = [
     { name = "duzqiu", email = "duzqiu@outlook.com" }
 ]
 dependencies = [
-    "flet>=1.0.1"
+    "flet>=1.0.1",
+    # 上传头像 / 背景图前先压小（tools/image_prep.py）：手机照片几 MB，不压又慢又容易
+    # 撞后端 5MB 上限。flet 自己只在 test extra 里要它，所以这里显式声明。
+    "pillow>=10.3.0"
 ]
 
 [dependency-groups]

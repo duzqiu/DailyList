@@ -16,9 +16,12 @@ App 内部性别一直是中文（「男 / 女 / 保密」），所以收发两�
 （同 member_countdowns.py 里周期那套）。
 """
 
+import asyncio
 import os
 import time
 from typing import Any
+
+from tools import image_prep
 
 from . import member_auth, session
 from .client import SITE_URL, ApiError, get, post_bytes, post_file, put
@@ -180,19 +183,26 @@ async def upload_background(picked: Any) -> dict:
 
 
 async def _upload_media(picked: Any, endpoint: str, default_filename: str) -> dict:
-    """图片上传的公共部分：取内容 → 组 multipart → 成功后刷新资料缓存。"""
+    """图片上传的公共部分：压图 → 取内容 → 组 multipart → 成功后刷新资料缓存。
+
+    **先压缩再上传**（见 tools/image_prep.py）：手机照片几 MB，不压的话又慢又容易
+    撞后端的 5MB 上限/超时。压不了（动图 / 没 Pillow / 压完更大）就按原图传。
+    """
     token = session.access_token()
+    file_path = ""
     if isinstance(picked, str):
-        file_path, filename, content = picked, os.path.basename(picked), None
+        file_path = picked
     else:
-        content = getattr(picked, "bytes", None)
         file_path = str(getattr(picked, "path", "") or "")
-        filename = str(getattr(picked, "name", "") or "") or os.path.basename(file_path)
+
+    # 压图要解码/编码整张图（几千万像素时能到一两秒），丢到线程里做 ——
+    # 直接在协程里跑会把事件循环卡住，Flet 会话看着就像「卡死 / 重启」。
+    content, filename = await asyncio.to_thread(image_prep.prepare, picked)
 
     if content:
         result = await post_bytes(
             endpoint,
-            bytes(content),
+            content,
             filename=filename or default_filename,
             token=token,
         )
@@ -201,7 +211,7 @@ async def _upload_media(picked: Any, endpoint: str, default_filename: str) -> di
         result = await post_file(
             endpoint,
             file_path,
-            filename=filename,
+            filename=filename or os.path.basename(file_path),
             token=token,
         )
     else:

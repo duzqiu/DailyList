@@ -71,7 +71,8 @@ DailyList/
 │  │  ├─ device.py            设备主键（各平台取唯一标识；本地数据不再按设备隔离，暂无调用方）
 │  │  ├─ data_export.py       导出 JSON（倒数日来自后端缓存 + 设置来自内存 mock）
 │  │  ├─ data_import.py       导入 JSON（设置写内存 mock；倒数日那段暂不落地）
-│  │  ├─ my_profile.py        资料的**读取**层（昵称 / 会员号 / 简介 / 性别 / 生日 / 地区 / 头像；来自后端）
+│  │  ├─ my_profile.py        资料的**读取**层（昵称 / 会员号 / 简介 / 性别 / 生日 / 地区 / 头像 / 背景图；来自后端）
+│  │  ├─ image_prep.py        上传前压图（Pillow：缩到长边 1920 + 转 JPEG；动图 / 小图原样）
 │  │  ├─ lunar.py             农历换算（1900–2099 查表）
 │  │  ├─ notifications.py     通知渠道配置（渠道清单、图标、一句话摘要）
 │  │  ├─ contacts.py          联系方式（值取自内存 mock）
@@ -117,6 +118,19 @@ _先这么办、以后要改的事记在这儿：写明现状 + 打算怎么改�
     `my_background` 键已删掉，换设备登录背景图也还在）。
     ⚠️ 「我的」页背景区的配色与结构取决于「有没有背景图」，所以 `main.py` 启动时
     会先把资料拉回来再建页面，避免先按「没图」摆一遍再闪成有图。
+  - **上传前会先压图**（`tools/image_prep.py`，依赖 Pillow）：手机照片动辄 3～8MB，
+    直接传又慢又容易撞后端 5MB 上限 —— 现在统一缩到长边 ≤1920、转 JPEG（还超就逐档降
+    质量）；**动图 / 小图原样传**，压完更大或压不动也退回原图。压图丢在线程里做，
+    不卡事件循环。上传超时单独放宽到 `api/client.py` 的 `UPLOAD_TIMEOUT`（120s）。
+    实测：10MB 照片 → 1.7MB，上传 0.4s。
+  - **iOS 的 HEIC / HEIF**：两条路都覆盖 —— ① 选图器带 `compression_quality`
+    （`image_prep.PICKER_QUALITY`），iOS 会直接给一份 JPEG；② 万一还是 HEIC，
+    后端收到后会**转成 JPEG 再落盘**（HEIC 浏览器与 Flutter 都渲染不了），
+    所以 App 这边不需要额外依赖。
+    > 调试时若「上传过程中 app 自己重启」：那是 `flet run -d/-r` 的**热重载** —— 它监视
+    > 脚本目录，**任何**文件增删改都会重启 app，而 `--ignore-dirs` 默认是空的（见
+    > `flet_cli/commands/run.py`）。加 `--ignore-dirs __pycache__` 或去掉 `-d/-r` 再试；
+    > 上传链路本身**不写任何本地文件**（头像 / 背景图都已改成直接传后端）。
   - 头像：**上传**到 `POST /member/profile/avatar`（multipart，字段名 `file`），后端按
     **会员 ID** 存（`data/uploads/avatars/{会员ID}/`）。选图时 `pick_files()` 必须带
     **`with_data=True`**：只有它会把文件内容放进 `FilePickerFile.bytes`；

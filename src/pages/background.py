@@ -9,16 +9,20 @@
 ⚠️ 不再复制进 App 目录（原来那套本地存法已去掉）：换设备登录背景图也还在。
 """
 
+import logging
 from collections.abc import Callable
 
 import flet as ft
 
 from api import member_profile, session
 from api.client import ApiError
+from tools import image_prep
 from widgets.layout import BOTTOM_MENU_INSET
 from widgets.services import ensure_service
 from widgets.toast import build_toast
 from widgets.my_background import background_path
+
+logger = logging.getLogger(__name__)
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
@@ -87,6 +91,10 @@ def build_background_page(
                 # `file_type=IMAGE`：手机上就是**系统相册 / 图库**（不是老的「文件」选择器）。
                 file_type=ft.FilePickerFileType.IMAGE,
                 with_data=True,
+                # ⚠️ **iOS 靠它把 HEIC 转成 JPEG**：iPhone 相机默认拍 HEIC，浏览器 /
+                # Flutter 都渲染不了；带上这个值选图器就直接给一份 JPEG（顺带压小）。
+                # 桌面端会忽略这个参数。后端也兜了一层转码（见 app/core/storage.py）。
+                compression_quality=image_prep.PICKER_QUALITY,
             )
         except Exception as error:  # noqa: BLE001
             # 选图器没起来 / 等超时：给一句人话，别把堆栈直接糊在控制台上。
@@ -99,9 +107,17 @@ def build_background_page(
         notify("正在上传背景图…")
         try:
             # 上传到后端（POST /member/profile/background），成功后资料缓存已刷新。
+            # 图在上传前会先压小（见 tools/image_prep.py），超时上限也放宽到
+            # `api/client.py` 的 UPLOAD_TIMEOUT。
             await member_profile.upload_background(picked)
         except ApiError as error:
             notify(error.message)
+            return
+        except Exception as error:  # noqa: BLE001
+            # 兜住一切意外：任务里抛异常会让整个 App 崩掉（调试态看着就是「重启」），
+            # 这里至少要留住界面并给一句人话。
+            logger.exception("上传背景图失败")
+            notify(f"上传失败：{error}")
             return
         render()
         page.update()

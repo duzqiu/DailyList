@@ -49,6 +49,10 @@ BASE_URL = (os.environ.get("DAILYLIST_API_BASE") or "").strip() or LOCAL_BASE_UR
 SITE_URL = BASE_URL.removesuffix("/api/v1")
 # 单次请求的超时（秒）：比后端自己的处理时间宽松一点，又不至于让人干等。
 TIMEOUT = 15
+# 上传图片的超时（秒）：比普通请求宽松得多。手机照片本来就有几 MB，选完图之后
+# 客户端还要先把图传给 Python 这一侧、再往服务器传，走 WiFi 十几秒很常见 ——
+# 用 `TIMEOUT`（15s）会让「图大一点就报错」，看着像接口坏了。
+UPLOAD_TIMEOUT = 120
 # 认证头的前缀：后端用的是 JWT，`Authorization: Bearer <token>`。
 TOKEN_TYPE = "Bearer"
 # 默认请求头。**User-Agent 必须是浏览器样子的**：域名前面挂着 Cloudflare，它按浏览器
@@ -306,13 +310,13 @@ def _post_bytes_sync(
     if token:
         request.add_header("Authorization", f"{TOKEN_TYPE} {token}")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=UPLOAD_TIMEOUT) as response:
             return _decode(response.read())
     except urllib.error.HTTPError as error:
         raise _error_from(error) from None
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         logger.warning("POST %s 上传失败: %s", path, error)
-        raise NetworkError("网络异常，请检查网络后重试") from error
+        raise NetworkError("图片上传超时或网络中断，请重试") from error
 
 
 async def post_bytes(

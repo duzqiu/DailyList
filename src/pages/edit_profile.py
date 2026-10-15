@@ -28,6 +28,7 @@
 （见 widgets/services.py 开头那两条），所以用 `ensure_service` 取 `main()` 里注册好的那个。
 """
 
+import logging
 from collections.abc import Callable, Coroutine
 from datetime import date
 from typing import Any
@@ -36,6 +37,7 @@ import flet as ft
 
 from api import member_auth, member_profile, session
 from api.client import ApiError
+from tools import image_prep
 from widgets.layout import (
     BACK_WIDTH,
     BOTTOM_MENU_INSET,
@@ -60,6 +62,8 @@ from tools.my_profile import (
 from widgets.pickers import build_date_picker
 from widgets.services import ensure_service
 from widgets.toast import build_toast
+
+logger = logging.getLogger(__name__)
 
 # 这一页的配色照那张图：浅灰底、白卡片、标签灰、值近黑、没填过的值更浅一档。
 PAGE_BG = "#F5F5F5"
@@ -432,10 +436,13 @@ def build_edit_profile_page(
                 # ⚠️ `with_data=True` 是关键：这样 `FilePickerFile.bytes` 才会带上
                 # **文件内容**。只拿 `path` 是不够的 —— Web 模式下它永远是 None、
                 # 部分原生平台也给不出来，按路径读就会「读不到选中的图片」。
+                # `compression_quality` 则是给 **iOS** 用的：iPhone 相机默认拍 HEIC，
+                # 带上它选图器会直接给一份 JPEG（顺带压小），后端也兜了一层转码。
                 files = await picker.pick_files(
                     allow_multiple=False,
                     file_type=ft.FilePickerFileType.IMAGE,
                     with_data=True,
+                    compression_quality=image_prep.PICKER_QUALITY,
                 )
             except Exception as error:  # noqa: BLE001
                 notify(f"打不开相册：{error}")
@@ -452,6 +459,12 @@ def build_edit_profile_page(
                 await member_profile.upload_avatar(picked)
             except ApiError as error:
                 notify(error.message)
+                return
+            except Exception as error:  # noqa: BLE001
+                # 兜住一切意外：任务里抛异常会让整个 App 崩掉，这里至少要留住界面
+                # 并给一句人话（选图 / 压缩 / 上传任何一步出问题都算）。
+                logger.exception("上传头像失败")
+                notify(f"上传失败：{error}")
                 return
             render()
             page.update()
