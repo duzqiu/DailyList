@@ -28,8 +28,6 @@ import flet as ft
 
 from widgets.layout import (
     BOTTOM_MENU_INSET,
-    DATE_SELECTED_BG,
-    SKY_BLUE,
     safe_update,
 )
 from widgets.my_background import background_decoration
@@ -48,10 +46,10 @@ ON_IMAGE_MUTED = "#E6FFFFFF"
 ON_IMAGE_LINE = "#66FFFFFF"
 # 但**没设过背景图**时（`background_decoration()` 返回 None）这块区域只能落在页面那层白底
 # 上 —— 白字白底，整块等于看不见（用户反馈的「tab 上方的页面缺失」就是它）。所以再备一套
-# 「没有图」的墨色，并给这块垫一层浅蓝渐变当底（两个色都是全 App 已有的浅蓝，不新起颜色）。
+# 「没有图」的墨色。
 #
-# ⚠️ 这层底是**临时方案**（配色是凑的，不是设计稿），先这么用 —— 见 README「待处理问题」。
-NO_COVER_GRADIENT_COLORS = (SKY_BLUE, DATE_SELECTED_BG)
+# 这一块**不铺底色、也不铺渐变**（用户要求：透明底）—— 露出来的就是页面白底（`MY_BG`），
+# 配上这套深色墨色照样看得清。
 # 浅灰面板 / 小卡底色（白底上要分得出层次）。
 PANEL_BG = "#F8FAFC"
 LINE_COLOR = "#E2E8F0"
@@ -79,8 +77,9 @@ TAB_STRIP_BG = "#F1F5F9"
 # 标签条上下各留的白：10 → 4 → **2**（用户两次要求「降低 tab 的高度」）。想更矮就往 0
 # 调，那时四个标签基本贴着这一条的上下沿了。
 TAB_STRIP_PADDING = 2
-# 内容板**顶部两角**的圆角半径。圆角切掉的那两块小缺口要露出上面那张背景图，所以
-# 「圆角顶盖」画在背景区的最底下（见 `_panel_top_cap`），背景区的下内边距也得比它大。
+# 内容板**顶部两角**的圆角半径。圆角切掉的那两块小缺口露出的是背景区（有图时是那张图，
+# 没设图时是页面白底），所以「圆角顶盖」画在背景区的最底下（见 `_panel_top_cap`），
+# 背景区的下内边距也得比它大。
 PANEL_TOP_RADIUS = 18
 TAB_SIZE = 14
 TAB_IDLE_COLOR = "#6B7280"
@@ -253,9 +252,9 @@ def build_my_page(
     top_inset = (
         getattr(getattr(page.media, "view_padding", None), "top", 0) or 0
     )
-    # 有没有设过背景图：这一块区域的**配色**（白字 / 深字）和**底**（图 / 浅蓝渐变）都跟它
-    # 走。没设过图时若还按「白字压图」那套摆，字就落在页面那层白底上 —— 整块看不见
-    # （见文件开头 `NO_COVER_GRADIENT_COLORS` 那段）。
+    # 有没有设过背景图：这一块区域的**配色**（白字 / 深字）和**底**（图 / 透明）都跟它走。
+    # 没设过图时若还按「白字压图」那套摆，字就落在页面那层白底上 —— 整块看不见
+    # （见文件开头那段墨色说明）。
     decoration = background_decoration()
     has_cover = decoration is not None
     ink = ON_IMAGE_COLOR if has_cover else TITLE_COLOR
@@ -591,8 +590,8 @@ def build_my_page(
     # 图挂在**外层容器**的 `image=` 上（内容自己撑高，高度不用写死）；上面再叠一层磨砂带
     # —— `ft.Stack`：磨砂带在下（四边定位铺满），内容层在上（它决定整块的高度）。
     #
-    # 没设过图也不能把内容光着摆：这时候字与图标换成深色（`ink`），底下再垫一层浅蓝渐变
-    # （`NO_COVER_GRADIENT_COLORS`）—— 既托得住字，也让这块跟下面的白底分得开。
+    # 没设过图时这一块**不铺任何底色**（透明）：字与图标换成深色（`ink`），露出来的就是
+    # 页面那层白底（`MY_BG`）。
     background_region = (
         ft.Container(
             image=decoration,
@@ -610,12 +609,18 @@ def build_my_page(
         )
         if decoration is not None
         else ft.Container(
-            gradient=ft.LinearGradient(
-                colors=list(NO_COVER_GRADIENT_COLORS),
-                begin=ft.Alignment.TOP_LEFT,
-                end=ft.Alignment.BOTTOM_RIGHT,
+            # 透明底（用户要求）：不给 `bgcolor`、也不铺渐变 —— 露出来的是页面白底。
+            #
+            # `Stack` 这一层不为背景、只为**圆角顶盖**：它必须和上面有图那条分支一样摆上
+            # （用户要求：下面 tab 的样式与高度，在「有没有背景图」两种情况下一致）——
+            # 顶盖是与标签条同色的一条、贴着这一块的最底下，内容板的标签条紧跟着它，
+            # 合成同一个面板的圆角顶。少了它，无图时 tab 条上方会直接顶到白底上。
+            content=ft.Stack(
+                controls=[
+                    _panel_top_cap(),
+                    region_body,
+                ]
             ),
-            content=region_body,
         )
     )
     # ⚠️ 下拉手势**在这一层吃掉**：在图片上竖直拖拽什么都不做（页面不跟着动，也就不会
