@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 LOCAL_BASE_URL = "http://192.168.18.110:8000/api/v1"
 # 线上（已部署的域名，前面挂着 Cloudflare）。
 REMOTE_BASE_URL = "https://fastapi.277686.xyz/api/v1"
-BASE_URL = (os.environ.get("DAILYLIST_API_BASE") or "").strip() or LOCAL_BASE_URL
+BASE_URL = (os.environ.get("DAILYLIST_API_BASE") or "").strip() or REMOTE_BASE_URL
 # 站点根地址（基址去掉 `/api/v1` 那一段）。后端返回的**静态资源 / 头像地址**是
 # `/api/v1/static/...`、`/api/v1/assets/...` 这种相对路径（见后端
 # `app/core/config.py` 的 `upload_url_prefix` 与 `DEFAULT_AVATAR`），

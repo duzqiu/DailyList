@@ -4,6 +4,9 @@
 （蓝色定位图标 + 定位到的「中国 上海市 浦东新区」）→ 小节「全部」+ 一张白卡片
 （国家列表，**有下级的行右边带一个 ›**）。
 
+⚠️ 顶上定位那一段**只在最外层**（国家表那层）出现：往下进了省 / 市（二三级）就不再摆它 ——
+用户已经在挑具体行政区了，再顶着一条定位只是白占地方（用户要求，见 `build_content`）。
+
 点下去：
 - **定位那一行** → 直接选它（和点一个国家一样，选完就退回编辑地区页）；
 - **带 › 的行**（国家 / 省）→ 往下一级：同一页里换列表，标题变成当前层级，
@@ -216,7 +219,13 @@ def build_pick_region_page(
         正好是换一屏内容想要的「回到顶部」—— 换级却停在上一屏的滚动位置，
         用户会以为点错了。不然就得调 `scroll_to`，那是个协程，还得 `run_task` 去 await
         （见 widgets/wheel.py 那个坑）。
+
+        定位那一段**只摆在最外层**（`path` 为空）：进了二三级（省 / 市）就不带了（用户要求）。
         """
+        # 空元组就是「这一层不摆定位」—— 用 `*` 铺进下面那份 controls 里。
+        spot_block: list[ft.Control] = (
+            [section_label(SPOT_SECTION), card([spot_row()])] if not path else []
+        )
         return ft.ListView(
             expand=True,
             spacing=CARD_GAP,
@@ -229,8 +238,7 @@ def build_pick_region_page(
                     spacing=CARD_GAP,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
-                        section_label(SPOT_SECTION),
-                        card([spot_row()]),
+                        *spot_block,
                         section_label(ALL_SECTION),
                         card(
                             [
