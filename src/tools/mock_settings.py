@@ -29,13 +29,14 @@ CLOUD_ON = "1"
 SWITCH_OFF = "0"
 SWITCH_ON = "1"
 
-# 「是否公开展示」那几枚开关的键 —— 用在**编辑性别页**（pages/edit_gender.py）与
-# **编辑生日页**（pages/edit_birthday.py）上。
+# 「是否公开展示」那几枚开关的键 —— 用在**编辑性别页**（pages/edit_gender.py）、
+# **编辑生日页**（pages/edit_birthday.py）与**编辑地区页**（pages/edit_region.py）上。
 # ⚠️ 后端**没有**这几个字段（`MemberProfileUpdate` 只有昵称 / 头像 / 背景 / 性别 /
 # 生日 / 电话 / 简介 / 地区），所以和云端那个开关一个做法：拨一下先写内存，
-# 当次运行内记得住、重启回到默认，见下面 `_VALUES` 里那三行。
+# 当次运行内记得住、重启回到默认，见下面 `_VALUES` 里那几行。
 SHOW_GENDER_SETTING = "profile_show_gender"
 SHOW_BIRTHDAY_SETTING = "profile_show_birthday"
+SHOW_REGION_SETTING = "profile_show_region"
 # 「展示年龄 / 展示星座」**二选一**（那两张图里只有一项带勾）。
 BIRTHDAY_DISPLAY_SETTING = "profile_birthday_display"
 BIRTHDAY_AGE = "age"
@@ -52,10 +53,11 @@ _VALUES: dict[str, str] = {
     # 联系方式两条（键见 tools/contacts.py）。
     "contact_email": "duzqiu@outlook.com",
     "contact_wechat": "test001",
-    # 「是否公开展示」三枚开关的默认值，照那三张图：生日标签**开**着、性别标签**关**着、
-    # 生日展示选「年龄」。
+    # 「是否公开展示」那几枚开关的默认值，照那几张图：生日标签 / 地区标签**开**着、
+    # 性别标签**关**着、生日展示选「年龄」。
     SHOW_BIRTHDAY_SETTING: SWITCH_ON,
     SHOW_GENDER_SETTING: SWITCH_OFF,
+    SHOW_REGION_SETTING: SWITCH_ON,
     BIRTHDAY_DISPLAY_SETTING: BIRTHDAY_AGE,
     # ⚠️ 「我的」页背景图**不在这里**：它和头像一样存后端（按会员 ID 分目录），
     # 见 api/member_profile.py 的 `upload_background` 与 tools/my_profile.py。

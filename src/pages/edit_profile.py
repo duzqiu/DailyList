@@ -14,15 +14,15 @@
 点的行为：
 - 名字 → **独立的一整页**（`open_name`，见 pages/edit_name.py；带字符计数和
   那张图的规则说明），压在**这一页之上**，返回回到这儿；
-- 地区 → 弹输入框，**直接调后端** `PUT /member/profile`
-  （见 api/member_profile.py；本地不存副本）；
 - 头像 → 选图后**上传**到后端 `POST /member/profile/avatar`，后端按会员 ID 存
   （`data/uploads/avatars/{会员ID}/`）；显示用的是后端给的 `avatar_url`，
   **不再复制进 App 目录**（原来那种本地存法已去掉）；
 - 背景图 → 「换背景图」那一页（`open_background`，压在**这一页之上**，返回回到这儿）；
-- 简介 / 性别 / 生日 → 各自**独立的一整页**（`open_intro` / `open_gender` /
-  `open_birthday`；同样压在这一页之上）—— 照小红书那三张图，改成整页而不是弹窗，
-  见 pages/edit_intro.py、pages/edit_gender.py、pages/edit_birthday.py；
+- 简介 / 地区 / 性别 / 生日 → 各自**独立的一整页**（`open_intro` / `open_region` /
+  `open_gender` / `open_birthday`；同样压在这一页之上）—— 照小红书那几张图，
+  改成整页而不是弹窗，见 pages/edit_intro.py、pages/edit_region.py、
+  pages/edit_gender.py、pages/edit_birthday.py；地区那条再往下还有一层
+  「选择你的地区」（pages/pick_region.py，见 open_region 那条注释）；
 - 小红书号 = 会员号，后端**不支持改**，这一行只读（点了给一句说明）；
 - 职业 / 学校：**按需求删掉了**（后端也没有这两个字段）；
 - 原创信息 / 组件管理 / 预览 → 还没做，点了给一句提示。
@@ -32,9 +32,8 @@
 """
 
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from datetime import date
-from typing import Any
 
 import flet as ft
 
@@ -44,11 +43,7 @@ from tools import image_prep
 from widgets.layout import (
     BACK_WIDTH,
     BOTTOM_MENU_INSET,
-    DIALOG_RADIUS,
-    DIALOG_SURFACE,
     build_back_button,
-    dialog_button_style,
-    track_keyboard,
 )
 from widgets.my_background import background_path
 from tools.my_profile import (
@@ -110,14 +105,15 @@ def build_edit_profile_page(
     open_background: Callable[[], None],
     open_name: Callable[[], None],
     open_intro: Callable[[], None],
+    open_region: Callable[[], None],
     open_birthday: Callable[[], None],
     open_gender: Callable[[], None],
 ) -> ft.Control:
     """`go_back` 是左上角那个 ‹；后面几个回调各自对应一行，点开就压一页新的上来：
 
     `open_background` 换背景图页、`open_name` 编辑名字页、`open_intro` 编辑简介页、
-    `open_gender` 编辑性别页、`open_birthday` 编辑生日页（都由 pages/navigation.py
-    决定压在哪一层）。
+    `open_region` 编辑地区页（它下面还有一层「选择你的地区」）、`open_gender` 编辑性别页、
+    `open_birthday` 编辑生日页（都由 pages/navigation.py 决定压在哪一层）。
     """
 
     def soon(feature: str) -> None:
@@ -127,18 +123,6 @@ def build_edit_profile_page(
     def notify(message: str) -> None:
         """一句话提示：走 widgets/toast.py，浮在屏幕正中。"""
         page.show_dialog(build_toast(page, message))
-
-    async def save_profile(**fields: str | None) -> dict | None:
-        """把改动交给后端（`PUT /member/profile`）。
-
-        成功返回改后的资料（已经写进 api 层缓存）；失败把后端那句话弹出来并返回
-        `None` —— 调用方据此决定要不要重画页面。
-        """
-        try:
-            return await member_profile.update_profile(**fields)
-        except ApiError as error:
-            notify(error.message)
-            return None
 
     def birthday_text() -> str:
         """生日这一行显示成「2001年5月20日」，没选过就给空（那行摆占位）。"""
@@ -302,60 +286,6 @@ def build_edit_profile_page(
             ),
         )
 
-    # ---------------------- 地区：弹输入框 ----------------------
-
-    def edit_text(
-        *,
-        title: str,
-        value: str,
-        hint: str,
-        on_save: Callable[[str], Coroutine[Any, Any, None]],
-        multiline: bool = False,
-    ) -> None:
-        field = ft.TextField(
-            value=value,
-            hint_text=hint,
-            autofocus=True,
-            multiline=multiline,
-            min_lines=3 if multiline else 1,
-            max_lines=5 if multiline else 1,
-            border=ft.NoInputBorder(),
-            dense=True,
-            text_size=15,
-            content_padding=ft.Padding.symmetric(horizontal=0, vertical=8),
-        )
-
-        def save(_: ft.Event[ft.TextButton]) -> None:
-            # 保存要打接口：`on_save` 是协程函数，交给 run_task 跑，别卡住 UI；
-            # 提示由它自己弹（成功 / 失败各一句），这里只管把弹窗收掉。
-            page.pop_dialog()
-            page.run_task(on_save, (field.value or "").strip())
-
-        dialog = ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-            bgcolor=DIALOG_SURFACE,
-            title=ft.Text(
-                title,
-                size=15,
-                weight=ft.FontWeight.BOLD,
-                color=TITLE_COLOR,
-            ),
-            content=ft.Container(width=280, content=field),
-            actions=[
-                ft.TextButton(
-                    "取消",
-                    style=dialog_button_style(),
-                    on_click=lambda _: page.pop_dialog(),
-                ),
-                ft.TextButton("保存", style=dialog_button_style(), on_click=save),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        # 输入框弹键盘时把弹窗顶上去（项目里所有带输入框的弹窗都这么干）。
-        track_keyboard(page, dialog)
-        page.show_dialog(dialog)
-
     # ---------------------- 头像：选图 → 上传到后端 ----------------------
 
     def pick_avatar() -> None:
@@ -425,13 +355,6 @@ def build_edit_profile_page(
             member_auth.cached_me() if session.access_token() else None
         )
 
-        async def save_region(value: str) -> None:
-            if await save_profile(region=value) is None:
-                return
-            render()
-            page.update()
-            notify("已保存")
-
         avatar_holder.content = avatar_block()
         groups.controls = [
             card(
@@ -482,15 +405,12 @@ def build_edit_profile_page(
                         open_birthday,
                         hint="选择生日",
                     ),
+                    # 「地区」也开一整页（`open_region`），那一页里再点一行才进
+                    # 「选择你的地区」（定位 + 逐级选国家 / 省 / 市 / 区）。
                     row(
                         "地区",
                         region(),
-                        lambda: edit_text(
-                            title="填写地区",
-                            value=region(),
-                            hint="例如：杭州",
-                            on_save=save_region,
-                        ),
+                        open_region,
                         hint="选择所在的地区",
                     ),
                     row("原创信息", ORIGINAL_INFO, lambda: soon("原创认证")),

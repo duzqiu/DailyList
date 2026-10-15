@@ -14,6 +14,8 @@ from pages.edit_gender import build_edit_gender_page
 from pages.edit_intro import build_edit_intro_page
 from pages.edit_name import build_edit_name_page
 from pages.edit_profile import build_edit_profile_page
+from pages.edit_region import build_edit_region_page
+from pages.pick_region import build_pick_region_page
 from pages.forgot_password import build_forgot_password_page
 from pages.feed import build_feed_page
 from pages.login import build_login_page
@@ -115,6 +117,10 @@ def build_navigation(page: ft.Page) -> None:
     # 和左滑都走同一个 `go_back`（取栈顶执行），所以从三级页退回二级页时回到的是
     # 二级页自己，再退才是一级页 —— 层数多深都成立。一级页是根，回到它就把栈清空。
     nav_stack: list[Callable[[], None]] = []
+    # 「选择你的地区」刚选回来的那一串（「中国 上海市 浦东新区」）。编辑地区页在
+    # 下钻那层退回来时是**重新构建**的，闭包里的选择留不住，只能从这儿递进去
+    # （见 `render_edit_region` / `remember_region`）。
+    picked_region: str | None = None
 
     def go_back() -> None:
         """回上一层：顶栏「‹ 返回」、左滑、真机的返回都调它。
@@ -323,9 +329,12 @@ def build_navigation(page: ft.Page) -> None:
                 go_back=go_back,
                 # 「背景图」那一行 → 换背景图页压在**这一页之上**（第 2 层）。
                 open_background=show_background_from_editor,
-                # 「名字 / 简介 / 生日 / 性别」四行 → 各自一整页，同样压在这一页之上（第 2 层）。
+                # 「名字 / 简介 / 地区 / 生日 / 性别」几行 → 各自一整页，同样压在这一页之上
+                # （第 2 层）；「地区」那一页里再点一行还往下压一层（第 3 层），见
+                # `show_region_picker`。
                 open_name=show_name_from_editor,
                 open_intro=show_intro_from_editor,
+                open_region=show_region_from_editor,
                 open_birthday=show_birthday_from_editor,
                 open_gender=show_gender_from_editor,
             ),
@@ -414,6 +423,63 @@ def build_navigation(page: ft.Page) -> None:
             lambda: build_edit_gender_page(page, go_back=go_back),
             update,
         )
+
+    def show_region_from_editor(update: bool = True) -> None:
+        """编辑资料页点「地区」→ 编辑地区页（第 2 层）。
+
+        这一页比上面那几页多一层：它里面点「地区」还会压一层「选择你的地区」
+        （`show_region_picker`），所以它有自己的 `render_edit_region`。
+
+        **每次从这一页进来都把上一次的选择清掉**（`picked_region = None`）——
+        这一页重新进来就该显示资料里那份，而不是上一回选的值。
+        """
+        nonlocal picked_region
+        picked_region = None
+        nav_stack.append(lambda: render_edit_profile())
+        render_edit_region(update)
+
+    def render_edit_region(update: bool = True) -> None:
+        """只重画「编辑地区」页那**一层**（第 2 层），不动页面栈。"""
+        show_layer(
+            2,
+            "/edit-region",
+            lambda: build_edit_region_page(
+                page,
+                go_back=go_back,
+                # 「地区」那一行 → 选择你的地区页压在**这一页之上**（第 3 层）。
+                open_picker=show_region_picker,
+                # 选择页刚选回来的值（没选过就是 None，页面自己用资料里那份）。
+                picked=picked_region,
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_region_picker(update: bool = True) -> None:
+        """「编辑地区」页点「地区」→ 选择你的地区页（第 3 层）。
+
+        父层动作是 `render_edit_region`（不是 `render_edit_profile`）：选完 `go_back`
+        弹掉这一层的同时重画编辑地区页，把刚选的那一串递进去（见 `remember_region`）。
+        """
+        nav_stack.append(lambda: render_edit_region())
+        show_layer(
+            3,
+            "/pick-region",
+            lambda: build_pick_region_page(
+                page, go_back=go_back, on_pick=remember_region
+            ),
+        )
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def remember_region(value: str) -> None:
+        """选择页选完了：先记在这儿，它的 `go_back()` 再去重画编辑地区页。"""
+        nonlocal picked_region
+        picked_region = value
 
     def show_preferences(update: bool = True) -> None:
         """「我的」页左上角那枚 ☰ 进来的设置页：二级页，进来后底部菜单收起。"""
