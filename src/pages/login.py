@@ -26,6 +26,7 @@ import flet as ft
 
 from api import member_auth, member_profile, session
 from api.client import ApiError
+from tools import my_profile
 from widgets.auth_form import (
     FIELD_HINT_GAP,
     FIELD_TEXT_SIZE,
@@ -41,6 +42,7 @@ from widgets.auth_form import (
     build_link_row,
     build_primary_button,
 )
+from widgets.gender_mark import name_spans
 from widgets.toast import build_toast
 
 
@@ -181,7 +183,15 @@ def _build_signed_in(
             user.get("display_name") or user.get("nickname") or email
         ).strip()
         member_no = str(user.get("member_no") or "").strip()
-        name_text.value = nickname or "会员"
+        # 名字后面跟一枚**彩色性别符号**（♂ 蓝 / ♀ 粉，保密或没填就不画；见
+        # widgets/gender_mark.py）。用 `spans` 靠文本排版对齐基线，所以原来那个
+        # `value` 必须清空 —— 它和 `spans` 是叠加渲染的，不清就会显示成两个名字。
+        name_text.value = ""
+        name_text.spans = name_spans(
+            nickname or "会员",
+            my_profile.account_gender(user),
+            size=FIELD_TEXT_SIZE,
+        )
         email_text.value = email
         member_text.value = f"会员号 {member_no}" if member_no else ""
         page.update()

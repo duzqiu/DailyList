@@ -9,6 +9,10 @@ from pages.my import build_my_page
 from widgets.layout import safe_update
 from widgets.toast import build_toast
 from pages.countdown import build_countdown_page
+from pages.edit_birthday import build_edit_birthday_page
+from pages.edit_gender import build_edit_gender_page
+from pages.edit_intro import build_edit_intro_page
+from pages.edit_name import build_edit_name_page
 from pages.edit_profile import build_edit_profile_page
 from pages.forgot_password import build_forgot_password_page
 from pages.feed import build_feed_page
@@ -319,6 +323,11 @@ def build_navigation(page: ft.Page) -> None:
                 go_back=go_back,
                 # 「背景图」那一行 → 换背景图页压在**这一页之上**（第 2 层）。
                 open_background=show_background_from_editor,
+                # 「名字 / 简介 / 生日 / 性别」四行 → 各自一整页，同样压在这一页之上（第 2 层）。
+                open_name=show_name_from_editor,
+                open_intro=show_intro_from_editor,
+                open_birthday=show_birthday_from_editor,
+                open_gender=show_gender_from_editor,
             ),
         )
         page.bgcolor = PAGE_BGCOLOR
@@ -357,6 +366,54 @@ def build_navigation(page: ft.Page) -> None:
         menu_bar.visible = False
         if update:
             page.update()
+
+    def show_field_page(
+        route: str, build: Callable[[], ft.Control], update: bool = True
+    ) -> None:
+        """编辑资料页里点「简介 / 生日 / 性别」→ 各自那一页（第 2 层）。
+
+        和「换背景图」从编辑资料页进来那条是同一个套路：压在编辑资料页**之上**，
+        所以父层动作是 `render_edit_profile` —— 在那一页保存成功后 `go_back`，弹掉这
+        一层的同时把编辑资料页重画一遍，行上的值（简介 / 生日 / 性别）就跟着变了。
+        """
+        nav_stack.append(lambda: render_edit_profile())
+        show_layer(2, route, build)
+        page.bgcolor = PAGE_BGCOLOR
+        menu_bar.visible = False
+        if update:
+            page.update()
+
+    def show_name_from_editor(update: bool = True) -> None:
+        """编辑资料页点「名字」→ 编辑名字页（第 2 层）。"""
+        show_field_page(
+            "/edit-name",
+            lambda: build_edit_name_page(page, go_back=go_back),
+            update,
+        )
+
+    def show_intro_from_editor(update: bool = True) -> None:
+        """编辑资料页点「简介」→ 编辑简介页（第 2 层）。"""
+        show_field_page(
+            "/edit-intro",
+            lambda: build_edit_intro_page(page, go_back=go_back),
+            update,
+        )
+
+    def show_birthday_from_editor(update: bool = True) -> None:
+        """编辑资料页点「生日」→ 编辑生日页（第 2 层）。"""
+        show_field_page(
+            "/edit-birthday",
+            lambda: build_edit_birthday_page(page, go_back=go_back),
+            update,
+        )
+
+    def show_gender_from_editor(update: bool = True) -> None:
+        """编辑资料页点「性别」→ 编辑性别页（第 2 层）。"""
+        show_field_page(
+            "/edit-gender",
+            lambda: build_edit_gender_page(page, go_back=go_back),
+            update,
+        )
 
     def show_preferences(update: bool = True) -> None:
         """「我的」页左上角那枚 ☰ 进来的设置页：二级页，进来后底部菜单收起。"""

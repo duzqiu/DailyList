@@ -1,6 +1,6 @@
 # 每日清单（DailyList）
 
-仿小红书风格的「倒数日」App，基于 Flet（Flutter + Python）一套代码跑 iOS / Android / 桌面 / Web；界面全中文、浅色配色（白 - 天蓝 - 靛蓝）。涵盖首页发现流（当前是本地 mock 数据）、倒数日（接后端 `/member/countdowns`，按登录会员隔离）、消息、我的（含编辑资料与换背景图）、设置与登录 / 注册 / 忘记密码等页面，二级页走 `page.views` 真 View，带横向推拉与交叉淡入淡出过渡。
+仿小红书风格的「倒数日」App，基于 Flet（Flutter + Python）一套代码跑 iOS / Android / 桌面 / Web；界面全中文、浅色配色（白 - 天蓝 - 靛蓝）。涵盖首页发现流（当前是本地 mock 数据）、倒数日（接后端 `/member/countdowns`，按登录会员隔离）、消息、我的（含编辑资料、编辑简介 / 性别 / 生日、换背景图）、设置与登录 / 注册 / 忘记密码等页面，二级页走 `page.views` 真 View，带横向推拉与交叉淡入淡出过渡。
 
 > **待办（todos）整块已删**：数据表、CRUD、循环展开、新增 / 编辑弹窗、分类色、底栏「新增待办」入口全没了；老库里遗留的 `todos` 表会在启动时由 `db.init_db()` 删掉。底栏中间那颗红「+」和「我的」页的「去发布」胶囊照旧留着，但点了只给一句提示。
 
@@ -45,6 +45,9 @@ DailyList/
 │  │  ├─ messages.py          消息页（快捷入口 + 列表 + 通知条）
 │  │  ├─ my.py                「我的」页（账号卡片 + 内容板）
 │  │  ├─ edit_profile.py      编辑资料页（资料走后端 `/member/profile`，改完即写回）
+│  │  ├─ edit_intro.py        编辑简介页（从编辑资料页「简介」进；多行输入 + 0/160 计数）
+│  │  ├─ edit_gender.py       编辑性别页（男 / 女 +「展示性别标签」开关）
+│  │  ├─ edit_birthday.py     编辑生日页（生日信息 +「展示生日标签 / 年龄 / 星座」）
 │  │  ├─ background.py        换背景图页（预览 + 选图）
 │  │  ├─ preferences.py       设置页（通知 / 数据 / 通用）
 │  │  ├─ login.py             登录页
@@ -53,6 +56,7 @@ DailyList/
 │  ├─ widgets/                **与页面有关**的都在这儿（见「开发约定」2、3）
 │  │  ├─ layout.py            全局配色 / 尺寸常量、assets 路径、二级页顶栏、弹窗键盘定位、is_attached / safe_update
 │  │  ├─ auth_form.py         登录 / 注册 / 忘记密码三页共用的表单骨架（玻璃卡片 + 字段 + 主按钮 + 链接）
+│  │  ├─ field_page.py        编辑简介 / 性别 / 生日三页共用的零件（顶栏「‹ + 标题 + 保存」、白卡片、行、开关、红勾）
 │  │  ├─ settings_card.py     设置卡片零件 + 账号卡片（设置页与「我的」页共用）
 │  │  ├─ countdown_card.py    倒数日卡片（三档状态色、过期置灰）
 │  │  ├─ countdown_form.py    新增 / 编辑倒数日弹窗
@@ -64,7 +68,7 @@ DailyList/
 │  │  ├─ services.py          ft.Service（剪贴板 / 文件选择器）注册与取用
 │  │  └─ toast.py             居中 toast
 │  ├─ tools/                  **与页面无关**的工具类（见「开发约定」3）
-│  │  ├─ mock_settings.py     **临时**：设置项的内存 mock（云端开关 / 通知 / 联系方式 / 背景图）
+│  │  ├─ mock_settings.py     **临时**：设置项的内存 mock（云端开关 / 通知 / 联系方式 / 「是否公开展示」几枚开关）
 │  │  ├─ countdown_store.py   倒数日内存仓库（数据来自后端；同步读 + 增删改 + 按 id 取色）
 │  │  ├─ cycles.py            倒数日周期：有哪几档、下一次是哪天（纯计算，原先在本地数据层里）
 │  │  ├─ files.py             App 数据目录 + 「把选中的文件复制进来」（换背景图用；头像已改为上传后端）

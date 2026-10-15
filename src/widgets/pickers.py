@@ -1,4 +1,4 @@
-"""The system date picker the 倒数日 and 编辑资料 pages share.
+"""The system date picker the 倒数日 and 编辑生日 pages share.
 
 It is Flet's own Material date dialog, and it is point-only: the picker cannot
 switch to typing a date.

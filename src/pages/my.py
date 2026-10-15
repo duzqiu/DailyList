@@ -68,6 +68,11 @@ STAT_GAP = 18
 # 12px 再紧一档（用户要求缩小）。
 IDENTITY_STAT_GAP = 4
 INTRO_SIZE = 13
+# 「关注 / 粉丝」下面那行自我介绍的颜色：**浅灰**（用户要求）。
+# 单开一档、不复用通用的 `ink_muted`（那是 `#94A3B8`，白底上偏深）—— 这行想让它更淡，
+# 像是「还没填 / 只是说明」，不跟上面的数字抢视线。
+# 压在**背景图**上时仍走 `ON_IMAGE_MUTED`（90% 白）：图上再淡就真的看不见了。
+INTRO_COLOR = "#CBD5E1"
 # 顶栏那枚 ≡（设置入口）点击区的内边距。它决定了**图标**在这一页里的左边缘：
 # 内容边距 16 + 这 6 = 22。下面头像那一块要用**同一个值**缩进，两者的左边缘才对齐
 # （见 region_body 里账号卡片外面那层 Container）。
@@ -276,7 +281,9 @@ def build_my_page(
     signed_in = bool(session.access_token())
 
     # 简介：先摆占位，登录了就把后端那份资料里的简介（`bio`）填上来。
-    intro_text = ft.Text(INTRO_PLACEHOLDER, size=INTRO_SIZE, color=ink_muted)
+    # 颜色单开一档（见 `INTRO_COLOR`）：白底时是浅灰，压在背景图上时是 90% 白。
+    intro_color = ON_IMAGE_MUTED if has_cover else INTRO_COLOR
+    intro_text = ft.Text(INTRO_PLACEHOLDER, size=INTRO_SIZE, color=intro_color)
 
     async def load_intro() -> None:
         """拉资料填简介；没登录 / 拉不动就保持那句占位（不算错误）。"""

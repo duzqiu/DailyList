@@ -12,14 +12,17 @@
 缝、行与行之间一条浅灰细线（左右各缩进一点）—— 都是照那张图量的。
 
 点的行为：
-- 名字 / 简介 / 地区 → 弹输入框，**直接调后端** `PUT /member/profile`
+- 名字 → **独立的一整页**（`open_name`，见 pages/edit_name.py；带字符计数和
+  那张图的规则说明），压在**这一页之上**，返回回到这儿；
+- 地区 → 弹输入框，**直接调后端** `PUT /member/profile`
   （见 api/member_profile.py；本地不存副本）；
 - 头像 → 选图后**上传**到后端 `POST /member/profile/avatar`，后端按会员 ID 存
   （`data/uploads/avatars/{会员ID}/`）；显示用的是后端给的 `avatar_url`，
   **不再复制进 App 目录**（原来那种本地存法已去掉）；
 - 背景图 → 「换背景图」那一页（`open_background`，压在**这一页之上**，返回回到这儿）；
-- 性别 → 三个选项的弹窗（中文 ↔ 后端 male/female/unknown）；生日 → 项目自带的日期选择器
-  （widgets/pickers.py）；
+- 简介 / 性别 / 生日 → 各自**独立的一整页**（`open_intro` / `open_gender` /
+  `open_birthday`；同样压在这一页之上）—— 照小红书那三张图，改成整页而不是弹窗，
+  见 pages/edit_intro.py、pages/edit_gender.py、pages/edit_birthday.py；
 - 小红书号 = 会员号，后端**不支持改**，这一行只读（点了给一句说明）；
 - 职业 / 学校：**按需求删掉了**（后端也没有这两个字段）；
 - 原创信息 / 组件管理 / 预览 → 还没做，点了给一句提示。
@@ -49,7 +52,6 @@ from widgets.layout import (
 )
 from widgets.my_background import background_path
 from tools.my_profile import (
-    GENDERS,
     INTRO_HINT,
     account_id,
     account_name,
@@ -59,7 +61,6 @@ from tools.my_profile import (
     intro,
     region,
 )
-from widgets.pickers import build_date_picker
 from widgets.services import ensure_service
 from widgets.toast import build_toast
 
@@ -79,6 +80,10 @@ VALUE_SIZE = 16
 LABEL_COLOR = "#666666"
 VALUE_COLOR = "#1F1F1F"
 PLACEHOLDER_COLOR = "#BDBDBD"
+# 「简介」那一行**填过之后**用的灰（用户要求：简介也用灰字）。
+# 比近黑的 `VALUE_COLOR` 弱、又比占位的 `PLACEHOLDER_COLOR` 深一档 ——
+# 一眼能看出「填了」和「没填」，但那行字不会比别的字段更抢眼。
+INTRO_VALUE_COLOR = "#9A9A9A"
 CHEVRON_COLOR = "#C9C9C9"
 DIVIDER_COLOR = "#F0F0F0"
 TITLE_COLOR = "#1A1A1A"
@@ -103,8 +108,17 @@ def build_edit_profile_page(
     page: ft.Page,
     go_back: Callable[[], None],
     open_background: Callable[[], None],
+    open_name: Callable[[], None],
+    open_intro: Callable[[], None],
+    open_birthday: Callable[[], None],
+    open_gender: Callable[[], None],
 ) -> ft.Control:
-    """`go_back` 是左上角那个 ‹；`open_background` 是「背景图」那一行。"""
+    """`go_back` 是左上角那个 ‹；后面几个回调各自对应一行，点开就压一页新的上来：
+
+    `open_background` 换背景图页、`open_name` 编辑名字页、`open_intro` 编辑简介页、
+    `open_gender` 编辑性别页、`open_birthday` 编辑生日页（都由 pages/navigation.py
+    决定压在哪一层）。
+    """
 
     def soon(feature: str) -> None:
         """还没做的那些：给一句人话，别点了没反应。"""
@@ -143,11 +157,15 @@ def build_edit_profile_page(
         *,
         hint: str = "",
         thumb: str | None = None,
+        value_gray: bool = False,
     ) -> ft.Control:
         """一行：标签（定宽）+ 值（或浅灰占位）+ ›。
 
         `thumb` **不是 `None`** 就摆一个缩略图格子（「背景图」那一行是这么用的）——
         图没设过时它就是个浅灰空格子，比行里空着好看，和头像那块一个观感。
+
+        `value_gray=True` 让**填过的值也用灰**（默认只有「没填过的占位」才是浅灰）——
+        「简介」那一行用它（用户要求：简介比其它字段次要，用近黑太抢眼）。
         """
         if thumb is not None:
             value_control: ft.Control = ft.Container(
@@ -163,13 +181,20 @@ def build_edit_profile_page(
                 ),
             )
         else:
+            # 三种取色：没填过 → 浅灰占位；填了但这一行要弱化（`value_gray`）→ 中灰；
+            # 其余 → 近黑（这一页的常态）。
+            if not value:
+                value_color = PLACEHOLDER_COLOR
+            elif value_gray:
+                value_color = INTRO_VALUE_COLOR
+            else:
+                value_color = VALUE_COLOR
             value_control = ft.Text(
-                # 没填过就摆占位文案，颜色浅一档。
                 value or hint,
                 size=VALUE_SIZE,
                 max_lines=1,
                 overflow=ft.TextOverflow.ELLIPSIS,
-                color=VALUE_COLOR if value else PLACEHOLDER_COLOR,
+                color=value_color,
             )
         return ft.Container(
             height=ROW_HEIGHT,
@@ -277,7 +302,7 @@ def build_edit_profile_page(
             ),
         )
 
-    # ---------------------- 改名 / 改号 / 简介：弹输入框 ----------------------
+    # ---------------------- 地区：弹输入框 ----------------------
 
     def edit_text(
         *,
@@ -330,93 +355,6 @@ def build_edit_profile_page(
         # 输入框弹键盘时把弹窗顶上去（项目里所有带输入框的弹窗都这么干）。
         track_keyboard(page, dialog)
         page.show_dialog(dialog)
-
-    # ---------------------- 性别：三个选项 ----------------------
-
-    def pick_gender() -> None:
-        current = gender()
-
-        async def apply(value: str) -> None:
-            if await save_profile(gender=value) is None:
-                return
-            render()
-            page.update()
-            notify(f"性别：{value}")
-
-        def choose(value: str) -> None:
-            page.pop_dialog()
-            page.run_task(apply, value)
-
-        def option(value: str) -> ft.Control:
-            return ft.Container(
-                height=44,
-                ink=True,
-                on_click=lambda _, picked=value: choose(picked),
-                content=ft.Row(
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Text(value, size=15, color=VALUE_COLOR),
-                        ft.Container(expand=True),
-                        ft.Icon(
-                            ft.Icons.CHECK,
-                            size=18,
-                            color=VALUE_COLOR,
-                            visible=value == current,
-                        ),
-                    ],
-                ),
-            )
-
-        dialog = ft.AlertDialog(
-            modal=True,
-            shape=ft.RoundedRectangleBorder(radius=DIALOG_RADIUS),
-            bgcolor=DIALOG_SURFACE,
-            title=ft.Text(
-                "性别", size=15, weight=ft.FontWeight.BOLD, color=TITLE_COLOR
-            ),
-            content=ft.Column(
-                tight=True,
-                spacing=0,
-                width=240,
-                controls=[option(value) for value in GENDERS],
-            ),
-            actions=[
-                ft.TextButton(
-                    "取消",
-                    style=dialog_button_style(),
-                    on_click=lambda _: page.pop_dialog(),
-                )
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.show_dialog(dialog)
-
-    # ---------------------- 生日：项目自带的日期选择器 ----------------------
-
-    def pick_birthday() -> None:
-        try:
-            current = date.fromisoformat(birthday())
-        except ValueError:
-            current = date(2000, 1, 1)
-
-        async def apply(day: date) -> None:
-            if await save_profile(birthday=day.isoformat()) is None:
-                return
-            render()
-            page.update()
-            notify(f"生日：{birthday_text()}")
-
-        def chosen(day: date) -> None:
-            page.run_task(apply, day)
-
-        page.show_dialog(
-            build_date_picker(
-                current,
-                chosen,
-                first_date=date(1900, 1, 1),
-                last_date=date.today(),
-            )
-        )
 
     # ---------------------- 头像：选图 → 上传到后端 ----------------------
 
@@ -487,23 +425,6 @@ def build_edit_profile_page(
             member_auth.cached_me() if session.access_token() else None
         )
 
-        async def save_name(value: str) -> None:
-            if not value:
-                notify("名字不能为空")
-                return
-            if await save_profile(nickname=value) is None:
-                return
-            render()
-            page.update()
-            notify("已保存")
-
-        async def save_intro(value: str) -> None:
-            if await save_profile(bio=value) is None:
-                return
-            render()
-            page.update()
-            notify("已保存")
-
         async def save_region(value: str) -> None:
             if await save_profile(region=value) is None:
                 return
@@ -520,12 +441,7 @@ def build_edit_profile_page(
                     row(
                         "名字",
                         account_name(account),
-                        lambda: edit_text(
-                            title="修改名字",
-                            value=account_name(account),
-                            hint="好名字是朋友记住你的第一步",
-                            on_save=save_name,
-                        ),
+                        open_name,
                         hint="填写名字",
                     ),
                     # 会员号是注册时生成的、后端不给改 —— 这一行只读，点了说明一下。
@@ -541,17 +457,14 @@ def build_edit_profile_page(
             ),
             card(
                 [
+                    # 「简介」单独一张卡，点开是一整页（`open_intro`）。
+                    # 「简介」填过之后也用灰字（用户要求），见 `INTRO_VALUE_COLOR`。
                     row(
                         "简介",
                         intro(),
-                        lambda: edit_text(
-                            title="编辑简介",
-                            value=intro(),
-                            hint=INTRO_HINT,
-                            on_save=save_intro,
-                            multiline=True,
-                        ),
+                        open_intro,
                         hint=INTRO_HINT,
+                        value_gray=True,
                     )
                 ]
             ),
@@ -560,13 +473,13 @@ def build_edit_profile_page(
                     row(
                         "性别",
                         gender(),
-                        pick_gender,
+                        open_gender,
                         hint="选择性别",
                     ),
                     row(
                         "生日",
                         birthday_text(),
-                        pick_birthday,
+                        open_birthday,
                         hint="选择生日",
                     ),
                     row(

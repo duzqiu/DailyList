@@ -94,3 +94,17 @@ def account_name(account: dict | None = None) -> str:
 def account_id(account: dict | None = None) -> str:
     """「小红书号」这一行：就是会员号（资料优先，其次账号里的）。"""
     return xhs_id() or str((account or {}).get("member_no") or "").strip()
+
+
+def account_gender(account: dict | None = None) -> str:
+    """昵称后面那枚符号用哪个性别：资料优先，其次账号里的。
+
+    返回**中文**（「男」/「女」/「保密」）；资料和账号里都没有就是空串。
+    后端将来加了新的取值也返回空串 —— 只会「不画符号」，不会画错（见
+    widgets/gender_mark.py：只认「男」「女」）。
+    """
+    value = gender()
+    if value:
+        return value
+    raw = str((account or {}).get("gender") or "").strip()
+    return member_profile.GENDER_FROM_API.get(raw, "") if raw else ""

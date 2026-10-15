@@ -19,6 +19,7 @@ import flet as ft
 from api import member_auth, member_profile, session
 from api.client import ApiError
 from tools import my_profile
+from widgets.gender_mark import name_spans
 from widgets.layout import UNSELECTED_CARD_BG
 
 TITLE_COLOR = "#172554"
@@ -279,13 +280,16 @@ def build_account_card(
         # 编辑资料页改完就写回后端，这里读到的就是最新的。
         nickname = my_profile.account_name(user)
         member_no = my_profile.account_id(user)
+        # 性别只用来在名字后面画一枚**彩色符号**（♂ 蓝 / ♀ 粉，保密或没填就不画）——
+        # 见 widgets/gender_mark.py。符号本身不随 `on_image` 变白，就是要那点颜色。
+        gender = my_profile.account_gender(user)
         # 头像是资料里那个地址（后端给的绝对地址，没上传过时是系统默认头像）。
         local_avatar = my_profile.avatar_path()
         lines = [
             ft.Text(
                 # 只写名字，不带「昵称：」那个字段名 —— 名字自己就是这一块的标题
-                # （照小红书那版）。
-                nickname or "会员",
+                # （照小红书那版）；性别走 `spans` 跟在名字后面（同一行文字，基线自动对齐）。
+                spans=name_spans(nickname or "会员", gender),
                 size=16,
                 weight=ft.FontWeight.BOLD,
                 color=ON_IMAGE_COLOR if on_image else TITLE_COLOR,
