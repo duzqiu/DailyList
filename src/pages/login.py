@@ -24,7 +24,7 @@ from collections.abc import Callable
 
 import flet as ft
 
-from api import member_auth, session
+from api import member_auth, member_profile, session
 from api.client import ApiError
 from widgets.auth_form import (
     FIELD_HINT_GAP,
@@ -101,7 +101,14 @@ def _build_sign_in_form(
             # 后端的话（「邮箱或密码错误」之类）可以直接给用户看。
             _notify(page, error.message)
             return
-        # 登录成功：先跳回首页，再把提示压在它上面 —— 提示是页面级弹层，换页不受影响。
+        # 登录成功：顺手把资料拉回来（昵称 / 头像 / 简介 / 性别 / 生日 / 地区都在这一份
+        # 里，见 api/member_profile.py）—— 「我的」页、编辑资料页打开就有真数据。
+        # 拉不到也不算登录失败：那两页自己还会再试一次。
+        try:
+            await member_profile.get_profile(use_cache=False)
+        except ApiError:
+            pass
+        # 先跳回首页，再把提示压在它上面 —— 提示是页面级弹层，换页不受影响。
         open_home()
         _notify(page, "登录成功")
 

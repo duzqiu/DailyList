@@ -1,7 +1,8 @@
 import flet as ft
 from pathlib import Path
 
-from api import session
+from api import member_profile, session
+from api.client import ApiError
 from pages.navigation import build_navigation
 from widgets.services import ensure_service, register_app_services
 
@@ -23,6 +24,14 @@ async def main(page: ft.Page):
     # 页面同步读它。读不到 / 超时就当没登录 —— 这一步不能把首帧拖住，所以入口是协程
     # （`ft.run` 两种入口都收）。
     await session.restore(page, ensure_service(page, ft.SharedPreferences))
+    # 已登录就把资料先拉回来（昵称 / 头像 / **背景图** / 简介…）：「我的」页整块
+    # 背景区的配色与结构都取决于**有没有背景图**，必须进页面前就知道，否则会先按
+    # 「没图」摆一遍再闪成有图。拉不到也不拦着进 App（页面自己还会再试一次）。
+    if session.access_token():
+        try:
+            await member_profile.get_profile(use_cache=False)
+        except ApiError:
+            pass
     build_navigation(page)
 
 

@@ -1,8 +1,12 @@
 """**临时**：这些设置项先放**内存**里，不落库、也不写磁盘。
 
-覆盖范围：云端开关、通知总开关 / 渠道 / 地址、联系方式、「我的」页资料（昵称 / 号 / 简介 /
-性别 / 生日 / 头像）与**背景图路径**。本地 SQLite 那一层已经整个删掉了；还留在磁盘上的只有
-**登录令牌**，它现在由 api/session.py 存进**客户端存储**（Flet 的 SharedPreferences）。
+覆盖范围：云端开关、通知总开关 / 渠道 / 地址、联系方式与**背景图路径**。本地 SQLite
+那一层已经整个删掉了；还留在磁盘上的只有**登录令牌**，它现在由 api/session.py 存进
+**客户端存储**（Flet 的 SharedPreferences）。
+
+⚠️ 「我的」页资料（昵称 / 简介 / 性别 / 生日 / 地区 / 头像）**不在这里**：那部分改走
+后端 `GET|PUT /member/profile`（见 api/member_profile.py、tools/my_profile.py），
+本地不再存副本。
 
 接口刻意保持 `get_setting` / `set_setting` / `list_settings` 这套名字：将来接后端返回、或
 重新落盘时，把调用点里的模块名换掉就行，参数和返回值都不用动。
@@ -32,16 +36,8 @@ _VALUES: dict[str, str] = {
     # 联系方式两条（键见 tools/contacts.py）。
     "contact_email": "duzqiu@outlook.com",
     "contact_wechat": "test001",
-    # 「我的」页背景图（键见 widgets/my_background.py）：默认空串 = 不铺图，那一页用
-    # 浅蓝渐变兜底（见 README「待处理问题」里那条）。
-    "my_background": "",
-    # 「我的」页资料（键见 tools/my_profile.py）。
-    "my_name": "每日清单",
-    "my_xhs_id": "dailylist_001",
-    "my_intro": "记下每一个重要的日子",
-    "my_gender": "保密",
-    "my_birthday": "2000-01-01",
-    "my_avatar": "",
+    # ⚠️ 「我的」页背景图**不在这里**：它和头像一样存后端（按会员 ID 分目录），
+    # 见 api/member_profile.py 的 `upload_background` 与 tools/my_profile.py。
 }
 
 

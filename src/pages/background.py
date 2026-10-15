@@ -2,19 +2,23 @@
 
 版式：左上角 **✕** 关掉 → 中间摆**当前背景图** → 下面一条**长条按钮「更换背景图」**。
 点它走 `ft.FilePicker.pick_files`（手机上是系统相册 / 文件选图器，桌面是文件对话框），
-选中的路径存进设置项（内存 mock，见 widgets/my_background.py），随后叫一次 `on_saved` —— 由
-调用方（pages/navigation.py）去重画「我的」页，那段背景就换成新图了。
+选中的图**上传到后端**（`POST /member/profile/background`，与头像同一套规则：按会员 ID
+分目录存），随后叫一次 `on_saved` —— 由调用方（pages/navigation.py）去重画「我的」页，
+那段背景就换成新图了。
+
+⚠️ 不再复制进 App 目录（原来那套本地存法已去掉）：换设备登录背景图也还在。
 """
 
 from collections.abc import Callable
 
 import flet as ft
 
-from tools import files
+from api import member_profile, session
+from api.client import ApiError
 from widgets.layout import BOTTOM_MENU_INSET
 from widgets.services import ensure_service
 from widgets.toast import build_toast
-from widgets.my_background import background_path, set_background
+from widgets.my_background import background_path
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
@@ -52,20 +56,9 @@ def build_background_page(
             else ft.Text("还没有背景图", size=13, color=MUTED_COLOR)
         )
 
-    def apply(path: str) -> None:
-        """选中一张：**先复制进 App 自己的目录**，再存路径 → 这一页换成它 → 叫调用方刷新。
-
-        为什么非要复制：相册/图库给回来的多半是**临时路径**（Android 上还可能是
-        `content://` 这类取不到的东西），过一会儿就失效，甚至根本渲染不出来 —— 表现就是
-        「选完了没反应、看不到图」。复制进 App 自己的数据目录（`tools/files.py` 的
-        `APP_DIR`）就成了自己的文件，重启也还在。
-        """
-        # 复制进 App 自己的数据目录（tools/files.py）：相册给回来的多是临时路径，直接
-        # 存下来过一会儿就失效（复制不了会退回原路径，见 copy_into_app）。
-        set_background(files.copy_into_app(path, "my_background"))
-        render()
-        page.update()
-        on_saved()
+    def notify(message: str) -> None:
+        """一句话提示：走 widgets/toast.py，浮在屏幕正中。"""
+        page.show_dialog(build_toast(page, message))
 
     # ⚠️ 选图器**不能在这一页里新建**：Service 只有在「页面首次发给客户端之前」注册才到
     # 得了客户端（见 widgets/services.py 开头那两条踩坑记录 —— 注册表自己的 `parent` 恒为
@@ -87,25 +80,43 @@ def build_background_page(
         所以这里只走返回值这一条路。
         """
         try:
-            files = await picker.pick_files(
+            # ⚠️ `with_data=True` 与头像同理：`FilePickerFile.path` 在 Web 模式永远是
+            # None、部分原生平台也拿不到，只有这个开关会把**文件内容**放进 `bytes`。
+            picked_files = await picker.pick_files(
                 allow_multiple=False,
                 # `file_type=IMAGE`：手机上就是**系统相册 / 图库**（不是老的「文件」选择器）。
                 file_type=ft.FilePickerFileType.IMAGE,
+                with_data=True,
             )
         except Exception as error:  # noqa: BLE001
             # 选图器没起来 / 等超时：给一句人话，别把堆栈直接糊在控制台上。
-            page.show_dialog(build_toast(page, f"打不开相册：{error}"))
+            notify(f"打不开相册：{error}")
             return
-        path = getattr(files[0], "path", "") if files else ""
-        if not path:
-            page.show_dialog(build_toast(page, "没有选到图片"))
+        picked = picked_files[0] if picked_files else None
+        if picked is None:
+            notify("没有选到图片")
             return
-        apply(path)
-        page.show_dialog(build_toast(page, "已更换背景图"))
+        notify("正在上传背景图…")
+        try:
+            # 上传到后端（POST /member/profile/background），成功后资料缓存已刷新。
+            await member_profile.upload_background(picked)
+        except ApiError as error:
+            notify(error.message)
+            return
+        render()
+        page.update()
+        on_saved()
+        notify("已更换背景图")
 
     def pick(_: ft.Event[ft.Control]) -> None:
-        """「更换背景图」：先给一句提示（确认按钮接上了），再进相册选图。"""
-        page.show_dialog(build_toast(page, "正在打开相册…"))
+        """「更换背景图」：先给一句提示（确认按钮接上了），再进相册选图。
+
+        没登录就不给选 —— 背景图是存在**会员**名下的，没登录无处可存。
+        """
+        if not session.access_token():
+            notify("请先登录再设置背景图")
+            return
+        notify("正在打开相册…")
         page.run_task(pick_and_apply)
 
     render()

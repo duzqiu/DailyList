@@ -26,12 +26,19 @@ from collections.abc import Callable
 
 import flet as ft
 
+from api import member_profile, session
+from api.client import ApiError
+from tools import my_profile
 from widgets.layout import (
     BOTTOM_MENU_INSET,
     safe_update,
 )
 from widgets.my_background import background_decoration
 from widgets.settings_card import build_account_card
+
+# 简介没填过时摆的那句灰字（编辑资料页改完后换成真简介 —— 资料来自后端
+# `GET /member/profile`，见 tools/my_profile.py）。
+INTRO_PLACEHOLDER = "点击这里，填写简介"
 
 TITLE_COLOR = "#172554"
 MUTED_COLOR = "#94A3B8"
@@ -61,6 +68,10 @@ STAT_GAP = 18
 # 12px 再紧一档（用户要求缩小）。
 IDENTITY_STAT_GAP = 4
 INTRO_SIZE = 13
+# 顶栏那枚 ≡（设置入口）点击区的内边距。它决定了**图标**在这一页里的左边缘：
+# 内容边距 16 + 这 6 = 22。下面头像那一块要用**同一个值**缩进，两者的左边缘才对齐
+# （见 region_body 里账号卡片外面那层 Container）。
+TOP_ICON_PAD = 6
 # 三张小卡：图标与标题并排一行。
 QUICK_CARD_HEIGHT = 56
 QUICK_CARD_RADIUS = 12
@@ -260,6 +271,26 @@ def build_my_page(
     ink = ON_IMAGE_COLOR if has_cover else TITLE_COLOR
     ink_muted = ON_IMAGE_MUTED if has_cover else MUTED_COLOR
     ink_line = ON_IMAGE_LINE if has_cover else LINE_COLOR
+
+    # 有没有登录：没登录时「编辑主页」那颗胶囊不摆（资料在后端，没登录没东西可改）。
+    signed_in = bool(session.access_token())
+
+    # 简介：先摆占位，登录了就把后端那份资料里的简介（`bio`）填上来。
+    intro_text = ft.Text(INTRO_PLACEHOLDER, size=INTRO_SIZE, color=ink_muted)
+
+    async def load_intro() -> None:
+        """拉资料填简介；没登录 / 拉不动就保持那句占位（不算错误）。"""
+        if not session.access_token():
+            return
+        try:
+            await member_profile.get_profile()
+        except ApiError:
+            return
+        intro_text.value = my_profile.intro() or INTRO_PLACEHOLDER
+        safe_update(page)
+
+    if signed_in:
+        page.run_task(load_intro)
 
     def quick_card(title: str, icon: str, hint: str) -> ft.Control:
         """三张小卡里的一张：图标 + 标题一行、下面一行小字。
@@ -487,7 +518,7 @@ def build_my_page(
                         ft.Container(
                             ink=True,
                             tooltip="设置",
-                            padding=ft.Padding.all(6),
+                            padding=ft.Padding.all(TOP_ICON_PAD),
                             on_click=lambda _: open_settings(),
                             content=ft.Icon(ft.Icons.MENU, size=22, color=ink),
                         ),
@@ -506,6 +537,9 @@ def build_my_page(
                                     # 描边胶囊（压在图上时是白描边）。
                                     border=ft.Border.all(1, ink_line),
                                     # 进「编辑资料」二级页（见 pages/edit_profile.py）。
+                                    # ⚠️ **未登录不摆这一颗**：资料是后端的，没登录进去
+                                    # 也没东西可改（点了只会看到一片空的占位）。
+                                    visible=signed_in,
                                     ink=True,
                                     tooltip="编辑资料",
                                     on_click=lambda _: open_edit_profile(),
@@ -548,7 +582,10 @@ def build_my_page(
                         # `on_image=True` → 卡片里的文字 / 头像框改白（压在图上看不清）；
                         # `on_blank_tap` → 昵称 / ID 右边那块空白（与头像同高）点了换背景图。
                         ft.Container(
-                            padding=ft.Padding.symmetric(horizontal=8),
+                            # ⚠️ 这个缩进必须和顶栏那枚 ≡ 的点击区内边距一样
+                            # （`TOP_ICON_PAD`）：两者都叠在这一页的内容边距（16）上，
+                            # 缩进一致时**头像的左边缘才与上方设置入口对齐**。
+                            padding=ft.Padding.symmetric(horizontal=TOP_ICON_PAD),
                             content=build_account_card(
                                 page,
                                 open_login,
@@ -567,11 +604,7 @@ def build_my_page(
                         ),
                     ],
                 ),
-                ft.Text(
-                    "点击这里，填写简介",
-                    size=INTRO_SIZE,
-                    color=ink_muted,
-                ),
+                intro_text,
                 # 三张小卡：**在背景图里**（图一直铺到它们的下沿）。
                 ft.Row(
                     spacing=QUICK_CARD_PADDING,

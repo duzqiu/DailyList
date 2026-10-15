@@ -5,30 +5,37 @@
 
     ① 名字 / 小红书号 / 背景图
     ② 简介
-    ③ 性别 / 生日 / 地区 / 职业 / 学校 / 原创信息
+    ③ 性别 / 生日 / 地区 / 原创信息
     ④ 组件管理
 
 每行都是「标签 ｜ 值 ｜ ›」；值没填过就摆**浅灰占位**（「选择生日」这种）。卡片之间留一条
 缝、行与行之间一条浅灰细线（左右各缩进一点）—— 都是照那张图量的。
 
 点的行为：
-- 名字 / 小红书号 / 简介 → 弹输入框（存本地，见 tools/my_profile.py）；
-- 头像 → 选图后**复制进 App 目录**再存（同背景图那套）；
+- 名字 / 简介 / 地区 → 弹输入框，**直接调后端** `PUT /member/profile`
+  （见 api/member_profile.py；本地不存副本）；
+- 头像 → 选图后**上传**到后端 `POST /member/profile/avatar`，后端按会员 ID 存
+  （`data/uploads/avatars/{会员ID}/`）；显示用的是后端给的 `avatar_url`，
+  **不再复制进 App 目录**（原来那种本地存法已去掉）；
 - 背景图 → 「换背景图」那一页（`open_background`，压在**这一页之上**，返回回到这儿）；
-- 性别 → 三个选项的弹窗；生日 → 项目自带的日期选择器（widgets/pickers.py）；
-- 地区 / 职业 / 学校 / 原创信息 / 组件管理 / 预览 → 还没做，点了给一句提示 ——
-  ⚠️ 别在这儿摆死按钮，等真做的时候再把回调换掉。
+- 性别 → 三个选项的弹窗（中文 ↔ 后端 male/female/unknown）；生日 → 项目自带的日期选择器
+  （widgets/pickers.py）；
+- 小红书号 = 会员号，后端**不支持改**，这一行只读（点了给一句说明）；
+- 职业 / 学校：**按需求删掉了**（后端也没有这两个字段）；
+- 原创信息 / 组件管理 / 预览 → 还没做，点了给一句提示。
 
 ⚠️ 选图器**不能在这一页新建**：Service 只有在「页面首次发给客户端之前」注册才到得了客户端
 （见 widgets/services.py 开头那两条），所以用 `ensure_service` 取 `main()` 里注册好的那个。
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import date
+from typing import Any
 
 import flet as ft
 
-from api import member_auth, session
+from api import member_auth, member_profile, session
+from api.client import ApiError
 from widgets.layout import (
     BACK_WIDTH,
     BOTTOM_MENU_INSET,
@@ -48,13 +55,7 @@ from tools.my_profile import (
     birthday,
     gender,
     intro,
-    set_avatar,
-    set_birthday,
-    set_gender,
-    set_intro,
-    set_name,
-    set_xhs_id,
-    store_avatar,
+    region,
 )
 from widgets.pickers import build_date_picker
 from widgets.services import ensure_service
@@ -104,6 +105,22 @@ def build_edit_profile_page(
     def soon(feature: str) -> None:
         """还没做的那些：给一句人话，别点了没反应。"""
         page.show_dialog(build_toast(page, f"{feature}：暂未开放"))
+
+    def notify(message: str) -> None:
+        """一句话提示：走 widgets/toast.py，浮在屏幕正中。"""
+        page.show_dialog(build_toast(page, message))
+
+    async def save_profile(**fields: str | None) -> dict | None:
+        """把改动交给后端（`PUT /member/profile`）。
+
+        成功返回改后的资料（已经写进 api 层缓存）；失败把后端那句话弹出来并返回
+        `None` —— 调用方据此决定要不要重画页面。
+        """
+        try:
+            return await member_profile.update_profile(**fields)
+        except ApiError as error:
+            notify(error.message)
+            return None
 
     def birthday_text() -> str:
         """生日这一行显示成「2001年5月20日」，没选过就给空（那行摆占位）。"""
@@ -263,7 +280,7 @@ def build_edit_profile_page(
         title: str,
         value: str,
         hint: str,
-        on_save: Callable[[str], None],
+        on_save: Callable[[str], Coroutine[Any, Any, None]],
         multiline: bool = False,
     ) -> None:
         field = ft.TextField(
@@ -280,11 +297,10 @@ def build_edit_profile_page(
         )
 
         def save(_: ft.Event[ft.TextButton]) -> None:
-            on_save((field.value or "").strip())
+            # 保存要打接口：`on_save` 是协程函数，交给 run_task 跑，别卡住 UI；
+            # 提示由它自己弹（成功 / 失败各一句），这里只管把弹窗收掉。
             page.pop_dialog()
-            render()
-            page.update()
-            page.show_dialog(build_toast(page, "已保存"))
+            page.run_task(on_save, (field.value or "").strip())
 
         dialog = ft.AlertDialog(
             modal=True,
@@ -316,12 +332,16 @@ def build_edit_profile_page(
     def pick_gender() -> None:
         current = gender()
 
-        def choose(value: str) -> None:
-            set_gender(value)
-            page.pop_dialog()
+        async def apply(value: str) -> None:
+            if await save_profile(gender=value) is None:
+                return
             render()
             page.update()
-            page.show_dialog(build_toast(page, f"性别：{value}"))
+            notify(f"性别：{value}")
+
+        def choose(value: str) -> None:
+            page.pop_dialog()
+            page.run_task(apply, value)
 
         def option(value: str) -> ft.Control:
             return ft.Container(
@@ -375,11 +395,15 @@ def build_edit_profile_page(
         except ValueError:
             current = date(2000, 1, 1)
 
-        def chosen(day: date) -> None:
-            set_birthday(day.isoformat())
+        async def apply(day: date) -> None:
+            if await save_profile(birthday=day.isoformat()) is None:
+                return
             render()
             page.update()
-            page.show_dialog(build_toast(page, f"生日：{birthday_text()}"))
+            notify(f"生日：{birthday_text()}")
+
+        def chosen(day: date) -> None:
+            page.run_task(apply, day)
 
         page.show_dialog(
             build_date_picker(
@@ -390,29 +414,48 @@ def build_edit_profile_page(
             )
         )
 
-    # ---------------------- 头像：选图 → 复制进 App 目录 ----------------------
+    # ---------------------- 头像：选图 → 上传到后端 ----------------------
 
     def pick_avatar() -> None:
+        """换头像：选一张图 → `POST /member/profile/avatar`。
+
+        后端按**会员 ID** 存（`data/uploads/avatars/{会员ID}/`，一个会员一个目录，
+        覆盖时旧的会被清掉），**不再往 App 目录里复制**（原来的本地存法已去掉）。
+        上传成功后重新拉一次资料（拿到新的 `avatar_url`）再重画 —— 文件名带随机串，
+        不会显示到缓存里的旧图。
+        """
         # ⚠️ 取启动时注册好的那个（本页新建服务客户端收不到，见文件头）。
         picker = ensure_service(page, ft.FilePicker)
 
         async def pick_and_apply() -> None:
             try:
+                # ⚠️ `with_data=True` 是关键：这样 `FilePickerFile.bytes` 才会带上
+                # **文件内容**。只拿 `path` 是不够的 —— Web 模式下它永远是 None、
+                # 部分原生平台也给不出来，按路径读就会「读不到选中的图片」。
                 files = await picker.pick_files(
                     allow_multiple=False,
                     file_type=ft.FilePickerFileType.IMAGE,
+                    with_data=True,
                 )
             except Exception as error:  # noqa: BLE001
-                page.show_dialog(build_toast(page, f"打不开相册：{error}"))
+                notify(f"打不开相册：{error}")
                 return
-            path = getattr(files[0], "path", "") if files else ""
-            if not path:
-                page.show_dialog(build_toast(page, "没有选到图片"))
+            picked = files[0] if files else None
+            if picked is None:
+                notify("没有选到图片")
                 return
-            set_avatar(store_avatar(path))
+            notify("正在上传头像…")
+            try:
+                # 传**选择器给的那个对象**：它带着文件内容（with_data=True）与原始
+                # 文件名（后端靠后缀判断图片格式）。api 层优先用内容上传，
+                # 只有内容缺失时才回退到按路径读（见 api/member_profile.py）。
+                await member_profile.upload_avatar(picked)
+            except ApiError as error:
+                notify(error.message)
+                return
             render()
             page.update()
-            page.show_dialog(build_toast(page, "已更换头像"))
+            notify("已更换头像")
 
         page.run_task(pick_and_apply)
 
@@ -430,6 +473,31 @@ def build_edit_profile_page(
         account = (
             member_auth.cached_me() if session.access_token() else None
         )
+
+        async def save_name(value: str) -> None:
+            if not value:
+                notify("名字不能为空")
+                return
+            if await save_profile(nickname=value) is None:
+                return
+            render()
+            page.update()
+            notify("已保存")
+
+        async def save_intro(value: str) -> None:
+            if await save_profile(bio=value) is None:
+                return
+            render()
+            page.update()
+            notify("已保存")
+
+        async def save_region(value: str) -> None:
+            if await save_profile(region=value) is None:
+                return
+            render()
+            page.update()
+            notify("已保存")
+
         avatar_holder.content = avatar_block()
         groups.controls = [
             card(
@@ -443,20 +511,16 @@ def build_edit_profile_page(
                             title="修改名字",
                             value=account_name(account),
                             hint="好名字是朋友记住你的第一步",
-                            on_save=set_name,
+                            on_save=save_name,
                         ),
                         hint="填写名字",
                     ),
+                    # 会员号是注册时生成的、后端不给改 —— 这一行只读，点了说明一下。
                     row(
                         "小红书号",
                         account_id(account),
-                        lambda: edit_text(
-                            title="修改小红书号",
-                            value=account_id(account),
-                            hint="数字 / 字母都可以",
-                            on_save=set_xhs_id,
-                        ),
-                        hint="填写小红书号",
+                        lambda: notify("小红书号就是会员号，由系统生成，暂不支持修改"),
+                        hint="登录后自动生成",
                     ),
                     # 缩略图格子（没设过背景图就是浅灰空格子，不是空白）。
                     row("背景图", "", open_background, thumb=background_path()),
@@ -471,7 +535,7 @@ def build_edit_profile_page(
                             title="编辑简介",
                             value=intro(),
                             hint=INTRO_HINT,
-                            on_save=set_intro,
+                            on_save=save_intro,
                             multiline=True,
                         ),
                         hint=INTRO_HINT,
@@ -492,9 +556,17 @@ def build_edit_profile_page(
                         pick_birthday,
                         hint="选择生日",
                     ),
-                    row("地区", "", lambda: soon("地区"), hint="选择所在的地区"),
-                    row("职业", "", lambda: soon("职业"), hint="选择职业"),
-                    row("学校", "", lambda: soon("学校"), hint="选择学校"),
+                    row(
+                        "地区",
+                        region(),
+                        lambda: edit_text(
+                            title="填写地区",
+                            value=region(),
+                            hint="例如：杭州",
+                            on_save=save_region,
+                        ),
+                        hint="选择所在的地区",
+                    ),
                     row("原创信息", ORIGINAL_INFO, lambda: soon("原创认证")),
                 ]
             ),
@@ -534,7 +606,25 @@ def build_edit_profile_page(
             ],
         )
 
+    async def load_profile() -> None:
+        """进页面先把资料拉回来（缓存里有就不打接口）。
+
+        没登录就什么都不做 —— 这一页照样能开（值都是空的、摆占位），只是改不动。
+        """
+        if not session.access_token():
+            return
+        try:
+            await member_profile.get_profile()
+        except ApiError as error:
+            notify(error.message)
+            return
+        render()
+        page.update()
+
     render()
+    # 资料还没拉过（比如刚启动、令牌是恢复出来的）就补一次，拉到后重画。
+    if session.access_token() and member_profile.cached_profile() is None:
+        page.run_task(load_profile)
 
     return ft.Container(
         expand=True,

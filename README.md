@@ -44,7 +44,7 @@ DailyList/
 │  │  ├─ countdown.py         倒数日页（卡片从 countdown_store 读）
 │  │  ├─ messages.py          消息页（快捷入口 + 列表 + 通知条）
 │  │  ├─ my.py                「我的」页（账号卡片 + 内容板）
-│  │  ├─ edit_profile.py      编辑资料页（本地资料见 my_profile.py）
+│  │  ├─ edit_profile.py      编辑资料页（资料走后端 `/member/profile`，改完即写回）
 │  │  ├─ background.py        换背景图页（预览 + 选图）
 │  │  ├─ preferences.py       设置页（通知 / 数据 / 通用）
 │  │  ├─ login.py             登录页
@@ -60,18 +60,18 @@ DailyList/
 │  │  ├─ pickers.py           系统日期 / 数值选择器
 │  │  ├─ swipe_delete.py      左滑露出行内操作
 │  │  ├─ swipe_back.py        整页左滑返回
-│  │  ├─ my_background.py     「我的」页背景图（存路径 + 两个铺图的小工具函数）
+│  │  ├─ my_background.py     「我的」页背景图（读后端 background_url + 两个铺图的小工具函数）
 │  │  ├─ services.py          ft.Service（剪贴板 / 文件选择器）注册与取用
 │  │  └─ toast.py             居中 toast
 │  ├─ tools/                  **与页面无关**的工具类（见「开发约定」3）
-│  │  ├─ mock_settings.py     **临时**：设置项的内存 mock（云端开关 / 通知 / 联系方式 / 我的资料 / 背景图）
+│  │  ├─ mock_settings.py     **临时**：设置项的内存 mock（云端开关 / 通知 / 联系方式 / 背景图）
 │  │  ├─ countdown_store.py   倒数日内存仓库（数据来自后端；同步读 + 增删改 + 按 id 取色）
 │  │  ├─ cycles.py            倒数日周期：有哪几档、下一次是哪天（纯计算，原先在本地数据层里）
-│  │  ├─ files.py             App 数据目录 + 「把选中的文件复制进来」（换背景图 / 存头像共用）
+│  │  ├─ files.py             App 数据目录 + 「把选中的文件复制进来」（换背景图用；头像已改为上传后端）
 │  │  ├─ device.py            设备主键（各平台取唯一标识；本地数据不再按设备隔离，暂无调用方）
 │  │  ├─ data_export.py       导出 JSON（倒数日来自后端缓存 + 设置来自内存 mock）
 │  │  ├─ data_import.py       导入 JSON（设置写内存 mock；倒数日那段暂不落地）
-│  │  ├─ my_profile.py        编辑资料本地资料（昵称 / 号 / 简介 / 性别 / 生日 / 头像；存内存 mock）
+│  │  ├─ my_profile.py        资料的**读取**层（昵称 / 会员号 / 简介 / 性别 / 生日 / 地区 / 头像；来自后端）
 │  │  ├─ lunar.py             农历换算（1900–2099 查表）
 │  │  ├─ notifications.py     通知渠道配置（渠道清单、图标、一句话摘要）
 │  │  ├─ contacts.py          联系方式（值取自内存 mock）
@@ -91,7 +91,7 @@ DailyList/
 _先这么办、以后要改的事记在这儿：写明现状 + 打算怎么改（最新在最上面）。_
 
 - **本地数据一律不落盘，登录令牌改存客户端存储**。原先存在本地 SQLite `settings` 表里的那些
-  （云端开关、通知总开关 / 渠道 / 地址、联系方式、「我的」页资料与背景图路径）现在全部走
+  （云端开关、通知总开关 / 渠道 / 地址、联系方式）现在全部走
   `tools/mock_settings.py` 的内存表 —— 接口保持 `get_setting` / `set_setting` /
   `list_settings` 这套名字，示例值写在该文件里；界面照旧能读能改，**改完当次运行内有效、
   重启回到示例值**。登录令牌（`api/session.py`）则改成写 Flet 的**客户端存储**
@@ -103,4 +103,29 @@ _先这么办、以后要改的事记在这儿：写明现状 + 打算怎么改�
     提示语如实写「倒数日暂未落地」；
   - 待定方向：这些设置与令牌接后端接口，或恢复落盘 —— 届时把 `mock_settings` / `session`
     换成真存储即可，调用点不用改。
+- **「我的」页资料（昵称 / 简介 / 性别 / 生日 / 地区 / 头像）已全部接后端，不再用 mock**
+  （原来那几个 `my_*` 键已从 `mock_settings.py` 删掉）：
+  - 读：`GET /member/profile`（`api/member_profile.py`）。**登录成功后立刻拉一次**
+    （`pages/login.py`），结果按令牌缓存 10 分钟；「我的」页的简介、账号卡片的头像 / 昵称
+    都读这一份，缓存没拉到时页面自己补拉一次。
+  - 改：`PUT /member/profile`，只传改了的字段（后端「未传保持原值」）。编辑资料页的
+    **名字 / 简介 / 地区 / 性别 / 生日** 都是直接调它；性别在 App 里是中文，收发两端做
+    `男 / 女 / 保密` ↔ `male / female / unknown` 映射（同倒数日周期那套）。
+  - **背景图**：与头像完全同一套规则 —— 选图后**上传**到 `POST /member/profile/background`，
+    后端按会员 ID 存（`data/uploads/backgrounds/{会员ID}/`）；读取走资料出参的
+    `background_url`。**不再复制进 App 目录**（`tools/mock_settings.py` 里那个
+    `my_background` 键已删掉，换设备登录背景图也还在）。
+    ⚠️ 「我的」页背景区的配色与结构取决于「有没有背景图」，所以 `main.py` 启动时
+    会先把资料拉回来再建页面，避免先按「没图」摆一遍再闪成有图。
+  - 头像：**上传**到 `POST /member/profile/avatar`（multipart，字段名 `file`），后端按
+    **会员 ID** 存（`data/uploads/avatars/{会员ID}/`）。选图时 `pick_files()` 必须带
+    **`with_data=True`**：只有它会把文件内容放进 `FilePickerFile.bytes`；
+    `path` 在 **Web 模式永远是 `None`**、部分原生平台也拿不到，按路径读就会报
+    「读不到选中的图片」（路径兜底见 `api/client.py` 的 `resolve_local_path`）。
+    显示用出参 `avatar_url` 拼成的
+    完整地址（相对路径要加站点根地址，见 `api/client.py` 的 `SITE_URL`）。
+    **不再复制进 App 目录**（`tools/files.py` 现在只给背景图用了），也没上传过时后端会
+    返回系统默认头像地址，所以那一格永远有图。
+  - 会员号（`member_no`）**后端不给改**，编辑资料页那一行只读；**职业 / 学校按需求删掉**
+    （后端也没有这两个字段）。
 - **「我的」页没设背景图时那块改成透明底了**（用户要求）。这块区域原本只按「压在背景图上」一种形态设计（文字 / 图标全白），没设图时白字落在页面的白底上，整块等于看不见（`background_decoration()` 返回 `None` 的那条分支）；中间曾临时垫过一层浅蓝渐变（`NO_COVER_GRADIENT_COLORS`）。**现在这层底已去掉**：`pages/my.py` 里无图那条分支既不铺色也不铺渐变，露出来的就是页面白底（`MY_BG`），靠文字换成深色（`ink`）保证可读（内容板的**圆角顶盖** `_panel_top_cap` 照旧摆上，所以下方 tab 条的样式与高度和有图时完全一致）。代价是这一块和下面的内容板同为白色、层次感弱一些。待定方向：给「我的」页配一张默认封面图（放进 `src/assets/images/`，让 `background_decoration()` 无图时返回它），或者另出一版浅色版式。

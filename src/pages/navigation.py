@@ -329,8 +329,8 @@ def build_navigation(page: ft.Page) -> None:
     def show_edit_profile(update: bool = True) -> None:
         """「我的」页顶栏「编辑主页」进来：**编辑资料**页（二级页，收起底栏）。
 
-        返回回到进来时那个 Tab；改完资料退回去时「我的」页会重画一遍（名字 / 头像跟着变，
-        本地资料见 tools/my_profile.py）。
+        返回回到进来时那个 Tab；改完资料退回去时「我的」页会重画一遍（名字 / 头像跟着变
+        —— 资料读的是后端 `GET /member/profile`，见 tools/my_profile.py）。
         """
         origin = selected_index
         nav_stack.append(lambda: show_page(origin))

@@ -7,7 +7,7 @@
   toast (`toast.py`)
 - **`layout.py`**：全局配色 / 尺寸常量、assets 路径、二级页顶栏、弹窗键盘定位、
   `is_attached` / `safe_update` 这些页面级小工具
-- **`my_background.py`**：「我的」页那段的背景图（存路径 + 铺图）
+- **`my_background.py`**：「我的」页那段的背景图（读后端的 `background_url` + 铺图）
 - **`services.py`**：页面级 Service（剪贴板 / 文件选择器）的注册与取用
 
 页面和组件引用它们都走 `widgets.*`；真正与页面无关的东西（数据、设备、农历、版本检查

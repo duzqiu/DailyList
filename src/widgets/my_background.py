@@ -1,27 +1,21 @@
 """「我的」页那段背景图：存在哪、怎么铺。
 
-- **存**：一个设置项（键 `my_background`，值是图片路径）—— 现在放在**内存 mock** 里
-  （tools/mock_settings.py，见 README「待处理问题」），改完当次运行内有效、重启回到默认
-  （默认是空串 = 不铺图，「我的」页用浅蓝渐变兜底）。
+- **存**：跟头像一样**存后端**，按会员 ID 分目录
+  （`data/uploads/backgrounds/{会员ID}/background_{会员ID}_{随机串}.{ext}`），
+  改完立刻生效、换设备登录也还在。读取走资料接口出参的 `background_url`
+  （见 api/member_profile.py、tools/my_profile.py）—— **本地不再存副本**
+  （`tools/mock_settings.py` 里那个 `my_background` 键已经删掉）。
 - **铺**：`ft.BoxFit.FILL`，也就是「均匀拉伸铺满」：不裁掉两边、也不留边，整块区域被这一
   张图填满（用户要的就是这个效果；想改成「裁满」用 COVER 即可）。
+- **换**：「换背景图」那一页选图后**上传**到后端（pages/background.py），不再复制进
+  App 目录 —— 原来那种本地存法重启还在，但换设备就没了，也占 App 自己的存储空间。
 """
 
 import flet as ft
 
-from tools import mock_settings
+from tools.my_profile import background_path
 
-SETTING_KEY = "my_background"
-
-
-def background_path() -> str:
-    """当前背景图的路径；没设过就是空串。"""
-    return mock_settings.get_setting(SETTING_KEY, "").strip()
-
-
-def set_background(path: str) -> None:
-    """把背景图换成这一张（存路径）。"""
-    mock_settings.set_setting(SETTING_KEY, path.strip())
+__all__ = ["background_path", "background_image", "background_decoration"]
 
 
 def background_image(path: str | None = None) -> ft.Control | None:

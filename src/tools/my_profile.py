@@ -1,123 +1,96 @@
-"""本地「我的资料」：昵称 / 小红书号 / 简介 / 性别 / 生日 / 头像。
+"""「我的资料」的**读取**层：昵称 / 会员号 / 简介 / 性别 / 生日 / 地区 / 头像。
 
-**存哪儿**：**内存里的 mock 数据**（`tools/mock_settings.py`，目前不落库）—— 改完当次运行
-内有效，重启回到那份示例值。
+**数据从哪来**：后端 `GET /member/profile`（见 api/member_profile.py）。登录成功后拉
+一次、存进接口层的缓存；**本地不再存任何资料**（原来那份 mock 数据连同
+`tools/mock_settings.py` 里的 `my_*` 几个键已经删掉）。改资料也不落本地：编辑资料页
+直接调 `PUT /member/profile`（见 pages/edit_profile.py）。
 
-**为什么是本地**：后端 `GET /member/auth/me` 只回 `email` / `display_name` / `nickname` /
-`member_no` 这几个字段，**没有头像、性别、简介**这些，也没有更新资料的接口（见
-api/member_auth.py）。所以这些先自己存着；`name()` / `xhs_id()` 会**优先用本地改过的值**，
-没改过才回落到账号里的值 —— 于是「在编辑资料页改完名字，`我的` 页立刻跟着变」。
+**为什么还要这一层**：界面上要的是**中文性别**、**能直接喂给 `ft.Image(src=)` 的头像
+绝对地址**、以及「没填过就摆占位」这种零碎规则 —— 这些不属于「发什么、收什么」，
+放在这里，页面只管读。
 
-**图片**（头像）**先复制进 App 自己的目录**再存路径：相册 / 图库给回来的多半是临时路径，
-过一会儿就失效，甚至根本渲染不出来（同 pages/background.py 里那段注释）。
+**头像**：后端按**会员 ID** 存（`data/uploads/avatars/{会员ID}/`），出参 `avatar_url`
+是 `/api/v1/static/...` 这种相对路径，`avatar_path()` 会拼成完整 URL；没上传过时后端
+给的是系统默认头像地址，所以这一格永远有图可显示。不再往 App 目录里复制图片
+（也就没有 `store_avatar` 了）。
 """
 
-from tools import files, mock_settings
+from api import member_profile
 
-NAME_KEY = "my_name"
-XHS_ID_KEY = "my_xhs_id"
-INTRO_KEY = "my_intro"
-GENDER_KEY = "my_gender"
-BIRTHDAY_KEY = "my_birthday"
-AVATAR_KEY = "my_avatar"
-
-# 「性别」那三个选项（编辑资料页点「性别」弹的就是它们）。
-GENDERS = ("男", "女", "保密")
+# 性别选项（编辑资料页点「性别」弹的就是它们）。
+GENDERS = member_profile.GENDERS
 
 # 简介没填过时那行浅灰占位（照小红书那版）。
-INTRO_HINT = "介绍一下自己"
+INTRO_HINT = member_profile.INTRO_HINT
 
 
-def _read(key: str) -> str:
-    return (mock_settings.get_setting(key, "") or "").strip()
+def current() -> dict:
+    """当前资料（`MemberOut`）；没登录 / 还没拉到就是空字典。"""
+    return member_profile.cached_profile() or {}
 
 
-def _write(key: str, value: str) -> None:
-    mock_settings.set_setting(key, (value or "").strip())
+def _text(key: str) -> str:
+    return str(current().get(key) or "").strip()
 
 
 def name() -> str:
-    """本地改过的名字；没改过是空串（那就用账号里的昵称）。"""
-    return _read(NAME_KEY)
-
-
-def set_name(value: str) -> None:
-    _write(NAME_KEY, value)
+    """昵称。"""
+    return _text("nickname")
 
 
 def xhs_id() -> str:
-    """本地改过的小红书号；没改过是空串（那就用账号里的会员号）。"""
-    return _read(XHS_ID_KEY)
-
-
-def set_xhs_id(value: str) -> None:
-    _write(XHS_ID_KEY, value)
+    """会员号（后端叫 `member_no`，**不可改** —— 注册时生成的 6 位号）。"""
+    return _text("member_no")
 
 
 def intro() -> str:
-    """简介；没填过是空串。"""
-    return _read(INTRO_KEY)
-
-
-def set_intro(value: str) -> None:
-    _write(INTRO_KEY, value)
+    """简介（后端字段 `bio`）；没填过是空串。"""
+    return _text("bio")
 
 
 def gender() -> str:
     """性别（「男」/「女」/「保密」）；没选过是空串。"""
-    return _read(GENDER_KEY)
-
-
-def set_gender(value: str) -> None:
-    _write(GENDER_KEY, value)
+    raw = _text("gender")
+    if not raw:
+        return ""
+    return member_profile.GENDER_FROM_API.get(raw, member_profile.DEFAULT_GENDER)
 
 
 def birthday() -> str:
     """生日，`YYYY-MM-DD`；没选过是空串。"""
-    return _read(BIRTHDAY_KEY)
+    return _text("birthday")
 
 
-def set_birthday(value: str) -> None:
-    _write(BIRTHDAY_KEY, value)
+def region() -> str:
+    """地区（后端字段 `region`）；没填过是空串。"""
+    return _text("region")
 
 
 def avatar_path() -> str:
-    """头像的路径；没设过就是空串。"""
-    return _read(AVATAR_KEY)
+    """头像的**绝对地址**（可直接给 `ft.Image(src=)`）；没有就是空串（页面摆图标）。"""
+    return member_profile.avatar_url(current())
 
 
-def set_avatar(path: str) -> None:
-    _write(AVATAR_KEY, path)
-
-
-def store_avatar(source: str) -> str:
-    """把选中那张图复制进 App 自己的目录，返回可以长期用的路径。
-
-    复制不了就用原路径 —— 总比什么都不做强（同 background.py 的选图那条路）。
+def background_path() -> str:
+    """背景图的**绝对地址**；**没上传过就是空串** —— 与头像不同，背景没有默认图，
+    空串时「我的」页按「不铺背景图」处理（浅蓝渐变兜底，见 widgets/my_background.py）。
     """
-    return files.copy_into_app(source, "my_avatar")
+    return member_profile.background_url(current())
 
 
-def account_name(account: dict | None) -> str:
-    """名字这一行显示什么：本地改过的优先，其次账号里的昵称 / 显示名 / 邮箱。"""
-    local = name()
-    if local:
-        return local
-    if not account:
-        return ""
-    return str(
-        account.get("display_name")
-        or account.get("nickname")
-        or account.get("email")
-        or ""
-    ).strip()
+def account_name(account: dict | None = None) -> str:
+    """名字这一行显示什么：资料里的昵称优先，其次账号里的显示名 / 昵称 / 邮箱。"""
+    return (
+        name()
+        or str(
+            (account or {}).get("display_name")
+            or (account or {}).get("nickname")
+            or (account or {}).get("email")
+            or ""
+        ).strip()
+    )
 
 
-def account_id(account: dict | None) -> str:
-    """小红书号这一行：本地改过的优先，其次账号里的会员号。"""
-    local = xhs_id()
-    if local:
-        return local
-    if not account:
-        return ""
-    return str(account.get("member_no") or "").strip()
+def account_id(account: dict | None = None) -> str:
+    """「小红书号」这一行：就是会员号（资料优先，其次账号里的）。"""
+    return xhs_id() or str((account or {}).get("member_no") or "").strip()

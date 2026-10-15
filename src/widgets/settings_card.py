@@ -16,7 +16,7 @@ from collections.abc import Callable
 
 import flet as ft
 
-from api import member_auth, session
+from api import member_auth, member_profile, session
 from api.client import ApiError
 from tools import my_profile
 from widgets.layout import UNSELECTED_CARD_BG
@@ -275,11 +275,11 @@ def build_account_card(
         `update=False` 给**建页面时**用（缓存里已经有数据那一路）：那一格在建的时候
         就定好了，不用再刷一次。
         """
-        # 名字 / 小红书号：**编辑资料页改过的（本地）优先**，没改过才用账号里的
-        # （显示名 → 昵称 → 邮箱；都没有就写「会员」）。见 tools/my_profile.py。
+        # 名字 / 小红书号取自**资料**（后端 `GET /member/profile`，见 tools/my_profile.py）：
+        # 编辑资料页改完就写回后端，这里读到的就是最新的。
         nickname = my_profile.account_name(user)
         member_no = my_profile.account_id(user)
-        # 头像是本地换过的那张（没换过是空串 → 摆图标）。
+        # 头像是资料里那个地址（后端给的绝对地址，没上传过时是系统默认头像）。
         local_avatar = my_profile.avatar_path()
         lines = [
             ft.Text(
@@ -352,6 +352,19 @@ def build_account_card(
         if update:
             page.update()
 
+    async def load_profile() -> None:
+        """资料（昵称 / 头像 / 简介 / 地区…）：`GET /member/profile`。
+
+        缓存里已有就不打接口；拉不动也不算失败 —— 头像 / 昵称先用账号里那份
+        （`me()` 给的也是 `MemberOut`），别把整张卡片搞成没数据。
+        """
+        if member_profile.cached_profile() is not None:
+            return
+        try:
+            await member_profile.get_profile(use_cache=False)
+        except ApiError:
+            pass
+
     async def load_user() -> None:
         """进页面就把当前会员拉回来；401 说明令牌过期，清掉并退回未登录。"""
         try:
@@ -363,6 +376,12 @@ def build_account_card(
                 return
             render_signed_out(error.message)
             return
+        await load_profile()
+        render_user(user)
+
+    async def _reload_after_profile(user: dict) -> None:
+        """资料补拉回来之后，用同一份会员信息把这一格重画一遍（头像才是新的）。"""
+        await load_profile()
         render_user(user)
 
     # 缓存里已经有会员信息 → **不打接口、不闪骨架**，直接摆真数据（用户要求：
@@ -370,6 +389,9 @@ def build_account_card(
     cached = member_auth.cached_me() if session.access_token() else None
     if cached is not None:
         render_user(cached, update=False)
+        # 会员信息是缓存的，但资料（头像 / 昵称…）可能还没拉过 —— 补一次再重画。
+        if member_profile.cached_profile() is None:
+            page.run_task(_reload_after_profile, cached)
     elif session.access_token():
         # 没缓存（或过期 / 刚换过令牌）：先摆**骨架**（形状和真实那一行一致），
         # 拉回来再换成用户信息；拉回来的结果会进缓存，下次进页面就走上面那一路了。

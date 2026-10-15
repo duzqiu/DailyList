@@ -14,14 +14,39 @@ HTTP 用标准库 `urllib`（和 tools/version_check.py 检查新版本一个做
 import asyncio
 import json
 import logging
+import mimetypes
+import os
 import urllib.error
 import urllib.request
+import uuid
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 logger = logging.getLogger(__name__)
 
-# 后端基址。换环境（本地 / 测试 / 生产）只动这一行。
-BASE_URL = "https://fastapi.277686.xyz/api/v1"
+# 后端基址。两种改法，**本地调试推荐第一种**（不用改代码）：
+#   1. 启动前设环境变量：`DAILYLIST_API_BASE=http://<本机IP>:8000/api/v1`
+#      PowerShell 写法：`$env:DAILYLIST_API_BASE = "http://192.168.18.110:8000/api/v1"`
+#   2. 直接改下面 `LOCAL_BASE_URL` 这一行。
+#
+# ⚠️ 本地调试三个易踩的点：
+#   - **必须带端口号**：后端跑在 **8000**（后端 `app/core/config.py` 的 `PORT`，
+#     `python run.py` 启动时也是它）。只写 `http://192.168.x.x/api/v1` 会去连 80
+#     端口 —— 那就是 `[WinError 10061] 由于目标计算机积极拒绝，无法连接`。
+#   - **IP 用局域网那个**（`ipconfig` 里与手机 / 模拟器同网段的），别写 127.0.0.1：
+#     在手机或另一台机器上跑时，127.0.0.1 指的是**设备自己**。
+#   - 后端要监听 0.0.0.0（默认就是），且**防火墙放行 8000 入站**，否则别的设备连不上。
+LOCAL_BASE_URL = "http://192.168.18.110:8000/api/v1"
+# 线上（已部署的域名，前面挂着 Cloudflare）。
+REMOTE_BASE_URL = "https://fastapi.277686.xyz/api/v1"
+BASE_URL = (os.environ.get("DAILYLIST_API_BASE") or "").strip() or LOCAL_BASE_URL
+# 站点根地址（基址去掉 `/api/v1` 那一段）。后端返回的**静态资源 / 头像地址**是
+# `/api/v1/static/...`、`/api/v1/assets/...` 这种相对路径（见后端
+# `app/core/config.py` 的 `upload_url_prefix` 与 `DEFAULT_AVATAR`），
+# 直接塞给 `ft.Image(src=)` 解析不出域名，要先拼上这个前缀。
+SITE_URL = BASE_URL.removesuffix("/api/v1")
 # 单次请求的超时（秒）：比后端自己的处理时间宽松一点，又不至于让人干等。
 TIMEOUT = 15
 # 认证头的前缀：后端用的是 JWT，`Authorization: Bearer <token>`。
@@ -187,3 +212,157 @@ async def put(
 async def delete(path: str, *, token: str | None = None) -> Any:
     """DELETE 用不上请求体：后端的删除接口都是只带路径。"""
     return await request("DELETE", path, token=token)
+
+
+# ---------------------- 上传文件（multipart/form-data） ----------------------
+# 只有「上传头像」用得上（`POST /member/profile/avatar`）：那个接口收的是
+# `multipart/form-data`，字段名叫 `file`。urllib 没有现成的 multipart，按 RFC 7578
+# 手写一个最简单的「只有一个文件字段」的请求体即可 —— 为这一处再引个依赖不划算。
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+def resolve_local_path(path: str) -> Path | None:
+    """把文件选择器给的 `path` 变成一个**真能读的本地路径**；认不出来返回 `None`。
+
+    ⚠️ 各平台给的形态不一样，直接 `Path(path).read_bytes()` 会不时报「读不到选中的图片」：
+    - 桌面 / 移动端：多半是**绝对本地路径**；
+    - Web / 部分移动端：Flet 会先把文件传到服务端，给的常是**相对路径**、只有文件名、
+      或 `file://` 开头的 URI —— 拿它直接读文件系统必然失败。
+
+    所以这里按「原样 → 去 file:// → 相对 Flet 上传目录 / 当前目录（含 uploads 子目录）」
+    逐个试，第一个真实存在的就是它。
+    """
+    raw = (path or "").strip()
+    if not raw:
+        return None
+
+    candidates: list[Path] = [Path(raw)]
+    if raw.lower().startswith("file://"):
+        try:
+            candidates.append(Path(url2pathname(urlparse(raw).path)))
+        except ValueError:  # pragma: no cover - 畸形 URI
+            pass
+    if not Path(raw).is_file():
+        roots = [
+            os.environ.get("FLET_APP_STORAGE_DATA") or "",
+            os.environ.get("FLET_APP_STORAGE_TEMP") or "",
+            os.getcwd(),
+        ]
+        name = Path(raw).name
+        for root in roots:
+            if not root:
+                continue
+            candidates.append(Path(root) / raw)
+            candidates.append(Path(root) / name)
+            candidates.append(Path(root) / "uploads" / name)
+
+    for item in candidates:
+        try:
+            if item.is_file():
+                return item
+        except OSError:  # pragma: no cover - 非法路径字符等
+            continue
+    logger.warning("选中的文件读不到: %r（试过 %s）", raw, [str(c) for c in candidates])
+    return None
+
+
+def _multipart_body(field: str, filename: str, content: bytes) -> tuple[bytes, str]:
+    """拼出单文件 multipart 请求体，并返回（请求体, Content-Type）。"""
+    boundary = f"----dailylist{uuid.uuid4().hex}"
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    # ⚠️ 换行必须是 CRLF（`\r\n`）：HTTP 的 multipart 就这么规定的，写 `\n` 后端解不出边界。
+    body = bytearray()
+    body += f"--{boundary}\r\n".encode("utf-8")
+    body += (
+        f'Content-Disposition: form-data; name="{field}"; '
+        f'filename="{filename}"\r\n'
+    ).encode("utf-8")
+    body += f"Content-Type: {content_type}\r\n\r\n".encode("utf-8")
+    body += content
+    body += f"\r\n--{boundary}--\r\n".encode("utf-8")
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def _post_bytes_sync(
+    path: str,
+    filename: str,
+    content: bytes,
+    field: str,
+    token: str | None,
+) -> Any:
+    """同步把**已经在内存里的**文件内容上传（跑在工作线程里，见 `post_bytes`）。"""
+    if not content:
+        raise ApiError("选中的文件是空的")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise ApiError(f"图片不能超过 {MAX_UPLOAD_BYTES // 1024 // 1024} MB")
+
+    body, content_type = _multipart_body(field, filename or "upload", content)
+    request = urllib.request.Request(
+        f"{BASE_URL}{path}", data=body, method="POST"
+    )
+    for name, value in DEFAULT_HEADERS.items():
+        request.add_header(name, value)
+    request.add_header("Content-Type", content_type)
+    if token:
+        request.add_header("Authorization", f"{TOKEN_TYPE} {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            return _decode(response.read())
+    except urllib.error.HTTPError as error:
+        raise _error_from(error) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        logger.warning("POST %s 上传失败: %s", path, error)
+        raise NetworkError("网络异常，请检查网络后重试") from error
+
+
+async def post_bytes(
+    path: str,
+    content: bytes,
+    *,
+    filename: str = "upload",
+    field: str = "file",
+    token: str | None = None,
+) -> Any:
+    """上传**内存里的文件内容**（`multipart/form-data`），字段默认叫 `file`。
+
+    ⚠️ 这是上传的**首选**：Flet 的文件选择器在 `with_data=True` 时会直接把文件内容
+    带回来（`FilePickerFile.bytes`），**不碰文件系统** —— 而 `path` 在 Web 模式下永远
+    是 `None`、部分原生平台也拿不到（见 `resolve_local_path` 上面那段说明），
+    直接按路径读就会「读不到选中的图片」。
+
+    `filename` 要带后缀：后端靠它判断图片格式。
+    """
+    return await asyncio.to_thread(
+        _post_bytes_sync, path, filename, content, field, token
+    )
+
+
+async def post_file(
+    path: str,
+    file_path: str,
+    *,
+    filename: str = "",
+    field: str = "file",
+    token: str | None = None,
+) -> Any:
+    """上传一个**磁盘上的文件**（`multipart/form-data`）。
+
+    只在拿不到文件内容（比如某个平台不给 `bytes`）时才走这一条：`file_path` 会被
+    `resolve_local_path` 兜底找一遍，找不到就抛「读不到选中的图片」。
+    `filename` 不传就用原文件名 —— 后端靠它的后缀判断图片格式，所以别传空。
+    """
+    target = resolve_local_path(file_path)
+    if target is None:
+        raise NetworkError("读不到选中的图片，请重新选一张")
+    try:
+        content = target.read_bytes()
+    except OSError as error:
+        logger.warning("读不到要上传的文件 %s: %s", target, error)
+        raise NetworkError("读不到选中的图片，请重新选一张") from error
+    return await post_bytes(
+        path,
+        content,
+        filename=filename or target.name,
+        field=field,
+        token=token,
+    )
